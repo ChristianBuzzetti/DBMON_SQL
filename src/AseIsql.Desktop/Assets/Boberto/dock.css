@@ -1,0 +1,31 @@
+@font-face{font-family:Inter;src:url(fonts/Inter-Regular.ttf)}
+:root{--bg:#0f1513;--bg-elev-0:#0b100e;--bg-elev-1:#121917;--bg-elev-2:#17201d;--text:#f1e7cf;--text-muted:#b5a988;--text-dim:#8f856c;--border:#323830;--border-strong:#505348;--border-subtle:#252c27;--accent:#cb6a3e;--font-ui:Inter,"Segoe UI",sans-serif;--font-mono:"Cascadia Mono",Consolas,monospace;--r-md:0px;--r-xl:0px}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:var(--bg-elev-1);color:var(--text);font:13px var(--font-ui);overflow:hidden;user-select:none}
+/* Header band: the original dock fills a short, wide scene; no sky above it, the background reaches the top edge. */
+.dock-rail{position:relative;height:100%;display:flex;flex-direction:column;justify-content:flex-end;padding:0}
+.dock-sky{position:absolute;inset:0;overflow:hidden;pointer-events:none;background:radial-gradient(85% 42% at 50% 86%,color-mix(in srgb,var(--accent) 11%,transparent),transparent 72%)}
+/* Ambient light: the chosen background, blurred, fills the rail above the scene so the companion owns the whole column. */
+.dock-sky::before{content:"";position:absolute;inset:-48px;background:var(--dock-ambient,none) center 82%/cover no-repeat;filter:blur(30px) saturate(1.15);opacity:.42;transition:opacity .4s ease}
+.dock-sky::after{content:"";position:absolute;inset:0;background:linear-gradient(to bottom,var(--bg-elev-1) 0%,color-mix(in srgb,var(--bg-elev-1) 55%,transparent) 32%,transparent 62%,color-mix(in srgb,var(--bg-elev-0) 35%,transparent) 100%)}
+html:not([data-ambient]) .dock-sky::before{opacity:0}
+.dock-slot{flex:1 1 auto;cursor:pointer}
+[data-boberto-dock].dock-slot{--plt-dock-cielo:0px;padding:6px 10px 4px}
+/* The band is 16:9 like the art: background and frame fill it edge to edge. */
+[data-boberto-dock].dock-slot > .plt-dock-fondo,[data-boberto-dock].dock-slot > .plt-borde-marco{top:0;bottom:0;left:0;right:0;height:auto;aspect-ratio:auto;max-height:none}
+/* The band itself is 16:9, so the art is shown whole: floor, reflection and reading sit over its lower edge, which
+   fades toward the band so the reading stays legible. */
+[data-boberto-dock].dock-slot > .plt-dock-fondo{-webkit-mask-image:linear-gradient(to bottom,#000 72%,rgba(0,0,0,.45));mask-image:linear-gradient(to bottom,#000 72%,rgba(0,0,0,.45))}
+[data-boberto-dock].dock-slot > .plt-dock-rotulo{text-shadow:0 1px 3px rgba(0,0,0,.95),0 0 8px rgba(0,0,0,.7)}
+.dock-slot::before{display:none}
+/* smg_edge_bar_css('[data-boberto-dock] .plt-dock-barra') and smg_edge_sweep_keyframes() from SMG_APPS shared/render.php. */
+[data-boberto-dock] .plt-dock-barra{pointer-events:none;overflow:hidden;background:linear-gradient(90deg,transparent 0%,color-mix(in srgb,var(--accent) 45%,transparent) 14%,color-mix(in srgb,var(--accent) 85%,transparent) 50%,color-mix(in srgb,var(--accent) 45%,transparent) 86%,transparent 100%)}
+[data-boberto-dock] .plt-dock-barra::after{content:"";position:absolute;top:0;bottom:0;width:26%;transform:translateX(-120%);background:linear-gradient(90deg,transparent,color-mix(in srgb,var(--accent) 88%,#fff 26%),transparent);box-shadow:0 0 8px color-mix(in srgb,var(--accent) 65%,transparent)}
+@media (prefers-reduced-motion:no-preference){html[data-animations="on"]:not([data-neon-trail="off"]) [data-boberto-dock] .plt-dock-barra::after{animation:smg-edge-sweep 7s linear var(--plt-piso-fase,0s) infinite}}
+@keyframes smg-edge-sweep{from{transform:translateX(-120%)}to{transform:translateX(500%)}}
+[data-boberto-dock] > .plt-dock-rotulo{font-size:calc(var(--ui-size,13px) - 3px)}
+@media(prefers-reduced-motion:reduce){.plt-idle{animation:none!important}}
+/* Boberto stands low, as on the Studio stage: a short gap to the reading and, since the frame now wraps the whole
+   band, no extra clearance above the neon floor. */
+[data-boberto-dock].dock-slot > .plt-dock-rotulo{margin-top:6px}
+[data-boberto-dock][data-boberto-borde].dock-slot:not([data-boberto-borde="ninguno"]):not([data-boberto-forma="compacta"]){--plt-pod-holgura:6px;--plt-marco-aire:0px}

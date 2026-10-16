@@ -1,0 +1,442 @@
+/* ══ Boberto en la sidebar: un escenario sin marco ═════════════════════════
+   El slot `[data-boberto-dock]` lo pone cada app al pie de su sidebar; esta
+   hoja lo viste, y es la MISMA en las tres. Cada app decide sólo el lugar
+   (ancho, márgenes, si se pega abajo): lo que se ve adentro es compartido,
+   igual que el personaje.
+
+   Lo emite smg_boberto_estudio_tags() junto con el estudio. Va después del
+   <style> del motor en el documento, así que estas reglas le ganan a las del
+   piso funcional a igual especificidad.
+
+   NO ES UNA TARJETA. Dos versiones se descartaron por eso mismo: la de
+   retícula de puntos con óvalo de luz, y la de corchetes de esquina con
+   filete ("esas flechas de los bordes ya están por todos lados"). Una caja
+   alrededor de un personaje es el gesto por defecto de cualquier interfaz
+   generada, y por eso no dice nada. Lo que queda es un LUGAR:
+     · el horizonte: la barra neón del colofón, a todo el ancho del slot, y
+       Boberto parado sobre ella. Es lo único que el usuario pidió conservar;
+       acá deja de ser un adorno bajo los pies y pasa a ser el canto de un
+       piso pulido;
+     · el piso: debajo de la línea, el reflejo del propio personaje (espejado
+       y apagándose rápido) y la luz de la barra derramada sobre él. El
+       reflejo es lo que convierte la línea en una superficie;
+     · la lectura: un renglón mono sobre el piso, con la gramática de la
+       línea de estado de DBMON —rótulo a la izquierda, dato vivo a la
+       derecha—, en lugar de una etiqueta de tarjeta.
+   Arriba no hay marco: un filete de --border-subtle y aire lo separan de la
+   navegación.
+
+   Todo sale de los tokens semánticos (--accent, --border-subtle, --text*),
+   con fallback, porque son los que sobreviven un cambio de paleta. Las
+   luces son mezclas del acento con transparente: en un tema claro tiñen en
+   vez de lavar, y el reflejo baja de intensidad (ver "Temas claros"). */
+
+[data-boberto-dock] {
+  --plt-pod-acento: var(--accent, #2684ff);
+  /* Intensidad del reflejo y cuánto del personaje entra en él, medido
+     desde los pies: el resto se apaga. Un reflejo entero se leería como un
+     segundo Boberto cabeza abajo; uno corto, como un piso. */
+  --plt-pod-reflejo: .3;
+  --plt-pod-reflejo-largo: 38%;
+  /* El aire entre las suelas y la línea. Fijo en px y no en unidades de
+     dibujo a propósito: es una distancia que el ojo compara entre el riel
+     colapsado y el expandido, y tiene que leerse igual en los dos. */
+  --plt-pod-holgura: 4px;
+  /* Cielo del escenario expandido: aire encima del personaje. La escala
+     la declara cada app (data-boberto-escala-max); este aire no la cambia.
+     En el riel colapsado se anula, porque ahí no hay escena. */
+  --plt-dock-cielo: 48px;
+  /* Con un borde elegido, la lámina y el personaje suben juntos y el marco
+     calza el rectángulo de la imagen. --plt-marco-aire es el hueco que queda
+     entre ese filo y la barra neón: sin él el trazo de abajo y el recorrido
+     se pisan. En 0 (sin borde) la imagen sigue apoyada en la barra. */
+  --plt-marco-aire: 0px;
+
+  position: relative;
+  isolation: isolate;
+  display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
+  gap: 0;
+  padding: calc(16px + var(--plt-dock-cielo, 0px)) 4px 6px;
+  border-radius: var(--r-md, 8px);
+  background: transparent;
+}
+
+/* El filete que lo separa de la navegación. Un pseudo y no un border-top
+   para que se apague hacia las puntas como la barra de abajo: con un borde
+   recto el slot volvería a leerse como el techo de una caja. */
+[data-boberto-dock]::before {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; top: 0;
+  height: 1px;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent,
+    var(--border-subtle, rgba(255, 255, 255, .06)) 18%,
+    var(--border-subtle, rgba(255, 255, 255, .06)) 82%, transparent);
+}
+
+/* El foco de teclado: un contorno sólido. No hay borde que cambie de color,
+   así que el contorno es el único indicador, y tiene que verse. */
+[data-boberto-dock]:focus-visible {
+  outline: 2px solid var(--plt-pod-acento);
+  outline-offset: 2px;
+}
+
+/* ── El personaje y su reflejo ─────────────────────────────────────────────
+   El motor crea lectura y piso ANTES de que el wrap entre al slot, así que
+   el orden visual lo pone `order`.
+
+   Dos medidas las publica el motor en el slot, en px a la escala actual:
+     · --plt-dock-aire: el aire que el lienzo deja debajo de las suelas
+       (medido sobre el dibujo). El piso sube eso, menos la holgura, y
+       queda a la misma distancia de los pies a cualquier escala;
+     · --plt-dock-u: una unidad de dibujo. Con ella se miden las luces y la
+       distancia a la lectura, que crecen con el personaje. */
+/* El z-index del wrap se ESCRIBE acá aunque el motor ya traiga uno: es la
+   mitad de la garantía de que el fondo queda detrás (la otra es el z-index
+   negativo de .plt-dock-fondo, más abajo, y el isolation del slot). Las dos
+   mitades viven en esta hoja para que nadie cambie una sin ver la otra. */
+[data-boberto-dock] > #plt-wrap { order: 1; position: relative; z-index: 1; }
+
+/* La luz de la barra subiendo DETRÁS de él: un abanico muy bajo y ancho que
+   nace en la línea. Cuelga del wrap con z-index -1 para quedar debajo del
+   canvas (el wrap es su propio contexto de apilado). Más ancho que el
+   personaje para que se lea como luz del piso y no como un halo suyo. */
+[data-boberto-dock] > #plt-wrap::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  left: -70%; right: -70%;
+  bottom: var(--plt-dock-aire, 2px);
+  height: 62%;
+  pointer-events: none;
+  background: radial-gradient(50% 100% at 50% 100%,
+    color-mix(in srgb, var(--plt-pod-acento) 9%, transparent), transparent 72%);
+  opacity: .8;
+}
+
+/* ── El horizonte ──────────────────────────────────────────────────────────
+   A todo el ancho del slot, a --plt-pod-holgura de las suelas. La que va
+   delante del personaje es la BARRA (z-index 2, más abajo), no el piso: el
+   piso sigue sin z-index para no cambiar en qué orden se pintan el reflejo
+   y la sombra de las suelas. El fondo ya NO cuelga de acá (ver "El fondo"),
+   así que un z-index o un transform en el piso no lo pueden subir. */
+[data-boberto-dock] > .plt-dock-piso {
+  order: 2;
+  position: relative;
+  display: block;
+  flex-shrink: 0;
+  width: 100%; height: 2px;
+  margin-top: calc(var(--plt-pod-holgura) - var(--plt-dock-aire, 2px));
+}
+
+/* El reflejo: un lienzo propio colgado de la línea, al que el motor le
+   copia cada cuadro dado vuelta (pintarReflejo en shared/js/boberto.js).
+   Era un -webkit-box-reflect sobre el canvas y subía y bajaba con la
+   respiración y los saltos, porque espeja la caja YA transformada: una
+   mancha que se mueve debajo de la línea todo el tiempo. Acá es del piso:
+   copia la pose, no el movimiento. Ninguna animación lo alcanza; el
+   translateX es fijo, sólo lo centra.
+   Nace a la misma holgura debajo de la línea que los pies arriba de ella
+   (el lienzo espejado empieza con el aire de las suelas, de ahí la resta),
+   y se apaga hacia abajo: sólo se ve la parte del cuerpo cercana al piso. */
+[data-boberto-dock] .plt-dock-reflejo {
+  position: absolute;
+  left: 50%;
+  top: calc(100% + var(--plt-pod-holgura) - var(--plt-dock-aire, 2px));
+  transform: translateX(-50%);
+  display: block;
+  pointer-events: none;
+  opacity: var(--plt-pod-reflejo);
+  -webkit-mask-image: linear-gradient(#000, transparent var(--plt-pod-reflejo-largo));
+          mask-image: linear-gradient(#000, transparent var(--plt-pod-reflejo-largo));
+}
+/* La barra neón. El DIBUJO (base, realce, recorrido) no está acá: lo inyecta
+   smg_boberto_dock_css() con las reglas del colofón. Acá sólo su caja y la
+   intensidad, que es lo único que cambia con el estado. */
+[data-boberto-dock] .plt-dock-barra {
+  position: absolute; inset: 0;
+  z-index: 2;
+  opacity: .75;
+}
+/* La luz que la barra derrama sobre el piso, hacia abajo. Delante del
+   reflejo a propósito: es luz que cae sobre él. */
+[data-boberto-dock] > .plt-dock-piso::after {
+  content: "";
+  position: absolute;
+  left: 4%; right: 4%; top: 100%;
+  height: calc(var(--plt-dock-u, 4px) * 7);
+  pointer-events: none;
+  background: radial-gradient(50% 100% at 50% 0,
+    color-mix(in srgb, var(--plt-pod-acento) 13%, transparent), transparent 78%);
+  opacity: .8;
+}
+
+/* Al mirarlo: la barra a pleno y las dos luces suben. Sólo con Boberto en
+   casa: prestado o apagado no hay nada que tocar. */
+[data-boberto-dock][data-boberto-estado="visible"]:is(:hover, :focus-visible) .plt-dock-barra,
+[data-boberto-dock][data-boberto-estado="visible"]:is(:hover, :focus-visible) > .plt-dock-piso::after,
+[data-boberto-dock][data-boberto-estado="visible"]:is(:hover, :focus-visible) > #plt-wrap::before {
+  opacity: 1;
+}
+
+/* ── La lectura ────────────────────────────────────────────────────────────
+   Sobre el piso, debajo de la línea. El margen se mide en unidades de
+   dibujo (--plt-dock-u) para que el renglón caiga donde el reflejo ya se
+   apagó casi del todo, a cualquier escala. */
+[data-boberto-dock] > .plt-dock-rotulo {
+  order: 3;
+  position: relative;
+  z-index: 2;
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  width: 100%; box-sizing: border-box;
+  margin-top: calc(var(--plt-dock-u, 4px) * 3.5);
+  padding: 0 2px;
+  font: 600 9px/12px var(--font-mono, ui-monospace, monospace);
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: var(--text-dim, #6b7e9d);
+  white-space: nowrap;
+}
+.plt-dock-nombre { flex-shrink: 0; color: var(--text-muted, #8e97a8); }
+/* Dato e invitación ocupan la MISMA celda: se alternan sin mover el
+   renglón. El dato se corta con puntos suspensivos antes que empujar al
+   nombre (hay personajes de catorce letras). */
+.plt-dock-lectura {
+  display: grid; justify-items: end;
+  min-width: 0;
+}
+.plt-dock-dato,
+.plt-dock-pista {
+  grid-area: 1 / 1;
+  max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.plt-dock-pista { color: var(--plt-pod-acento); opacity: 0; }
+.plt-dock-pista::after { content: "›"; margin-left: 5px; letter-spacing: 0; }
+/* Mientras hace un gesto, la lectura lo nombra y sube un tono. */
+[data-boberto-dock][data-boberto-gesto] .plt-dock-dato { color: var(--text-muted, #8e97a8); }
+[data-boberto-dock][data-boberto-estado="visible"]:is(:hover, :focus-visible) .plt-dock-dato { opacity: 0; }
+[data-boberto-dock][data-boberto-estado="visible"]:is(:hover, :focus-visible) .plt-dock-pista { opacity: 1; }
+
+/* ── Compacto: el riel colapsado de 64 px ──────────────────────────────────
+   El ancho del busto (DOCK_SC_BUSTO, 3.6) se queda: la cara ocupa el riel
+   y las puntas de las alas se cortan contra el slot. El alto no: el lienzo
+   entero entra, pies incluidos. El padding de abajo lo separa del colofón;
+   sin ese aire el cuerpo quedaba contra el borde y se leía cortado. El
+   reflejo sigue apagado: debajo de la línea caía sobre el colofón. */
+[data-boberto-dock][data-boberto-forma="compacta"] {
+  --plt-dock-cielo: 0px;
+  min-width: 0;
+  padding: 6px 0 18px;
+}
+[data-boberto-dock][data-boberto-forma="compacta"] > .plt-dock-rotulo { display: none; }
+[data-boberto-dock][data-boberto-forma="compacta"] > #plt-wrap { flex-shrink: 0; }
+[data-boberto-dock][data-boberto-forma="compacta"][data-boberto-estado="visible"] {
+  overflow: hidden;
+  justify-content: flex-start;
+  align-items: center;
+}
+[data-boberto-dock][data-boberto-forma="compacta"][data-boberto-estado="visible"] > .plt-dock-piso,
+[data-boberto-dock][data-boberto-forma="compacta"][data-boberto-estado="visible"] > #plt-wrap::before {
+  display: none;
+}
+
+/* ── Prestado: está en el estudio ──────────────────────────────────────────
+   El slot conserva su alto (lo mide el motor en --plt-dock-h) y queda el
+   piso vacío: la línea apagada y punteada, sin recorrido ni luz, y la
+   lectura dice dónde está ("En el estudio", la escribe el motor). Un hueco
+   sin explicación se leería como un error de carga. */
+[data-boberto-dock][data-boberto-estado="prestado"] .plt-dock-barra {
+  opacity: 1;
+  background: repeating-linear-gradient(90deg,
+    color-mix(in srgb, var(--text, #e6e9ef) 22%, transparent) 0 4px,
+    transparent 4px 8px);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent);
+          mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent);
+}
+[data-boberto-dock][data-boberto-estado="prestado"] .plt-dock-barra::after,
+[data-boberto-dock][data-boberto-estado="prestado"] > .plt-dock-piso::after,
+[data-boberto-dock][data-boberto-estado="prestado"] .plt-dock-reflejo { display: none; }
+[data-boberto-dock][data-boberto-estado="prestado"] .plt-dock-pista { visibility: hidden; }
+
+/* ── El fondo ──────────────────────────────────────────────────────────────
+   El paisaje que se elige en la pestaña "Fondo" del estudio. El motor pone
+   el id en data-boberto-fondo y el dibujo (un SVG determinista, el mismo de
+   la miniatura) en .plt-dock-fondo, hijo directo del slot, apoyado en la
+   línea y creciendo HACIA ARRIBA:
+     · termina en la línea, nunca debajo: debajo están el reflejo y la
+       lectura, y un dibujo ahí ensuciaría las dos. --plt-dock-piso-b lo
+       mide el motor (distancia del borde de abajo del slot a la línea); el
+       respaldo es la misma cuenta escrita, por si todavía no midió;
+     · SIEMPRE detrás de Boberto, y no por casualidad: el slot es su propio
+       contexto de apilado (isolation: isolate), el fondo es hijo directo
+       con z-index -1 y el wrap es hijo directo con z-index 1 (arriba).
+       Colgaba del piso, y ahí bastaba un z-index en el piso para que lo
+       subiera encima del personaje;
+     · la lámina es 16:9. Si el lugar quedó más alto que eso (el cielo, o
+       el personaje más grande), la caja se queda en 16:9 y el aire de
+       arriba queda vacío: estirarla y dejar que el SVG recorte se come
+       los costados, que es donde está la escena. Si el lugar es más bajo
+       que 16:9, el tope recorta el cielo y el SVG, anclado abajo, conserva
+       el piso y los costados;
+     · se apaga hacia arriba y hacia los costados con una máscara: tiene que
+       sentirse como algo que está DETRÁS, no como una ilustración enmarcada.
+   Estático a propósito, también los premium: un fondo que se mueve al pie
+   de cada pantalla le disputa la atención al tablero, y el movimiento ya lo
+   pone el personaje. Los premium se mueven sólo en el escenario del estudio.
+
+   Opacidad: --plt-fondo-op es el default del TEMA (85 % en oscuro, 60 %
+   sobre papel, ver "Temas claros"). Si la persona eligió una para este fondo
+   en el estudio, el motor la pone inline en --plt-fondo-op-user y esa
+   REEMPLAZA al default (no lo multiplica: "100 %" tiene que ser 100 %). El
+   motor lee --plt-fondo-op de acá para mostrar el default en el estudio, así
+   que este es el único lugar donde se escribe. */
+[data-boberto-dock] {
+  /* Intensidad general del fondo; los trazos traen además la suya. */
+  --plt-fondo-op: .85;
+}
+[data-boberto-dock] > .plt-dock-fondo {
+  position: absolute;
+  z-index: -1;
+  left: 0; right: 0;
+  bottom: calc(var(--plt-dock-piso-b, calc(6px + 12px + var(--plt-dock-u, 4px) * 3.5 + 2px)) + var(--plt-marco-aire, 0px));
+  height: auto;
+  aspect-ratio: 16 / 9;
+  max-height: calc(var(--plt-dock-lienzo-h, 84px) + var(--plt-pod-holgura) - var(--plt-dock-aire, 2px) + 12px + var(--plt-dock-cielo, 0px) - var(--plt-marco-aire, 0px));
+  display: block;
+  pointer-events: none;
+  opacity: var(--plt-fondo-op-user, var(--plt-fondo-op));
+  -webkit-mask-image: radial-gradient(62% 110% at 50% 100%, #000 35%, transparent 100%);
+          mask-image: radial-gradient(62% 110% at 50% 100%, #000 35%, transparent 100%);
+}
+/* Los ilustrados se apagan más tarde: son una escena con cielo, y con la
+   máscara de los de líneas quedaba sólo una mancha de color en el centro,
+   justo detrás de Boberto, que es lo único que no se ve. */
+[data-boberto-dock] > .plt-dock-fondo:has(> .pf-premium) {
+  -webkit-mask-image: radial-gradient(75% 125% at 50% 100%, #000 50%, transparent 100%);
+          mask-image: radial-gradient(75% 125% at 50% 100%, #000 50%, transparent 100%);
+}
+[data-boberto-dock][data-boberto-fondo="ninguno"] > .plt-dock-fondo { display: none; }
+/* Con marco, la lámina termina en el trazo: sin la máscara que la desvanece,
+   porque si no el borde queda flotando sobre un fade y se lee como un corte.
+   El personaje sube (más holgura) para quedar adentro, no sobre la barra. */
+[data-boberto-dock][data-boberto-borde]:not([data-boberto-borde="ninguno"]):not([data-boberto-forma="compacta"]) {
+  --plt-pod-holgura: 18px;
+  --plt-marco-aire: 10px;
+}
+[data-boberto-dock][data-boberto-borde]:not([data-boberto-borde="ninguno"]):not([data-boberto-forma="compacta"]) > .plt-dock-fondo,
+[data-boberto-dock][data-boberto-borde]:not([data-boberto-borde="ninguno"]):not([data-boberto-forma="compacta"]) > .plt-dock-fondo:has(> .pf-premium) {
+  overflow: hidden;
+  border-radius: 0;
+  -webkit-mask-image: none;
+          mask-image: none;
+}
+/* El reflejo espeja contra la barra. Con el personaje más arriba perseguiría
+   la holgura nueva y caería sobre la lectura. Se queda corto, bajo la línea. */
+[data-boberto-dock][data-boberto-borde]:not([data-boberto-borde="ninguno"]):not([data-boberto-forma="compacta"]) .plt-dock-reflejo {
+  top: 100%;
+  -webkit-mask-image: linear-gradient(#000, transparent 42%);
+          mask-image: linear-gradient(#000, transparent 42%);
+}
+/* En el riel colapsado NO hay fondo. El slot mide 55 px y Boberto ocupa
+   casi todo ese ancho: lo que quedara del paisaje serían un par de trazos
+   sueltos detrás de sus hombros, que se leen como ruido y no como lugar. */
+[data-boberto-dock][data-boberto-forma="compacta"] > .plt-dock-fondo { display: none; }
+/* Prestado: el lugar queda, apagado como la línea punteada. Sacarlo del todo
+   haría que el piso vacío se leyera como otro lugar que el de siempre. El
+   multiplicador va sobre el valor que gane (el elegido o el del tema). */
+[data-boberto-dock][data-boberto-estado="prestado"] > .plt-dock-fondo {
+  opacity: calc(var(--plt-fondo-op-user, var(--plt-fondo-op)) * .4);
+}
+
+/* El dibujo. Sin [data-boberto-dock] adelante a propósito: las miniaturas
+   de la pestaña "Fondo" del estudio usan estas mismas reglas, así que lo que
+   se elige es exactamente lo que aparece en la sidebar.
+   Tinta: el texto tenue con un poco del acento, para que el fondo siga al
+   tema sin competir con la barra neón, que es la que lleva el acento puro.
+   Los trazos no escalan con el lienzo (non-scaling-stroke): miden lo mismo
+   en el dock y en una miniatura de la mitad de alto. */
+.plt-fondo-svg {
+  --pf-tinta: color-mix(in srgb, var(--accent, #2684ff) 28%, var(--text-dim, #6b7e9d));
+  --pf-relleno: var(--text-dim, #6b7e9d);
+  --pf-acento: var(--accent, #2684ff);
+  display: block;
+  width: 100%; height: 100%;
+  overflow: hidden;
+}
+.plt-fondo-svg .pf-l,
+.plt-fondo-svg .pf-a {
+  fill: none;
+  stroke: var(--pf-tinta);
+  stroke-width: .8;
+  stroke-linecap: round; stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+.plt-fondo-svg .pf-a { stroke: var(--pf-acento); }
+.plt-fondo-svg .pf-r  { fill: var(--pf-relleno); }
+.plt-fondo-svg .pf-r1 { fill: color-mix(in srgb, var(--pf-acento) 18%, var(--pf-relleno)); }
+.plt-fondo-svg .pf-n  { fill: var(--pf-tinta); }
+.plt-fondo-svg .pf-p  { fill: var(--pf-acento); }
+
+/* "Apagado" (la mascota está apagada en Ajustes) no tiene regla acá: el piso
+   del motor ya saca el slot del layout. Fue una decisión: quien lo apagó no
+   quiere verlo, y un lugar vacío que dice "apagado" al pie de cada pantalla
+   sería insistir, además de quitarle alto a la navegación. Volver a
+   prenderlo es desde Ajustes, que es donde se apagó. */
+
+/* ── Temas claros ──────────────────────────────────────────────────────────
+   Sobre papel, un reflejo al 30 % —con la sombra de las suelas que trae el
+   dibujo— se ve como una mancha gris debajo de los pies. Más corto y más
+   tenue se lee
+   como piso brillante, que es lo que es. Las luces del acento no necesitan
+   regla: mezclas con transparente sobre claro tiñen, no lavan. */
+html:is([data-theme="alba"], [data-theme="sandstone"]) [data-boberto-dock] {
+  --plt-pod-reflejo: .16;
+  --plt-pod-reflejo-largo: 30%;
+  --plt-fondo-op: .6;
+}
+/* El fondo sobre papel: el gris tenue a baja opacidad se lee como barro.
+   Con más acento en la mezcla, el mismo trazo tiñe en vez de ensuciar. */
+html:is([data-theme="alba"], [data-theme="sandstone"]) .plt-fondo-svg {
+  --pf-tinta: color-mix(in srgb, var(--accent, #2684ff) 50%, var(--text-dim, #6b7e9d));
+  --pf-relleno: color-mix(in srgb, var(--accent, #2684ff) 45%, var(--text-dim, #6b7e9d));
+}
+
+/* ── Skin Neo Mirai ────────────────────────────────────────────────────────
+   El skin cuadra todas las superficies (radio 0). No hay caja que cuadrar,
+   pero el contorno de foco sigue al radio del slot: sin esto sería el único
+   anillo redondeado de la pantalla. */
+html[data-skin="neomirai"] [data-boberto-dock] { border-radius: 0; }
+
+/* ── Movimiento ─────────────────────────────────────────────────────────────
+   Detrás de las DOS preferencias, como el resto de la suite: la del sistema y
+   la de Ajustes (data-animations). Sin movimiento los estados igual cambian,
+   sólo que de golpe. El barrido de la barra se gatea en el <style> que la
+   inyecta (smg_boberto_dock_css), con las mismas dos condiciones.
+
+   Las transiciones van en las reglas base de piezas que NACEN con su valor
+   final (opacidades de esta hoja); ninguna anima un color que la carga
+   pueda pasar por currentColor, que era lo que hacía destellar el filete
+   de la versión con marco en cada recarga. */
+@media (prefers-reduced-motion: no-preference) {
+  html[data-animations="on"] [data-boberto-dock] .plt-dock-barra,
+  html[data-animations="on"] [data-boberto-dock] > .plt-dock-piso::after,
+  html[data-animations="on"] [data-boberto-dock] > #plt-wrap::before { transition: opacity .25s ease; }
+  html[data-animations="on"] [data-boberto-dock] .plt-dock-dato,
+  html[data-animations="on"] [data-boberto-dock] .plt-dock-pista { transition: opacity .18s ease; }
+}
+
+/* ── Borde del lugar: sólo dónde calza dentro del slot ─────────────────────
+   El dibujo de cada modelo está en boberto-estudio.css (.plt-borde-marco),
+   que esta hoja no puede dar por cargada al revés: el estudio se emite
+   antes. Acá queda la geometría del dock, que el estudio no conoce.
+   ─────────────────────────────────────────────────────────────────────────── */
+[data-boberto-dock] > .plt-borde-marco {
+  left: 0; right: 0; top: auto;
+  bottom: calc(var(--plt-dock-piso-b, 28px) + var(--plt-marco-aire, 0px));
+  height: auto;
+  aspect-ratio: 16 / 9;
+  max-height: calc(var(--plt-dock-lienzo-h, 84px) + var(--plt-pod-holgura, 4px) - var(--plt-dock-aire, 2px) + 12px + var(--plt-dock-cielo, 0px) - var(--plt-marco-aire, 0px));
+}
+[data-boberto-dock][data-boberto-forma="compacta"] > .plt-borde-marco { display: none; }

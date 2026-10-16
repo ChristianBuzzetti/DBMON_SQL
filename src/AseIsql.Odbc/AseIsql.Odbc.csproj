@@ -1,0 +1,1 @@
+<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net10.0-windows</TargetFramework></PropertyGroup><ItemGroup><ProjectReference Include="../AseIsql.Core/AseIsql.Core.csproj"/><PackageReference Include="System.Data.Odbc" Version="10.0.13"/></ItemGroup></Project>

@@ -1,0 +1,21 @@
+@font-face{font-family:Inter;src:url(fonts/Inter-Regular.ttf)}
+:root{--bg:#0f1513;--bg-elev-0:#0b100e;--bg-elev-1:#121917;--bg-elev-2:#17201d;--bg-hover:#1d2723;--text:#f1e7cf;--text-muted:#b5a988;--text-dim:#b5a988;--border:#323830;--border-strong:#505348;--border-subtle:#252c27;--accent:#cb6a3e;--font-ui:Inter,"Segoe UI",sans-serif;--r-md:0px;--r-xl:0px;--r-pill:3px}
+*{box-sizing:border-box}html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font:var(--ui-size,13px) var(--font-ui);overflow:hidden}
+.studio{height:100%;display:grid;grid-template-columns:minmax(0,1fr) minmax(640px,1.15fr);gap:18px;padding:12px}
+/* Close to the background art's 16:9 plus the floor band, as in the DBMON modal: the scene fills the stage instead of sitting low under empty sky. */
+.bes-escenario{position:relative;align-self:center;width:100%;height:auto;aspect-ratio:16/11;max-height:100%;min-height:0;overflow:hidden;border:1px solid var(--border);border-radius:8px}
+.bes-panel{display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden}
+.bes-paneles{flex:1;min-height:0;overflow:auto}.bes-pie{flex:none;padding:10px 0;display:flex;gap:12px;align-items:center;justify-content:space-between;font-size:calc(var(--ui-size,13px) - 1px)}
+.bes-pie button{margin-left:6px}.bes-escena{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}
+.bes-rotulo{position:absolute;bottom:18px;left:14px;right:14px;margin:0;text-align:center}
+.bes-rotulo strong{margin-right:6px}
+.bes-tabs{flex:none}.bes-chip,.bes-boton{font-family:var(--font-ui)}
+.bes-escena-marcas::before{content:"Live preview"}.bes-tabs .bes-tab{padding-left:7px;padding-right:7px;font-size:var(--ui-size,13px)}
+@media(prefers-reduced-motion:reduce){.plt-idle{animation:none!important}.bes-escena-luz{animation:none!important}}
+::-webkit-scrollbar{width:9px}::-webkit-scrollbar-track{background:var(--bg-elev-0)}::-webkit-scrollbar-thumb{background:var(--border-strong)}
+
+.bes-paneles .bes-chip,.bes-paneles .bes-boton,.bes-paneles label,.bes-paneles input,.bes-paneles select,.bes-rotulo{font-size:var(--ui-size,13px)}
+.bes-paneles .bes-seccion{font-size:var(--ui-size,13px);letter-spacing:normal;text-transform:none}
+/* Choice cooldown (desktop.js): other options rest dimmed until the chosen look has reached the console dock. */
+html[data-cooldown] .bes-paneles button.bes-chip[aria-pressed="false"]{opacity:.5;cursor:progress;transition:opacity .15s ease}
+html:not([data-cooldown]) .bes-paneles button.bes-chip[aria-pressed="false"]{transition:opacity .25s ease}

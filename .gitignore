@@ -1,0 +1,16 @@
+# Build output and local toolchain
+**/bin/
+**/obj/
+.tools/
+dotnet-install.ps1
+artifacts/
+*.user
+*.suo
+.vs/
+
+# Local-only working notes: internal verification logs, agent instructions and design log
+notes/
+AGENTS.md
+CLAUDE.md
+.interface-design/
+.claude/

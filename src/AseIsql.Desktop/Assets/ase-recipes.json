@@ -1,0 +1,754 @@
+[
+  {
+    "id": "ase_top10_lreads",
+    "engine": "ASE",
+    "category": "Diagnostics and activity",
+    "name": "Top 10 processes by logical reads",
+    "description": "Active sessions ordered by logical reads.",
+    "sql": "select top 10\n    mp.spid, suser_name(mp.serveruserid) as login_name, mp.command as cmd,\n    mp.dbname as db, mp.hostname, mp.application as program,\n    mps.cputime as cpu, mps.PhysicalReads as p_reads, mps.LogicalReads as l_reads,\n    mps.RowsAffected as [rows]\nfrom master..monProcess mp\njoin master..monProcessStatement mps on mp.spid = mps.spid\nwhere mp.spid <> @@spid\norder by mps.LogicalReads desc"
+  },
+  {
+    "id": "ase_top10_cpu",
+    "engine": "ASE",
+    "category": "Diagnostics and activity",
+    "name": "Top 10 processes by CPU",
+    "description": "Active sessions ordered by accumulated CPU time.",
+    "sql": "select top 10\n    mp.spid, suser_name(mp.serveruserid) as login_name, mp.command as cmd,\n    mp.dbname as db, mp.hostname, mp.application as program,\n    mps.cputime as cpu, mps.LogicalReads as l_reads\nfrom master..monProcess mp\njoin master..monProcessStatement mps on mp.spid = mps.spid\nwhere mp.spid <> @@spid\norder by mps.cputime desc"
+  },
+  {
+    "id": "ase_waits",
+    "engine": "ASE",
+    "category": "Diagnostics and activity",
+    "name": "Top server wait events",
+    "description": "Most significant accumulated wait events.",
+    "sql": "select top 20 w.WaitEventID, i.Description, w.Waits, w.WaitTime\nfrom master..monSysWaits w\njoin master..monWaitEventInfo i on w.WaitEventID = i.WaitEventID\nwhere w.WaitTime > 0\norder by w.WaitTime desc"
+  },
+  {
+    "id": "ase_tablas_mas_accedidas",
+    "engine": "ASE",
+    "category": "Diagnostics and activity",
+    "name": "Most accessed tables (delta)",
+    "description": "Compares two monOpenObjectActivity snapshots. Set :interval to 00:00:10 without quotes.",
+    "sql": "select DBID, ObjectID, IndexID, LogicalReads, PhysicalReads,\n       RowsInserted, RowsDeleted, RowsUpdated\ninto #T1 from master..monOpenObjectActivity\n\nwaitfor delay ':interval'\n\nselect DBID, ObjectID, IndexID, LogicalReads, PhysicalReads,\n       RowsInserted, RowsDeleted, RowsUpdated\ninto #T2 from master..monOpenObjectActivity\n\nselect top 300\n    db          = db_name(t2.DBID),\n    object_name        = object_name(t2.ObjectID, t2.DBID),\n    t2.IndexID,\n    LogicalReads  = t2.LogicalReads  - isnull(t1.LogicalReads, 0),\n    PhysicalReads = t2.PhysicalReads - isnull(t1.PhysicalReads, 0),\n    RowsInserted  = t2.RowsInserted  - isnull(t1.RowsInserted, 0),\n    RowsDeleted   = t2.RowsDeleted   - isnull(t1.RowsDeleted, 0),\n    RowsUpdated   = t2.RowsUpdated   - isnull(t1.RowsUpdated, 0)\nfrom #T2 t2, #T1 t1\nwhere t2.DBID = t1.DBID and t2.ObjectID = t1.ObjectID and t2.IndexID = t1.IndexID\nand t2.LogicalReads - isnull(t1.LogicalReads, 0) > 0\norder by LogicalReads desc\n\ndrop table #T1\ndrop table #T2"
+  },
+  {
+    "id": "ase_spinlocks_dif",
+    "engine": "ASE",
+    "category": "Diagnostics and activity",
+    "name": "Spinlock contention (delta)",
+    "description": "Measures spinlock contention over :interval, for example 00:00:10 without quotes.",
+    "sql": "select * into #S1 from master..monSpinlockActivity\n\nwaitfor delay ':interval'\n\nselect * into #S2 from master..monSpinlockActivity\n\nselect top 100\n    Spinlock_Name = convert(varchar(50), s2.SpinlockName),\n    grabs = s2.Grabs - s1.Grabs,\n    spins = s2.Spins - s1.Spins,\n    waits = s2.Waits - s1.Waits,\n    contention = s2.Contention\nfrom #S2 s2, #S1 s1\nwhere s2.SpinlockSlotID = s1.SpinlockSlotID\norder by spins desc\n\ndrop table #S1\ndrop table #S2"
+  },
+  {
+    "id": "ase_latencia_io",
+    "engine": "ASE",
+    "category": "Diagnostics and activity",
+    "name": "Device I/O latency (delta)",
+    "description": "Measures read/write latency in milliseconds over :interval, for example 00:00:10 without quotes.",
+    "sql": "select Reads, APFReads, Writes, IOTime, ReadTime, WriteTime, LogicalName, PhysicalName\ninto #IO1 from master..monDeviceIO\n\nwaitfor delay ':interval'\n\nselect Reads, APFReads, Writes, IOTime, ReadTime, WriteTime, LogicalName, PhysicalName\ninto #IO2 from master..monDeviceIO\n\nselect\n    device = i2.LogicalName, path = i2.PhysicalName,\n    latency_ms = convert(numeric(8,2), (i2.IOTime - i1.IOTime) * 1.0\n        / ((i2.Reads - i1.Reads) + (i2.APFReads - i1.APFReads) + (i2.Writes - i1.Writes) + 1)),\n    read_latency_ms = convert(numeric(8,2), (i2.ReadTime - i1.ReadTime) * 1.0\n        / ((i2.Reads - i1.Reads) + (i2.APFReads - i1.APFReads) + 1)),\n    write_latency_ms = convert(numeric(8,2), (i2.WriteTime - i1.WriteTime) * 1.0\n        / ((i2.Writes - i1.Writes) + 1)),\n    reads_delta = i2.Reads - i1.Reads, writes_delta = i2.Writes - i1.Writes\nfrom #IO2 i2, #IO1 i1\nwhere i2.PhysicalName = i1.PhysicalName\norder by writes_delta desc\n\ndrop table #IO1\ndrop table #IO2"
+  },
+  {
+    "id": "ase_sesiones_activas",
+    "engine": "ASE",
+    "category": "Diagnostics and activity",
+    "name": "Active sessions",
+    "description": "Non-sleeping processes with commands and databases. :min_spid filters system SPIDs; use 0 for all or 50 to skip lower IDs.",
+    "sql": "select mp.spid, suser_name(mp.serveruserid) as login_name, mp.command as cmd,\n    mp.dbname as db, mp.hostname, mp.application as program,\n    mp.blockingspid as blocked_by, mp.secondswaiting as sec_wait\nfrom master..monProcess mp\nwhere mp.command not in ('AWAITING COMMAND','SLEEPING','BACKGROUND','CHECKPOINT SLEEP')\n  and mp.spid <> @@spid\n  and mp.spid > :min_spid\norder by mp.spid"
+  },
+  {
+    "id": "ase_procesos_panorama",
+    "engine": "ASE",
+    "category": "Diagnostics and activity",
+    "name": "Process overview (monProcess)",
+    "description": "Login, command, waits, CPU, I/O, memory and blocker, ordered by wait time.",
+    "sql": "select mp.spid, mp.login, mp.dbname as db, mp.command as cmd,\n    mp.application as program, mp.hostname,\n    mpa.cputime as cpu, mpa.physicalreads as p_reads, mpa.memusagekb as mem_kb,\n    mp.secondswaiting as sec_wait, mp.secondsconnected as sec_conn,\n    mp.blockingspid as blocked_by, mp.waiteventid\nfrom master..monProcess mp\nleft join master..monProcessActivity mpa on mp.spid = mpa.spid\nwhere mp.serveruserid <> 0\norder by mp.secondswaiting desc"
+  },
+  {
+    "id": "ase_idle_largas",
+    "engine": "ASE",
+    "category": "Diagnostics and activity",
+    "name": "Long-idle connections",
+    "description": "Idle sessions (AWAITING COMMAND / WaitEventID 250) exceeding :idle_seconds seconds.",
+    "sql": "select mp.spid, mp.login, mp.application as program, mp.hostname, mp.dbname as db,\n    mp.secondswaiting as sec_wait, mp.secondsconnected as sec_conn,\n    db_name(tempdb_id(mp.spid)) as assigned_tempdb\nfrom master..monProcess mp\ninner join master..sysprocesses s on mp.spid = s.spid\nwhere mp.serveruserid <> 0\n  and mp.command = 'AWAITING COMMAND'\n  and mp.waiteventid = 250\n  and mp.secondswaiting > :idle_seconds\norder by mp.secondswaiting desc"
+  },
+  {
+    "id": "ase_sesiones_por_programa",
+    "engine": "ASE",
+    "category": "Diagnostics and activity",
+    "name": "Session count by application",
+    "description": "Connection counts by application to identify excessive pools.",
+    "sql": "select program_name = isnull(sp.program_name, '(unnamed)'),\n    sessions = count(*), sampled_at = getdate()\nfrom master..sysprocesses sp\nwhere sp.program_name is not null\ngroup by sp.program_name\norder by count(*) desc"
+  },
+  {
+    "id": "ase_sesiones_por_host",
+    "engine": "ASE",
+    "category": "Diagnostics and activity",
+    "name": "Session count by host",
+    "description": "Connections grouped by client machine.",
+    "sql": "select hostname = isnull(sp.hostname, '(no host)'), sessions = count(*)\nfrom master..sysprocesses sp\ngroup by sp.hostname\norder by count(*) desc"
+  },
+  {
+    "id": "ase_sqltext_spid",
+    "engine": "ASE",
+    "category": "Diagnostics and activity",
+    "name": "Current SQL for a SPID",
+    "description": "Captures the current statement for :spid in the Messages panel.",
+    "sql": "dbcc traceon(3604)\ngo\ndbcc sqltext(:spid)\ngo\ndbcc traceoff(3604)"
+  },
+  {
+    "id": "ase_blocking",
+    "engine": "ASE",
+    "category": "Diagnostics and activity",
+    "name": "Blocking chain",
+    "description": "Blocked processes and their blockers.",
+    "sql": "select mp.spid, mp.blockingspid as blocked_by, mp.secondswaiting as sec_wait,\n    suser_name(mp.serveruserid) as login_name, mp.command as cmd, mp.dbname as db,\n    mp.application as program, mp.hostname\nfrom master..monProcess mp\nwhere isnull(mp.blockingspid,0) <> 0\norder by mp.secondswaiting desc"
+  },
+  {
+    "id": "ase_locks",
+    "engine": "ASE",
+    "category": "Diagnostics and activity",
+    "name": "Active locks",
+    "description": "Server locks reported by sp_lock.",
+    "sql": "exec sp_lock"
+  },
+  {
+    "id": "ase_locks_spid",
+    "engine": "ASE",
+    "category": "Diagnostics and activity",
+    "name": "SPID lock details",
+    "description": "Objects and TABLE/PAGE/ROW lock levels held by :spid.",
+    "sql": "select l.spid, db = db_name(l.dbid), obj_name = object_name(l.ObjectId, l.dbid),\n    l.locktype, l.lockLevel, l.PageNumber, l.RowNumber\nfrom master..monLocks l\nwhere l.spid = :spid\norder by l.dbid, obj_name"
+  },
+  {
+    "id": "ase_locks_tabla",
+    "engine": "ASE",
+    "category": "Diagnostics and activity",
+    "name": "Active locks on a table",
+    "description": "Check locks before reorganization or DDL. Enter :table and :database without quotes.",
+    "sql": "select sProc.spid, login = suser_name(sProc.suid), mLocks.lockLevel,\n    obj_name = object_name(mLocks.ObjectId, mLocks.DBID)\nfrom master..syslocks sLocks\ninner join master..monLocks mLocks on mLocks.spid = sLocks.spid and mLocks.dbid = sLocks.dbid\ninner join master..sysprocesses sProc on sProc.spid = sLocks.spid\nwhere object_name(mLocks.ObjectId, mLocks.DBID) = ':table'\nand db_name(sLocks.dbid) = ':database'"
+  },
+  {
+    "id": "ase_tx_log_holder",
+    "engine": "ASE",
+    "category": "Diagnostics and activity",
+    "name": "Transactions holding the log",
+    "description": "Oldest open transaction per database, excluding the replication agent.",
+    "sql": "select db = db_name(dbid), spid, xact_name = name, started = starttime,\n    age_min = datediff(mi, starttime, getdate())\nfrom master..syslogshold\nwhere name not like '%repl%'\norder by starttime asc"
+  },
+  {
+    "id": "ase_tx_zombies",
+    "engine": "ASE",
+    "category": "Diagnostics and activity",
+    "name": "Long-running transactions",
+    "description": "Transactions open longer than :open_minutes minutes, with owner and state.",
+    "sql": "select db = m.dbname, t.spid, t.xactname, state = t.state, t.starttime,\n    age_min = datediff(mi, t.starttime, getdate()),\n    login = m.login, program = m.application\nfrom master..systransactions t\nleft join master..monProcess m on m.spid = t.spid\nwhere datediff(mi, t.starttime, getdate()) >= :open_minutes\norder by t.starttime asc"
+  },
+  {
+    "id": "ase_log_segmento",
+    "engine": "ASE",
+    "category": "Diagnostics and activity",
+    "name": "Database log segment status",
+    "description": "Used/free log pages and free percentage via lct_admin. Enter :database without quotes.",
+    "sql": "declare @hundred float\nselect @hundred = 100.0\nselect db = name,\n    UsedPages = lct_admin('num_logpages', dbid),\n    FreePages = lct_admin('logsegment_freepages', dbid),\n    PctFree = @hundred - lct_admin('num_logpages', dbid) * @hundred\n        / (lct_admin('logsegment_freepages', dbid) + lct_admin('num_logpages', dbid))\nfrom master..sysdatabases\nwhere name = ':database'"
+  },
+  {
+    "id": "ase_space_db",
+    "engine": "ASE",
+    "category": "Space and capacity",
+    "name": "Space usage by database",
+    "description": "Data and log size in MB; segmap=4 identifies the log segment.",
+    "sql": "select db = db_name(dbid),\n    data_mb = convert(numeric(12,1), sum(convert(bigint, case when segmap <> 4 then size else 0 end)) * (@@maxpagesize/1024.) / 1024),\n    log_mb  = convert(numeric(12,1), sum(convert(bigint, case when segmap = 4 then size else 0 end)) * (@@maxpagesize/1024.) / 1024)\nfrom master..sysusages\ngroup by dbid\norder by db_name(dbid)"
+  },
+  {
+    "id": "ase_space_data_detalle",
+    "engine": "ASE",
+    "category": "Space and capacity",
+    "name": "Database data space details",
+    "description": "Allocated, used and free MB plus utilization, using built-in functions.",
+    "sql": "select db = db_name(u.dbid),\n    Data_MB  = str(sum(convert(bigint, u.size)) * (@@maxpagesize/1024.) / 1024, 12, 1),\n    Used_MB = str((sum(convert(bigint, u.size)) - sum(convert(bigint, curunreservedpgs(u.dbid, u.lstart, u.unreservedpgs))))\n                   * (@@maxpagesize/1024.) / 1024, 12, 1),\n    Free_MB = str(sum(convert(bigint, curunreservedpgs(u.dbid, u.lstart, u.unreservedpgs)))\n                   * (@@maxpagesize/1024.) / 1024, 12, 1),\n    Pct_Used = str(100.0 - 100.0 * sum(convert(bigint, curunreservedpgs(u.dbid, u.lstart, u.unreservedpgs)))\n                   / sum(convert(bigint, u.size)), 6, 1) + '%'\nfrom master..sysusages u\nwhere u.segmap & 2 = 2 and u.vdevno >= 0\ngroup by u.dbid\norder by db"
+  },
+  {
+    "id": "ase_space_log",
+    "engine": "ASE",
+    "category": "Space and capacity",
+    "name": "Database log space (free %)",
+    "description": "Log usage via lct_admin, excluding system databases and tempdb.",
+    "sql": "select db = name,\n    LogUsed_pg = lct_admin('num_logpages', dbid),\n    LogFree_pg = lct_admin('logsegment_freepages', dbid),\n    Pct_Free = str(100.0 * lct_admin('logsegment_freepages', dbid)\n        / (lct_admin('logsegment_freepages', dbid) + lct_admin('num_logpages', dbid) + 1), 6, 1) + '%'\nfrom master..sysdatabases\nwhere name not in ('master','model','sybsystemprocs','sybsystemdb','sybsecurity')\nand name not like 'tempdb%'\norder by Pct_Free asc"
+  },
+  {
+    "id": "ase_devices_libres",
+    "engine": "ASE",
+    "category": "Space and capacity",
+    "name": "Unallocated space by device",
+    "description": "Device space available for allocation with alter database.",
+    "sql": "select Device = d.name, Physical_Path = d.phyname,\n    Total_MB = convert(bigint, d.high - d.low + 1) * (@@maxpagesize/1024) / 1024,\n    Allocated_MB = isnull(sum(convert(bigint, u.size)) * (@@maxpagesize/1024) / 1024, 0),\n    Free_MB = (convert(bigint, d.high - d.low + 1) * (@@maxpagesize/1024) / 1024)\n               - isnull(sum(convert(bigint, u.size)) * (@@maxpagesize/1024) / 1024, 0),\n    Type = case when (d.status & 2) = 2 then 'Data/Log'\n                when (d.status & 4) = 4 then 'Backup/File'\n                else 'System/Other' end\nfrom master..sysdevices d\nleft join master..sysusages u on d.vdevno = u.vstart / 16777216\nwhere d.cntrltype = 0\ngroup by d.name, d.phyname, d.high, d.low, d.status\norder by Free_MB desc"
+  },
+  {
+    "id": "ase_spaceused_tabla",
+    "engine": "ASE",
+    "category": "Space and capacity",
+    "name": "Table space usage",
+    "description": "Reserved, data, index and unused space for :table in :database, broken down by index.",
+    "sql": "use :database\ngo\nsp_spaceused ':table', 1"
+  },
+  {
+    "id": "ase_top_tablas",
+    "engine": "ASE",
+    "category": "Space and capacity",
+    "name": "Largest tables in current database",
+    "description": "Top 20 tables by size with row counts and data/leaf space in GB/KB.",
+    "sql": "select top 20\n    Table_Name = left(a.name, 50), Type = a.type, Row_Count = c.rowcnt,\n    Data_GB = (((sum(convert(bigint, c.pagecnt) * 2)) / 1024) / 1024),\n    Index_GB = (((sum(convert(bigint, c.leafcnt) * 2)) / 1024) / 1024),\n    Data_KB = sum(convert(bigint, c.pagecnt) * 2), Index_KB = sum(convert(bigint, c.leafcnt) * 2),\n    Total_GB = (((sum(convert(bigint, c.pagecnt) * 2)) / 1024) / 1024) + (((sum(convert(bigint, c.leafcnt) * 2)) / 1024) / 1024)\nfrom sysobjects a, systabstats c\nwhere c.id = a.id and a.type = 'U'\ngroup by a.name, a.type, c.rowcnt\norder by Data_GB desc"
+  },
+  {
+    "id": "ase_tabla_tamano",
+    "engine": "ASE",
+    "category": "Space and capacity",
+    "name": "Precise table size",
+    "description": "Rows and KB using built-ins. Change database first if needed; enter :table without quotes.",
+    "sql": "select db = db_name(), table_name = convert(varchar(30), o.name),\n    row_count = row_count(db_id(), o.id),\n    KB = data_pages(db_id(), o.id, 0) * (@@maxpagesize/1024)\nfrom sysobjects o\nwhere o.type = 'U' and o.name = ':table'"
+  },
+  {
+    "id": "ase_hist_por_dia",
+    "engine": "ASE",
+    "category": "Space and capacity",
+    "name": "Historical row count by day",
+    "description": "Capacity pattern using date column :date_column and history table :history_table.",
+    "sql": "select row_count = count(*),\n    year = datepart(yy, :date_column), month = datepart(mm, :date_column), day = datepart(dd, :date_column)\nfrom :history_table\ngroup by datepart(yy, :date_column), datepart(mm, :date_column), datepart(dd, :date_column)\norder by 2 desc, 3 desc, 4 desc"
+  },
+  {
+    "id": "ase_stats_desact",
+    "engine": "ASE",
+    "category": "DBA operations",
+    "name": "Tables with stale statistics",
+    "description": "Finds datachange() >= :min_change_pct percent. Switch to :database first; review before updating statistics.",
+    "sql": "select pct_changed = datachange(a.name, null, null), table_name = a.name,\n    row_count = b.rowcnt, db = db_name(db_id())\nfrom sysobjects a\ninner join systabstats b on a.id = b.id\nwhere a.type = 'U' and b.indid in (0, 1)\nand datachange(a.name, null, null) >= :min_change_pct\norder by pct_changed desc"
+  },
+  {
+    "id": "ase_indices_sin_uso",
+    "engine": "ASE",
+    "category": "DBA operations",
+    "name": "Unused index candidates",
+    "description": "Indexes with UsedCount=0 in the current database. Review before dropping.",
+    "sql": "select db = db_name(oa.DBID), table_name = object_name(oa.ObjectID, oa.DBID),\n    oa.IndexID, index_name = si.name, oa.UsedCount, oa.OptSelectCount\nfrom master..monOpenObjectActivity oa, sysindexes si\nwhere oa.ObjectID = si.id and oa.IndexID = si.indid and oa.DBID = db_id()\nand oa.UsedCount = 0 and oa.IndexID > 1 and oa.IndexID != 255\norder by table_name, oa.IndexID"
+  },
+  {
+    "id": "ase_gen_updstats",
+    "engine": "ASE",
+    "category": "DBA operations",
+    "name": "Generate statistics updates (text)",
+    "description": "Generates update index statistics for tables matching LIKE :pattern; does not execute the generated text.",
+    "sql": "select distinct command = 'update index statistics ' + db_name() + '..' + name\nfrom sysobjects\nwhere type = 'U' and name like ':pattern'\norder by command"
+  },
+  {
+    "id": "ase_cache",
+    "engine": "ASE",
+    "category": "DBA operations",
+    "name": "Data caches",
+    "description": "Data cache configuration via sp_helpcache.",
+    "sql": "exec sp_helpcache"
+  },
+  {
+    "id": "ase_configure",
+    "engine": "ASE",
+    "category": "DBA operations",
+    "name": "Server configuration",
+    "description": "Current configuration parameters via sp_configure.",
+    "sql": "exec sp_configure"
+  },
+  {
+    "id": "ase_engines",
+    "engine": "ASE",
+    "category": "DBA operations",
+    "name": "Engine status",
+    "description": "Online engines and CPU utilization.",
+    "sql": "select EngineNumber, OSPID, Status, CurrentKPID, PreviousKPID,\n    ProcessesAffinitied, CPUTime, SystemCPUTime, UserCPUTime, IdleCPUTime,\n    Connections, DiskIOCompleted\nfrom master..monEngine\norder by EngineNumber"
+  },
+  {
+    "id": "ase_displaylogin",
+    "engine": "ASE",
+    "category": "Security and audit",
+    "name": "Login details (sp_displaylogin)",
+    "description": "Roles, state and default database for :login. Output appears in Messages; use Login inventory for a grid.",
+    "sql": "sp_displaylogin ':login'"
+  },
+  {
+    "id": "ase_logins_inventario",
+    "engine": "ASE",
+    "category": "Security and audit",
+    "name": "Login inventory",
+    "description": "All logins with default database and lock flag (status & 2).",
+    "sql": "select login = l.name, suid = l.suid, default_db = l.dbname,\n    locked = case when l.status & 2 = 2 then 'yes' else 'no' end,\n    created = l.crdate, full_name = l.fullname\nfrom master..syslogins l\norder by l.name"
+  },
+  {
+    "id": "ase_roles_login",
+    "engine": "ASE",
+    "category": "Security and audit",
+    "name": "Login roles",
+    "description": "Server roles assigned to :login; enter the login without quotes.",
+    "sql": "select login = l.name, role = sr.name\nfrom master..syslogins l\ninner join master..sysloginroles lr on lr.suid = l.suid\ninner join master..syssrvroles sr on sr.srid = lr.srid\nwhere l.name = ':login'\norder by sr.name"
+  },
+  {
+    "id": "ase_logintrigger",
+    "engine": "ASE",
+    "category": "Security and audit",
+    "name": "Login trigger status",
+    "description": "Checks whether a login trigger is configured.",
+    "sql": "select login_trigger = @@logintrigger"
+  },
+  {
+    "id": "ase_helprotect",
+    "engine": "ASE",
+    "category": "Security and audit",
+    "name": "Object permissions (sp_helprotect)",
+    "description": "Grants and revokes on :object in :database.",
+    "sql": "use :database\ngo\nsp_helprotect ':object'"
+  },
+  {
+    "id": "ase_repagent_status",
+    "engine": "ASE",
+    "category": "DBA operations",
+    "name": "Replication Agent status",
+    "description": "Replication Agent state and log position for :database.",
+    "sql": "use :database\ngo\nsp_help_rep_agent ':database', 'status'"
+  },
+  {
+    "id": "ase_listener_status",
+    "engine": "ASE",
+    "category": "DBA operations",
+    "name": "Listeners and connections (sp_listener)",
+    "description": "Server listener status.",
+    "sql": "sp_listener \"status\""
+  },
+  {
+    "id": "ase_tablas_replicadas",
+    "engine": "ASE",
+    "category": "DBA operations",
+    "name": "Tables enabled for replication",
+    "description": "Tables with replication enabled (sysstat2 & 8) in :database.",
+    "sql": "use :database\ngo\nselect table_name = name\nfrom sysobjects\nwhere type = 'U' and sysstat2 & 8 = 8\norder by name"
+  },
+  {
+    "id": "ase_rssd_excepciones",
+    "engine": "ASE",
+    "category": "DBA operations",
+    "name": "Replication exceptions (RSSD)",
+    "description": "Run in RSSD. Exception queue transactions; :since is YYYYMMDD and :orig_db is the source database without quotes.",
+    "sql": "select trans_num = convert(int, substring(sys_trans_id, 5, 8)),\n    sys_trans_id, app_trans_name, orig_site, orig_db, orig_time,\n    error_site, ds_error, ds_errmsg, error_proc, log_reason, trans_status\nfrom rs_exceptshdr\nwhere orig_time >= ':since' and orig_db = ':orig_db'\norder by orig_time desc"
+  },
+  {
+    "id": "ase_act_kill_spid",
+    "engine": "ASE",
+    "category": "DBA operations",
+    "name": "Kill a SPID",
+    "description": "Executes kill :spid when you run the recipe. Rollback can take time; server permissions apply.",
+    "sql": "kill :spid"
+  },
+  {
+    "id": "ase_act_gen_kill_idle",
+    "engine": "ASE",
+    "category": "DBA operations",
+    "name": "Generate idle-session kills (review)",
+    "description": "Generates kill statements for sessions idle longer than :idle_seconds seconds. Review the text before executing.",
+    "sql": "select command = 'kill ' + convert(varchar(8), s.spid),\n    mp.login, mp.application as program, mp.hostname,\n    mp.secondswaiting as sec_wait, mp.secondsconnected as sec_conn\nfrom master..monProcess mp\ninner join master..sysprocesses s on mp.spid = s.spid\nwhere mp.serveruserid <> 0 and mp.command = 'AWAITING COMMAND'\nand mp.waiteventid = 250 and mp.secondswaiting > :idle_seconds\norder by mp.secondswaiting desc"
+  },
+  {
+    "id": "ase_act_dump_tran",
+    "engine": "ASE",
+    "category": "DBA operations",
+    "name": "Truncate a database log",
+    "description": "Runs dump tran :database with truncate_only. Breaks the dump chain; coordinate with backup operations.",
+    "sql": "dump tran :database with truncate_only"
+  },
+  {
+    "id": "ase_act_updstats",
+    "engine": "ASE",
+    "category": "DBA operations",
+    "name": "Update table statistics",
+    "description": "Updates statistics for :table in :database. Check locks first.",
+    "sql": "use :database\ngo\nupdate index statistics :table"
+  },
+  {
+    "id": "ase_act_reorg",
+    "engine": "ASE",
+    "category": "DBA operations",
+    "name": "Compact a table",
+    "description": "Runs reorg compact for DOL :table in :database. Check locks and schedule large tables appropriately.",
+    "sql": "use :database\ngo\nreorg compact :table"
+  },
+  {
+    "id": "ase_act_purge_caches",
+    "engine": "ASE",
+    "category": "DBA operations",
+    "name": "Purge procedure and statement caches",
+    "description": "Releases cached plans and causes recompilation. Temporarily affects the entire server.",
+    "sql": "dbcc traceon(3604)\ngo\ndbcc proc_cache(free_unused)\ngo\ndbcc purgesqlcache\ngo\ndbcc traceoff(3604)"
+  },
+  {
+    "id": "ase_act_forget_xact",
+    "engine": "ASE",
+    "category": "DBA operations",
+    "name": "Resolve a stuck 2PC transaction",
+    "description": "Identify :xactname first and enter it without quotes. complete_xact rollback rolls back the prepared transaction.",
+    "sql": "dbcc traceon(3604)\ngo\ndbcc complete_xact (':xactname', \"rollback\", \"1pc\")\ngo\ndbcc traceoff(3604)"
+  },
+  {
+    "id": "ase_act_locklogin",
+    "engine": "ASE",
+    "category": "DBA operations",
+    "name": "Lock or unlock a login",
+    "description": "Disables access for :login without deleting it. Replace lock with unlock to restore access.",
+    "sql": "sp_locklogin ':login', 'lock'"
+  },
+  {
+    "id": "ase_act_setreptable",
+    "engine": "ASE",
+    "category": "DBA operations",
+    "name": "Enable or disable table replication",
+    "description": "Enables replication for :table in :database. Replace true with false to disable.",
+    "sql": "use :database\ngo\nsp_setreptable :table, 'true'"
+  },
+  {
+    "id": "ase_act_crecimiento_cursor",
+    "engine": "ASE",
+    "category": "DBA operations",
+    "name": "Table sizes across databases (cursor)",
+    "description": "Iterates CSV :databases using dynamic SQL and a temporary table. Reports rows and data/index GB/KB. Enter database names without quotes.",
+    "sql": "create table #table_sizes (\n    db varchar(100), TableName varchar(255), type char(2),\n    row_count numeric(20,0), DataGB numeric(20,2), IndexGB numeric(20,2),\n    DataKB numeric(20,0), IndexKB numeric(20,0), TotalGB numeric(20,2), sampled_at datetime)\ngo\ndeclare db_cursor cursor for\n    select name from master..sysdatabases\n    where charindex(',' + name + ',', ',' + ':databases' + ',') > 0\n    for read only\ngo\ndeclare @name varchar(100), @cmd varchar(8000)\nopen db_cursor\nfetch db_cursor into @name\nwhile @@sqlstatus = 0\nbegin\n    select @cmd = 'insert into #table_sizes\n        select top 300\n            \"' + @name + '\", a.name, a.type,\n            sum(c.rowcnt),\n            (((sum(convert(bigint,c.pagecnt)*2))/1024))/1024,\n            (((sum(convert(bigint,c.leafcnt)*2))/1024))/1024,\n            sum(convert(bigint,c.pagecnt)*2),\n            sum(convert(bigint,c.leafcnt)*2),\n            (((sum(convert(bigint,c.pagecnt)*2))/1024))/1024 + (((sum(convert(bigint,c.leafcnt)*2))/1024))/1024,\n            getdate()\n        from ' + @name + '..sysobjects a, ' + @name + '..systabstats c\n        where c.id = a.id and a.type = \"U\"\n        group by a.name, a.type\n        order by 4 desc'\n    exec(@cmd)\n    fetch db_cursor into @name\nend\nclose db_cursor\ndeallocate cursor db_cursor\ngo\nselect * from #table_sizes order by TotalGB desc\ndrop table #table_sizes"
+  },
+  {
+    "id": "iq_status",
+    "engine": "IQ",
+    "category": "SAP IQ · Activity",
+    "name": "Server status (sp_iqstatus)",
+    "description": "Version, page sizes, main and temporary store usage, memory and active transactions.",
+    "sql": "sp_iqstatus"
+  },
+  {
+    "id": "iq_connections",
+    "engine": "IQ",
+    "category": "SAP IQ · Activity",
+    "name": "Connections (sp_iqconnection)",
+    "description": "Every connection with user, last request time, temporary space and IQ cursors.",
+    "sql": "sp_iqconnection"
+  },
+  {
+    "id": "iq_who",
+    "engine": "IQ",
+    "category": "SAP IQ · Activity",
+    "name": "Who is connected (sp_iqwho)",
+    "description": "Connections and users with their state, similar to sp_who on ASE.",
+    "sql": "sp_iqwho"
+  },
+  {
+    "id": "iq_context",
+    "engine": "IQ",
+    "category": "SAP IQ · Activity",
+    "name": "Running statements (sp_iqcontext)",
+    "description": "The statement each connection is executing right now.",
+    "sql": "sp_iqcontext"
+  },
+  {
+    "id": "iq_conn_info",
+    "engine": "IQ",
+    "category": "SAP IQ · Activity",
+    "name": "Connection details (sa_conn_info)",
+    "description": "Connection number, name, user, last request and blocking connection from the SQL Anywhere layer.",
+    "sql": "select * from sa_conn_info()"
+  },
+  {
+    "id": "iq_transactions",
+    "engine": "IQ",
+    "category": "SAP IQ · Activity",
+    "name": "Open transactions (sp_iqtransaction)",
+    "description": "Transactions with their state, start time and the versions they hold.",
+    "sql": "sp_iqtransaction"
+  },
+  {
+    "id": "iq_versionuse",
+    "engine": "IQ",
+    "category": "SAP IQ · Activity",
+    "name": "Version usage (sp_iqversionuse)",
+    "description": "Table versions kept for open transactions and the space they retain.",
+    "sql": "sp_iqversionuse"
+  },
+  {
+    "id": "iq_locks",
+    "engine": "IQ",
+    "category": "SAP IQ · Activity",
+    "name": "Locks (sp_iqlocks)",
+    "description": "Locks held in the catalog and IQ stores, with connection and table.",
+    "sql": "sp_iqlocks"
+  },
+  {
+    "id": "iq_dbspace",
+    "engine": "IQ",
+    "category": "SAP IQ · Space",
+    "name": "Dbspaces (sp_iqdbspace)",
+    "description": "Each dbspace with size, usage, block type and read-write state.",
+    "sql": "sp_iqdbspace"
+  },
+  {
+    "id": "iq_file",
+    "engine": "IQ",
+    "category": "SAP IQ · Space",
+    "name": "Dbspace files (sp_iqfile)",
+    "description": "Files behind each dbspace with path, size and usage.",
+    "sql": "sp_iqfile"
+  },
+  {
+    "id": "iq_tablesize",
+    "engine": "IQ",
+    "category": "SAP IQ · Space",
+    "name": "Table size (sp_iqtablesize)",
+    "description": "Rows, KB and pages used by :table (owner.table accepted).",
+    "sql": "sp_iqtablesize ':table'"
+  },
+  {
+    "id": "iq_indexsize",
+    "engine": "IQ",
+    "category": "SAP IQ · Space",
+    "name": "Index sizes of a table (sp_iqindexsize)",
+    "description": "Size of every index on :table, by index type.",
+    "sql": "sp_iqindexsize ':table'"
+  },
+  {
+    "id": "iq_tables",
+    "engine": "IQ",
+    "category": "SAP IQ · Objects",
+    "name": "Tables (sp_iqtable)",
+    "description": "Tables in the database with owner, dbspace and type.",
+    "sql": "sp_iqtable"
+  },
+  {
+    "id": "iq_columns",
+    "engine": "IQ",
+    "category": "SAP IQ · Objects",
+    "name": "Columns of a table (sp_iqcolumn)",
+    "description": "Columns of :table with type, width, nullability and cardinality.",
+    "sql": "sp_iqcolumn ':table'"
+  },
+  {
+    "id": "iq_indexes",
+    "engine": "IQ",
+    "category": "SAP IQ · Objects",
+    "name": "Indexes of a table (sp_iqindex)",
+    "description": "Indexes on :table with their columns and IQ index type (FP, HG, LF, DATE…).",
+    "sql": "sp_iqindex ':table'"
+  },
+  {
+    "id": "iq_views",
+    "engine": "IQ",
+    "category": "SAP IQ · Objects",
+    "name": "Views (sp_iqview)",
+    "description": "Views with owner and definition.",
+    "sql": "sp_iqview"
+  },
+  {
+    "id": "iq_procedures",
+    "engine": "IQ",
+    "category": "SAP IQ · Objects",
+    "name": "Procedures (sp_iqprocedure)",
+    "description": "Procedures and functions with owner and type.",
+    "sql": "sp_iqprocedure"
+  },
+  {
+    "id": "iq_options",
+    "engine": "IQ",
+    "category": "SAP IQ · Operations",
+    "name": "Non-default options (sp_iqcheckoptions)",
+    "description": "Database and connection options that differ from their defaults.",
+    "sql": "sp_iqcheckoptions"
+  },
+  {
+    "id": "iq_mpxinfo",
+    "engine": "IQ",
+    "category": "SAP IQ · Operations",
+    "name": "Multiplex nodes (sp_iqmpxinfo)",
+    "description": "Multiplex servers with role, status and connection details. Empty on a simplex server.",
+    "sql": "sp_iqmpxinfo"
+  },
+  {
+    "id": "iq_version",
+    "engine": "IQ",
+    "category": "SAP IQ · Operations",
+    "name": "Server version",
+    "description": "Full IQ version string.",
+    "sql": "select @@version"
+  },
+  {
+    "id": "iq_drop_connection",
+    "engine": "IQ",
+    "category": "SAP IQ · Operations",
+    "name": "Drop a connection",
+    "description": "Drops connection :connection_id. Its open transaction is rolled back; server permissions apply.",
+    "sql": "drop connection :connection_id"
+  },
+  {
+    "id": "rs_version",
+    "engine": "RS",
+    "category": "Replication Server · Health",
+    "name": "Version (admin version)",
+    "description": "Replication Server version.",
+    "sql": "admin version"
+  },
+  {
+    "id": "rs_health",
+    "engine": "RS",
+    "category": "Replication Server · Health",
+    "name": "Health summary (admin health)",
+    "description": "Overall state: HEALTHY, or SUSPECT with the threads that are down.",
+    "sql": "admin health"
+  },
+  {
+    "id": "rs_who_is_down",
+    "engine": "RS",
+    "category": "Replication Server · Health",
+    "name": "Threads down (admin who_is_down)",
+    "description": "Threads that are suspended or down, such as DSI or RepAgent user threads.",
+    "sql": "admin who_is_down"
+  },
+  {
+    "id": "rs_who_is_up",
+    "engine": "RS",
+    "category": "Replication Server · Health",
+    "name": "Threads up (admin who_is_up)",
+    "description": "Threads that are running.",
+    "sql": "admin who_is_up"
+  },
+  {
+    "id": "rs_names",
+    "engine": "RS",
+    "category": "Replication Server · Health",
+    "name": "Server and RSSD names",
+    "description": "This Replication Server's name and the ASE server and database that hold its RSSD.",
+    "sql": "admin rs_name\ngo\nadmin rssd_name"
+  },
+  {
+    "id": "rs_site_version",
+    "engine": "RS",
+    "category": "Replication Server · Health",
+    "name": "Site version (admin show_site_version)",
+    "description": "Software and site version used for feature compatibility.",
+    "sql": "admin show_site_version"
+  },
+  {
+    "id": "rs_who",
+    "engine": "RS",
+    "category": "Replication Server · Threads and queues",
+    "name": "All threads (admin who)",
+    "description": "Every thread with its type, state and connection information.",
+    "sql": "admin who"
+  },
+  {
+    "id": "rs_who_dsi",
+    "engine": "RS",
+    "category": "Replication Server · Threads and queues",
+    "name": "DSI threads (admin who, dsi)",
+    "description": "Data server interface threads: state, transactions applied and commands read.",
+    "sql": "admin who, dsi"
+  },
+  {
+    "id": "rs_who_sqm",
+    "engine": "RS",
+    "category": "Replication Server · Threads and queues",
+    "name": "Stable queues (admin who, sqm)",
+    "description": "Inbound and outbound queues with segments, blocks and the first segment to read: the backlog.",
+    "sql": "admin who, sqm"
+  },
+  {
+    "id": "rs_who_sqt",
+    "engine": "RS",
+    "category": "Replication Server · Threads and queues",
+    "name": "Transaction queues (admin who, sqt)",
+    "description": "Stable queue transaction threads with open, closed and read transactions.",
+    "sql": "admin who, sqt"
+  },
+  {
+    "id": "rs_who_rsi",
+    "engine": "RS",
+    "category": "Replication Server · Threads and queues",
+    "name": "Routes (admin who, rsi)",
+    "description": "Route threads to other Replication Servers.",
+    "sql": "admin who, rsi"
+  },
+  {
+    "id": "rs_disk_space",
+    "engine": "RS",
+    "category": "Replication Server · Threads and queues",
+    "name": "Partition space (admin disk_space)",
+    "description": "Stable queue partitions with total and used segments.",
+    "sql": "admin disk_space"
+  },
+  {
+    "id": "rs_connections",
+    "engine": "RS",
+    "category": "Replication Server · Connections",
+    "name": "Data server connections (admin show_connections)",
+    "description": "Connections from this Replication Server to data servers and their state.",
+    "sql": "admin show_connections"
+  },
+  {
+    "id": "rs_logical_status",
+    "engine": "RS",
+    "category": "Replication Server · Connections",
+    "name": "Logical connections (admin logical_status)",
+    "description": "Warm standby logical connections with active and standby databases.",
+    "sql": "admin logical_status"
+  },
+  {
+    "id": "rs_quiesce_check",
+    "engine": "RS",
+    "category": "Replication Server · Connections",
+    "name": "Quiesce check (admin quiesce_check)",
+    "description": "Reports whether every queue is empty, for example before maintenance.",
+    "sql": "admin quiesce_check"
+  },
+  {
+    "id": "rs_get_generation",
+    "engine": "RS",
+    "category": "Replication Server · Connections",
+    "name": "Database generation (admin get_generation)",
+    "description": "Generation number of :data_server.:database, used when resetting its secondary truncation point.",
+    "sql": "admin get_generation, :data_server, :database"
+  },
+  {
+    "id": "rs_suspend_connection",
+    "engine": "RS",
+    "category": "Replication Server · Operations",
+    "name": "Suspend a connection",
+    "description": "Stops applying replicated transactions to :data_server.:database. Its queue keeps growing until you resume.",
+    "sql": "suspend connection to :data_server.:database"
+  },
+  {
+    "id": "rs_resume_connection",
+    "engine": "RS",
+    "category": "Replication Server · Operations",
+    "name": "Resume a connection",
+    "description": "Restarts the DSI for :data_server.:database.",
+    "sql": "resume connection to :data_server.:database"
+  },
+  {
+    "id": "rs_resume_skip",
+    "engine": "RS",
+    "category": "Replication Server · Operations",
+    "name": "Resume skipping the first transaction",
+    "description": "Resumes :data_server.:database and writes the failed first transaction to the exceptions log instead of applying it. Review it in the RSSD afterwards.",
+    "sql": "resume connection to :data_server.:database skip transaction"
+  },
+  {
+    "id": "rs_suspend_log_transfer",
+    "engine": "RS",
+    "category": "Replication Server · Operations",
+    "name": "Suspend log transfer",
+    "description": "Disconnects the RepAgent of :data_server.:database from this Replication Server.",
+    "sql": "suspend log transfer from :data_server.:database"
+  },
+  {
+    "id": "rs_resume_log_transfer",
+    "engine": "RS",
+    "category": "Replication Server · Operations",
+    "name": "Resume log transfer",
+    "description": "Allows the RepAgent of :data_server.:database to connect again.",
+    "sql": "resume log transfer from :data_server.:database"
+  }
+]

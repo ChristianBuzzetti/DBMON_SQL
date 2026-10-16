@@ -1,0 +1,1036 @@
+/* ── Estudio de Boberto — capa compartida de SMG_APPS ───────────────────────
+ *
+ * Estilos del menú de personalización (navegación y grillas) y del modal que
+ * lo abre desde la sidebar. Los arma shared/js/boberto-estudio.js; este
+ * archivo es lo único que necesitan para verse igual en la landing y en las
+ * tres apps.
+ *
+ * Vivían inline en index.php (.bob__tab, .bob__chip…), o sea que sólo la
+ * landing los tenía: abrir el mismo menú desde una app lo habría mostrado sin
+ * estilo. El LAYOUT de la landing (su sección a sangre, la escena y el pie)
+ * sigue allá; acá va lo que el menú necesita en cualquier contexto.
+ *
+ * Sólo tokens semánticos (--bg-elev-*, --text*, --border*, --accent): son
+ * los que sobreviven un cambio de paleta, y JiraToolkit los recibe por el
+ * puente (tokens-bridge.css). Cada uno trae su respaldo por si una página
+ * carga el estudio sin tokens. Encima de ellos, un vocabulario propio
+ * (--bes-*) para que cada decisión se tome UNA vez: el radio de una opción,
+ * la tela de una grilla, el color de lo elegido.
+ *
+ * Los selectores van de a DOS clases (.bes-paneles .bes-seccion) a propósito.
+ * La landing tiene `.bob p { font-size: calc(15px * var(--smg-text, 1)) … }`, que con una sola clase le
+ * ganaba a los títulos de sección y a la nota: se veían en 15 px en vez de
+ * 9,5 y 12 (medido con getComputedStyle antes de la mudanza).
+ * ------------------------------------------------------------------------- */
+
+/* ══ Vocabulario ═══════════════════════════════════════════════════════════
+   Se declara en las tres raíces posibles: el modal entero, y la navegación y
+   los paneles sueltos que monta la landing en su propio layout. */
+.bes-modal, .bes-tabs, .bes-paneles, .bes-escenario {
+  --bes-hilo:        var(--border-subtle, rgba(255,255,255,.08));
+  --bes-hilo-fuerte: var(--border-strong, rgba(255,255,255,.2));
+  --bes-tela:        color-mix(in srgb, var(--bg-elev-0, #0b0f17) 58%, transparent);
+  --bes-tela-alta:   color-mix(in srgb, var(--bg-elev-2, #1a2230) 88%, transparent);
+  --bes-tinta:       var(--text, #e8eef7);
+  --bes-tinta-2:     var(--text-muted, #a7b0c0);
+  --bes-tinta-3:     var(--text-dim, #7c8597);
+  --bes-foco:        var(--accent, #2684ff);
+  /* Lo elegido se marca con la TINTA y no con el acento: el acento es el
+     color del tema, y en esta misma prueba hay muestras que pueden ser de
+     ese color — un anillo del color de la muestra no se ve. */
+  --bes-elegido:     color-mix(in srgb, var(--text, #e8eef7) 62%, transparent);
+  --bes-r:           var(--r-md, 8px);
+  --bes-r-marco:     var(--r-xl, 14px);
+  --bes-r-pastilla:  var(--r-pill, 999px);
+  --bes-r-muestra:   50%;
+  --bes-ease:        var(--ease, cubic-bezier(.2,.7,.2,1));
+}
+/* Neo Mirai es de cantos rectos, también en lo redondo por naturaleza (las
+   muestras y las pastillas): un círculo suelto en ese skin se lee prestado. */
+html[data-skin="neomirai"] :is(.bes-modal, .bes-tabs, .bes-paneles, .bes-escenario) {
+  --bes-r: 0px; --bes-r-marco: 0px; --bes-r-pastilla: 0px; --bes-r-muestra: 0;
+}
+
+/* ══ La navegación ═════════════════════════════════════════════════════════
+   Dos filas, cada una de UN renglón. Arriba, un control segmentado con los
+   apartados: segmentos del mismo ancho (los reparte --bes-n, que pone el JS),
+   porque la cantidad es chica y fija y así se lee como un solo control. Abajo,
+   los ejes del apartado como pestañas subrayadas: otra forma a propósito,
+   para que la jerarquía se vea sin leer — el segmento elige DÓNDE, el
+   subrayado elige QUÉ. */
+.bes-tabs { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.bes-tabs .bes-nav-apartados {
+  display: grid; grid-template-columns: repeat(var(--bes-n, 4), minmax(0, 1fr));
+  gap: 2px; padding: 3px;
+  border: 1px solid var(--bes-hilo);
+  border-radius: calc(var(--bes-r) + 3px);
+  background: var(--bes-tela);
+}
+.bes-tabs .bes-tab {
+  margin: 0; padding: 0; font: inherit; color: var(--bes-tinta-3);
+  background: transparent; border: 0; cursor: var(--cur-pointer, pointer);
+  transition: color .18s var(--bes-ease), background-color .18s var(--bes-ease),
+              box-shadow .18s var(--bes-ease);
+}
+.bes-tabs .bes-tab:focus-visible { outline: 2px solid var(--bes-foco); outline-offset: 2px; }
+.bes-tabs .bes-tab-txt { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.bes-tabs .bes-tab--apartado {
+  display: flex; align-items: center; justify-content: center; gap: 7px; min-width: 0;
+  height: 34px; padding: 0 10px;
+  /* Fijo, como los títulos de Personalización: el % de texto agranda la app,
+     no estas pestañas. Si crecieran, «Apariencia» y «Accesorio» se cortan. */
+  font-size: 12.5px; font-weight: 600; letter-spacing: .01em;
+  border-radius: var(--bes-r);
+}
+.bes-tabs .bes-tab--apartado svg { flex: 0 0 auto; opacity: .75; }
+.bes-tabs .bes-tab--apartado:hover { color: var(--bes-tinta-2); background: color-mix(in srgb, var(--bg-elev-2, #1a2230) 45%, transparent); }
+.bes-tabs .bes-tab--apartado[aria-selected="true"] {
+  color: var(--bes-tinta);
+  background: var(--bg-elev-2, #1a2230);
+  box-shadow: 0 1px 2px rgba(0,0,0,.22), inset 0 0 0 1px var(--bes-hilo);
+}
+.bes-tabs .bes-tab--apartado[aria-selected="true"] svg { opacity: 1; color: var(--bes-foco); }
+
+/* La segunda fila tiene SIEMPRE el mismo alto, con pestañas o con la línea de
+   ayuda: es lo que evita que la grilla salte al cambiar de apartado. */
+.bes-tabs .bes-nav-ejes {
+  position: relative; height: 36px; min-width: 0;
+  border-bottom: 1px solid var(--bes-hilo);
+}
+.bes-tabs .bes-subtabs { display: flex; gap: 22px; height: 100%; padding: 0 2px; }
+.bes-tabs .bes-subtabs[hidden], .bes-tabs .bes-nav-ayuda[hidden] { display: none; }
+.bes-tabs .bes-tab--eje {
+  position: relative; flex: 0 0 auto; display: flex; align-items: center; height: 100%;
+  font-size: 12.5px; font-weight: 500;
+}
+.bes-tabs .bes-tab--eje:hover { color: var(--bes-tinta-2); }
+.bes-tabs .bes-tab--eje::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px;
+  border-radius: 2px; background: var(--bes-foco);
+  transform: scaleX(0); transition: transform .2s var(--bes-ease);
+}
+.bes-tabs .bes-tab--eje[aria-selected="true"] { color: var(--bes-tinta); font-weight: 600; }
+.bes-tabs .bes-tab--eje[aria-selected="true"]::after { transform: scaleX(1); }
+.bes-tabs .bes-nav-ayuda {
+  margin: 0; max-width: none; padding: 0 2px;
+  font-size: calc(12px * var(--smg-text, 1)); line-height: 36px; color: var(--bes-tinta-3);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* ══ Los paneles ═══════════════════════════════════════════════════════════ */
+
+/* La altura mínima evita que el pie salte de lugar al cambiar de pestaña;
+   el JS la sube al alto del panel más alto (ver igualarAlto). */
+.bes-paneles { margin-top: 14px; min-height: 104px; flex: 1; }
+.bes-paneles .bes-pane { display: flex; flex-direction: column; gap: 0; }
+/* El atributo hidden NO puede solo contra el display de una clase: la regla del
+   navegador ([hidden]{display:none}) tiene menos especificidad. Sin esto se
+   ven todos los paneles apilados a la vez. */
+.bes-paneles .bes-pane[hidden] { display: none; }
+/* Un acomodo corto al entrar, sólo de posición: si el panel arrancara
+   transparente y los cuadros no avanzaran (una pestaña de fondo), quedaría
+   invisible. Así, sin cuadros, queda dos píxeles corrido y nada más. */
+.bes-paneles .bes-pane:not([hidden]) { animation: bes-pane .22s var(--bes-ease) both; }
+
+/* ── Las grillas ──
+   Todo eje es una grilla de opciones del MISMO tamaño: columnas que se
+   reparten el ancho (auto-fill + 1fr) y filas del mismo alto (grid-auto-rows:
+   1fr). Antes eran chips del ancho de su texto, y una fila de "Café" al lado
+   de "Estornuda" no alineaba con la de abajo: el ojo no encontraba columnas. */
+.bes-paneles .bes-fila { display: grid; gap: 6px; grid-auto-rows: 1fr; }
+.bes-paneles .bes-fila--icono,
+.bes-paneles .bes-fila--interruptor { grid-template-columns: repeat(auto-fill, minmax(86px, 1fr)); }
+.bes-paneles .bes-fila--muestra { grid-template-columns: repeat(auto-fill, minmax(70px, 1fr)); gap: 4px; }
+.bes-paneles .bes-fila--tarjeta { grid-template-columns: repeat(auto-fill, minmax(136px, 1fr)); gap: 8px; }
+
+/* Títulos de sección (Efectos tiene tres): un rótulo callado con un filete
+   que corre hasta el borde, así se ve dónde empieza cada grupo sin leerlo. */
+.bes-paneles .bes-seccion {
+  display: flex; align-items: center; gap: 10px;
+  margin: 0 0 8px; max-width: none;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 9.5px; line-height: 1.4; letter-spacing: .16em; text-transform: uppercase;
+  color: var(--bes-tinta-3);
+}
+.bes-paneles .bes-seccion::after { content: ""; flex: 1; height: 1px; background: var(--bes-hilo); }
+.bes-paneles .bes-fila + .bes-seccion { margin-top: 20px; }
+
+/* ── La opción ──
+   Una sola pieza con cuatro formas. La base es la del ícono: el emoji
+   arriba, el nombre abajo en dos renglones como mucho. */
+.bes-paneles .bes-chip {
+  position: relative; box-sizing: border-box;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  min-width: 0; margin: 0; padding: 10px 6px 8px;
+  font: inherit; text-align: center; letter-spacing: .01em;
+  color: var(--bes-tinta-2);
+  background: var(--bes-tela);
+  border: 1px solid var(--bes-hilo);
+  border-radius: var(--bes-r);
+  cursor: var(--cur-pointer, pointer);
+  transition: color .16s var(--bes-ease), border-color .16s var(--bes-ease),
+              background-color .16s var(--bes-ease), transform .12s var(--bes-ease);
+}
+.bes-paneles .bes-chip:hover { color: var(--bes-tinta); border-color: var(--bes-hilo-fuerte); background: var(--bes-tela-alta); }
+.bes-paneles .bes-chip:active { transform: translateY(1px); }
+.bes-paneles .bes-chip:focus-visible { outline: 2px solid var(--bes-foco); outline-offset: 2px; }
+.bes-paneles .bes-chip-nombre {
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;
+  overflow: hidden; max-width: 100%;
+  font-size: calc(11px * var(--smg-text, 1)); line-height: 1.25; hyphens: auto;
+}
+.bes-paneles .bes-ico { font-size: calc(20px * var(--smg-text, 1)); line-height: 1; font-style: normal; }
+.bes-paneles .bes-chip--icono,
+.bes-paneles .bes-chip--interruptor { min-height: 70px; }
+
+/* Elegido: borde y tela más altos, y una marca en la esquina. La marca es lo
+   que lo dice sin color — con el borde solo, en escala de grises "puesto" y
+   "pasé el mouse" se confunden. */
+.bes-paneles .bes-chip[aria-pressed="true"] {
+  color: var(--bes-tinta);
+  background: var(--bes-tela-alta);
+  border-color: var(--bes-elegido);
+  box-shadow: inset 0 0 0 1px var(--bes-elegido);
+}
+.bes-paneles :is(.bes-chip--icono, .bes-chip--tarjeta)[aria-pressed="true"]::after {
+  content: ""; position: absolute; top: 6px; right: 6px;
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--bes-tinta);
+}
+
+/* ── Muestras de color ──
+   Sin caja: la muestra ES el botón, y una grilla de cajas con un círculo
+   adentro se lee como una tabla, no como una paleta. Lo elegido es un anillo
+   separado de la muestra por un hueco del color de la tela, que se ve sobre
+   cualquier color de muestra. */
+.bes-paneles .bes-chip--muestra {
+  min-height: 64px; padding: 9px 2px 7px; gap: 7px;
+  background: transparent; border-color: transparent;
+}
+.bes-paneles .bes-chip--muestra:hover { background: var(--bes-tela); border-color: transparent; }
+.bes-paneles .bes-chip--muestra[aria-pressed="true"],
+.bes-paneles .bes-chip-libre[data-puesto="1"] {
+  color: var(--bes-tinta); background: transparent; border-color: transparent; box-shadow: none;
+}
+.bes-paneles .bes-chip--muestra .bes-chip-nombre { -webkit-line-clamp: 1; line-clamp: 1; font-size: calc(10.5px * var(--smg-text, 1)); }
+.bes-paneles .bes-tono {
+  display: block; flex: 0 0 auto; width: 26px; height: 26px;
+  border-radius: var(--bes-r-muestra);
+  background: var(--tono, var(--bg-elev-0, #0b0f17));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text, #e8eef7) 22%, transparent);
+  transition: box-shadow .16s var(--bes-ease);
+}
+/* "Auto" no es un color sino una regla (seguir el tema): una muestra
+   punteada con la A, del mismo tamaño que las otras para no romper la fila. */
+.bes-paneles .bes-chip--muestra .bes-ico {
+  display: grid; place-items: center; box-sizing: border-box;
+  width: 26px; height: 26px; border-radius: var(--bes-r-muestra);
+  font: 600 calc(10.5px * var(--smg-text, 1))/1 var(--font-mono, ui-monospace, monospace);
+  color: var(--bes-tinta-2);
+  border: 1px dashed var(--bes-hilo-fuerte);
+  transition: box-shadow .16s var(--bes-ease);
+}
+.bes-paneles .bes-chip--muestra[aria-pressed="true"] :is(.bes-tono, .bes-ico),
+.bes-paneles .bes-chip-libre[data-puesto="1"] .bes-tono {
+  box-shadow: 0 0 0 2px var(--bg-elev-1, #111722), 0 0 0 3.5px var(--bes-tinta);
+}
+.bes-paneles .bes-chip--muestra[aria-pressed="true"] .bes-chip-nombre { font-weight: 600; }
+
+/* ── El color a elección ──
+   Una opción más de la grilla, con el <input type=color> encima e invisible:
+   el click real cae en el input y abre el selector nativo. "Puesto" es un
+   atributo propio y no aria-pressed porque un <label> no es un botón. Sin
+   color propio, la muestra es la rueda entera: dice "cualquiera" sin texto. */
+.bes-paneles .bes-chip-libre { position: relative; }
+.bes-paneles .bes-chip-libre[data-puesto="0"] .bes-tono {
+  background: conic-gradient(from 90deg, #ff5f6d, #ffc35f, #9dff5f, #5fe7ff, #6e6bff, #ff5fd7, #ff5f6d);
+}
+.bes-paneles .bes-chip-libre .bes-libre-input {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  margin: 0; padding: 0; border: 0; opacity: 0;
+  cursor: var(--cur-pointer, pointer);
+}
+.bes-paneles .bes-chip-libre:focus-within { outline: 2px solid var(--bes-foco); outline-offset: 2px; }
+
+/* ── Interruptores (efectos) ──
+   Se combinan, no se eligen: por eso llevan una llave en la esquina en vez
+   de la marca de "elegido". */
+.bes-paneles .bes-pip {
+  position: absolute; top: 7px; right: 7px;
+  width: 17px; height: 10px; border-radius: 10px;
+  background: color-mix(in srgb, var(--text, #e8eef7) 16%, transparent);
+  transition: background-color .16s var(--bes-ease);
+}
+.bes-paneles .bes-pip::after {
+  content: ""; position: absolute; top: 2px; left: 2px;
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--bes-tinta-3);
+  transition: transform .16s var(--bes-ease), background-color .16s var(--bes-ease);
+}
+.bes-paneles .bes-chip--interruptor[aria-pressed="true"] .bes-pip { background: color-mix(in srgb, var(--ok, #3fb950) 78%, transparent); }
+.bes-paneles .bes-chip--interruptor[aria-pressed="true"] .bes-pip::after { transform: translateX(7px); background: #fff; }
+html[data-skin="neomirai"] .bes-paneles .bes-pip,
+html[data-skin="neomirai"] .bes-paneles .bes-pip::after { border-radius: 0; }
+
+/* Con un skin puesto, los ejes que visten al Boberto propio no cambian nada en
+   la escena. Se apagan (el JS les pone inert) y la nota dice por qué. */
+.bes-paneles .bes-fila[data-bloq="1"] { opacity: .4; filter: grayscale(.7); }
+.bes-paneles .bes-nota {
+  margin: 0 0 12px; max-width: none; padding: 9px 12px;
+  font-size: calc(12px * var(--smg-text, 1)); line-height: 1.5; color: var(--bes-tinta-2);
+  background: color-mix(in srgb, var(--warn, #f5a524) 9%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warn, #f5a524) 30%, transparent);
+  border-radius: var(--bes-r);
+}
+.bes-paneles .bes-nota[hidden] { display: none; }
+
+/* ── Fondo: tarjetas con la miniatura ──
+   La miniatura es el MISMO SVG que pinta el dock (y sus reglas de dibujo
+   viven en boberto-dock.css, .plt-fondo-svg). Va sobre una franja con su
+   línea de piso porque el fondo termina siempre en ella: sin la línea no se
+   entiende dónde se apoya. Más intensa que en la sidebar: a este tamaño, la
+   opacidad del dock no dejaría ver la diferencia entre dos fondos. */
+.bes-paneles .bes-chip--tarjeta {
+  align-items: stretch; justify-content: flex-start; gap: 7px;
+  padding: 5px 5px 8px; text-align: left;
+}
+.bes-paneles .bes-chip--tarjeta .bes-chip-nombre {
+  display: block; padding: 0 4px;
+  white-space: nowrap; text-overflow: ellipsis;
+}
+.bes-paneles .bes-fondo-min {
+  position: relative; display: block; height: 60px; overflow: hidden;
+  border-radius: max(0px, calc(var(--bes-r) - 3px));
+  background: color-mix(in srgb, var(--bg-elev-0, #0b0f17) 80%, transparent);
+}
+/* El mismo apagado hacia arriba y los costados que en la sidebar, en una
+   caja propia (.bes-fondo-capa, como .plt-dock-fondo) y no en el SVG: el
+   haz trae su propia máscara en el SVG y una regla acá se la pisaría. */
+.bes-paneles .bes-fondo-min .bes-fondo-capa {
+  position: absolute; left: 0; right: 0; top: 0; bottom: 6px;
+  -webkit-mask-image: radial-gradient(62% 110% at 50% 100%, #000 35%, transparent 100%);
+          mask-image: radial-gradient(62% 110% at 50% 100%, #000 35%, transparent 100%);
+}
+.bes-paneles .bes-fondo-min .bes-fondo-piso {
+  position: absolute; left: 10%; right: 10%; bottom: 5px; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent, #2684ff), transparent);
+  opacity: .8;
+}
+.bes-paneles .bes-chip--tarjeta[aria-pressed="true"]::after { top: 10px; right: 10px; box-shadow: 0 0 0 2px var(--bg-elev-1, #111722); }
+/* Los ilustrados se apagan más tarde, como en la sidebar (ver boberto-dock.css). */
+.bes-paneles .bes-fondo-min .bes-fondo-capa:has(> .pf-premium) {
+  -webkit-mask-image: linear-gradient(to top, #000 72%, transparent);
+          mask-image: linear-gradient(to top, #000 72%, transparent);
+}
+
+/* La insignia de los ilustrados, sobre la miniatura. Oscura y translúcida, y
+   no del acento: va encima de un dibujo con colores propios (un cielo
+   celeste, un neón rosa) y tiene que leerse sobre cualquiera de ellos sin
+   competir con la marca de "elegido" de la otra esquina. */
+.bes-paneles .bes-insignia {
+  position: absolute; top: 9px; left: 9px;
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 6px 3px 5px;
+  font: 600 calc(8.5px * var(--smg-text, 1))/1 var(--font-mono, ui-monospace, monospace);
+  letter-spacing: .14em; text-transform: uppercase;
+  color: #ffe7a8;
+  background: rgba(10, 7, 20, .66);
+  border: 1px solid rgba(255, 231, 168, .3);
+  border-radius: var(--bes-r-pastilla);
+  -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
+  pointer-events: none;
+}
+.bes-paneles .bes-insignia::before { content: "✦"; font-size: calc(8px * var(--smg-text, 1)); letter-spacing: 0; }
+
+/* ── La opacidad del fondo ──
+   Un renglón arriba de las tarjetas: rótulo (qué fondo), barra y valor. El
+   valor en mono con cifras tabulares para que no baile al arrastrar. La
+   barra es un range nativo vestido: el relleno hasta el pulgar sale de --p,
+   que pone el JS, porque WebKit no tiene un pseudo de "progreso". */
+.bes-paneles .bes-opacidad {
+  display: grid; grid-template-columns: minmax(0, auto) minmax(90px, 1fr) 44px;
+  align-items: center; gap: 14px;
+  margin: 0 0 14px; padding: 9px 12px;
+  border: 1px solid var(--bes-hilo);
+  border-radius: var(--bes-r);
+  background: var(--bes-tela);
+}
+.bes-paneles .bes-opacidad-rotulo {
+  display: flex; align-items: baseline; gap: 8px; min-width: 0;
+  white-space: nowrap;
+}
+.bes-paneles .bes-opacidad-k {
+  font: 600 calc(9.5px * var(--smg-text, 1))/1.4 var(--font-mono, ui-monospace, monospace);
+  letter-spacing: .16em; text-transform: uppercase; color: var(--bes-tinta-3);
+}
+.bes-paneles .bes-opacidad-de {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  font-size: calc(12px * var(--smg-text, 1)); color: var(--bes-tinta-2);
+}
+.bes-paneles .bes-opacidad-valor {
+  font: 500 calc(12px * var(--smg-text, 1))/1 var(--font-mono, ui-monospace, monospace);
+  font-variant-numeric: tabular-nums; text-align: right; color: var(--bes-tinta);
+}
+.bes-paneles .bes-opacidad-input {
+  --bes-riel: color-mix(in srgb, var(--text, #e8eef7) 14%, transparent);
+  -webkit-appearance: none; appearance: none;
+  width: 100%; height: 20px; margin: 0; padding: 0;
+  background: transparent; cursor: var(--cur-pointer, pointer);
+}
+.bes-paneles .bes-opacidad-input::-webkit-slider-runnable-track {
+  height: 4px; border-radius: var(--bes-r-pastilla);
+  background: linear-gradient(90deg, var(--bes-foco) var(--p, 85%), var(--bes-riel) var(--p, 85%));
+}
+.bes-paneles .bes-opacidad-input::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 14px; height: 14px; margin-top: -5px;
+  border: 0; border-radius: var(--bes-r-muestra);
+  background: var(--bes-tinta);
+  box-shadow: 0 0 0 3px var(--bg-elev-1, #111722), 0 1px 3px rgba(0, 0, 0, .35);
+}
+.bes-paneles .bes-opacidad-input::-moz-range-track {
+  height: 4px; border-radius: var(--bes-r-pastilla); background: var(--bes-riel);
+}
+.bes-paneles .bes-opacidad-input::-moz-range-progress {
+  height: 4px; border-radius: var(--bes-r-pastilla); background: var(--bes-foco);
+}
+.bes-paneles .bes-opacidad-input::-moz-range-thumb {
+  width: 14px; height: 14px; border: 0; border-radius: var(--bes-r-muestra);
+  background: var(--bes-tinta);
+  box-shadow: 0 0 0 3px var(--bg-elev-1, #111722), 0 1px 3px rgba(0, 0, 0, .35);
+}
+.bes-paneles .bes-opacidad-input:focus-visible {
+  outline: 2px solid var(--bes-foco); outline-offset: 3px; border-radius: var(--bes-r);
+}
+/* "Sin fondo": la barra queda (no salta la grilla) pero apagada. */
+.bes-paneles .bes-opacidad[data-off="1"] .bes-opacidad-input { opacity: .4; cursor: not-allowed; }
+.bes-paneles .bes-opacidad[data-off="1"] :is(.bes-opacidad-de, .bes-opacidad-valor) { color: var(--bes-tinta-3); }
+
+/* ══ El modal ══════════════════════════════════════════════════════════════
+   Lo abre el dock de la sidebar. z-index por arriba de cualquier cosa de una
+   app y por DEBAJO del panel de Ajustes compartido (2147483000+): ver la nota
+   en boberto-estudio.js sobre por qué no se pisan.
+
+   Medidas en px y en % del propio modal, NUNCA en vh/vw. La suite escala la
+   interfaz con `zoom` sobre el body, y con ese zoom `100vh` vale más que la
+   ventana: el cuadro de "90vh" pasaba a medir 135 % del alto al 150 % y se
+   salía por abajo. El modal es `fixed; inset: 0`, o sea que su caja ES la
+   ventana a cualquier escala, y los porcentajes se cuentan contra ella. */
+.bes-modal {
+  position: fixed; inset: 0; z-index: 2147482000;
+  display: flex; align-items: center; justify-content: center;
+  box-sizing: border-box; padding: 24px;
+  font-family: var(--font-ui, system-ui, sans-serif);
+  color: var(--bes-tinta);
+}
+.bes-velo {
+  position: absolute; inset: 0;
+  background: color-mix(in srgb, var(--bg, #05070b) 74%, transparent);
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  animation: bes-velo .2s var(--bes-ease) both;
+}
+.bes-dialogo {
+  container: bes-dialogo / inline-size;
+  position: relative;
+  /* Más ancho que alto a propósito: el fondo es 2:1 y en 1040 px la escena
+     lo recortaba justo en los costados, que es donde está el paisaje. */
+  width: min(1320px, 100%); height: min(760px, 100%);
+  display: flex; flex-direction: column;
+  box-sizing: border-box;
+  border: 1px solid var(--border, rgba(255,255,255,.12));
+  border-radius: var(--bes-r-marco);
+  background: var(--bg-elev-1, #111722);
+  box-shadow: var(--shadow-lg, 0 24px 64px rgba(0,0,0,.5));
+  overflow: hidden;
+  animation: bes-entra .24s var(--ease-out, ease-out) both;
+}
+
+/* ── Cabecera: título y bajada en la misma línea ──
+   Una cabecera de dos renglones le robaba 20 px a la escena, que es lo que
+   se vino a mirar. La bajada se corta con puntos suspensivos antes que
+   envolver. */
+.bes-cab {
+  flex: 0 0 auto;
+  display: flex; align-items: center; gap: 16px;
+  padding: 12px 14px 12px 20px;
+  border-bottom: 1px solid var(--bes-hilo);
+}
+.bes-cab .bes-titulos { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 14px; }
+.bes-cab .bes-titulo {
+  flex: 0 0 auto; margin: 0;
+  font-family: var(--font-display, var(--font-ui, system-ui, sans-serif));
+  font-size: 16px; line-height: 1.3; font-weight: 600; letter-spacing: -0.01em;
+  color: var(--bes-tinta); white-space: nowrap;
+}
+.bes-cab .bes-bajada {
+  min-width: 0; margin: 0;
+  font-size: calc(12.5px * var(--smg-text, 1)); line-height: 1.3; color: var(--bes-tinta-3);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.bes-modal .bes-x {
+  flex: 0 0 auto; display: grid; place-items: center;
+  width: 32px; height: 32px; margin: 0; padding: 0;
+  cursor: var(--cur-pointer, pointer);
+  color: var(--bes-tinta-2); background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--bes-r);
+  transition: color .18s var(--bes-ease), border-color .18s var(--bes-ease), background-color .18s var(--bes-ease);
+}
+.bes-modal .bes-x:hover { color: var(--bes-tinta); border-color: var(--bes-hilo); background: var(--bes-tela); }
+.bes-modal .bes-x:focus-visible { outline: 2px solid var(--bes-foco); outline-offset: 2px; }
+
+/* El paso a Personalización (lo arma abrir() si el panel está en la página).
+   Callado como "De fábrica": es un camino, no la acción principal del cuadro. */
+.bes-modal .bes-ir {
+  flex: 0 0 auto; display: inline-flex; align-items: center; gap: 7px;
+  height: 32px; margin: 0; padding: 0 12px 0 10px;
+  font: inherit; font-size: calc(12px * var(--smg-text, 1)); font-weight: 600; letter-spacing: .02em; white-space: nowrap;
+  cursor: var(--cur-pointer, pointer);
+  color: var(--bes-tinta-2); background: transparent;
+  border: 1px solid var(--bes-hilo);
+  border-radius: var(--bes-r);
+  transition: color .18s var(--bes-ease), border-color .18s var(--bes-ease), background-color .18s var(--bes-ease);
+}
+.bes-modal .bes-ir:hover { color: var(--bes-tinta); border-color: var(--bes-hilo-fuerte); background: var(--bes-tela); }
+.bes-modal .bes-ir:focus-visible { outline: 2px solid var(--bes-foco); outline-offset: 2px; }
+
+/* Sin lugar para la bajada entera, se va: cortada con puntos suspensivos
+   promete una frase que no se puede leer. */
+@container bes-dialogo (max-width: 760px) {
+  .bes-cab .bes-bajada { display: none; }
+}
+/* En un teléfono el botón queda en su ícono; el title y el lector de
+   pantalla siguen diciendo adónde lleva. */
+@container bes-dialogo (max-width: 480px) {
+  .bes-modal .bes-ir { padding: 0 8px; }
+  .bes-modal .bes-ir-txt { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+}
+
+/* ── Escena y editor lado a lado ──
+   La escena se queda con el lado izquierdo entero y no scrollea: tiene que
+   quedar a la vista mientras se elige, que es todo el punto de probar. El
+   editor tiene tres pisos —navegación, grilla, pie— y sólo la grilla
+   scrollea. */
+.bes-cuerpo {
+  flex: 1; min-height: 0;
+  display: grid; grid-template-columns: minmax(0, 6fr) minmax(340px, 5fr);
+}
+
+/* ── El escenario ──
+   Un estudio de fotos chico: fondo continuo, una luz que cae de arriba, el
+   piso con su línea y una sombra donde apoya. Las capas tienen el orden
+   ESCRITO (ver abrir() en el JS): fondo 0, luz 1, Boberto 2, marcas 3.
+   `isolation` le da su propio contexto de apilado, así ningún z-index de acá
+   compite con los de la app. */
+.bes-escenario {
+  --bes-piso: 17%;
+  position: relative; isolation: isolate; overflow: hidden;   /* las partículas de los gestos salen despedidas */
+  min-width: 0; min-height: 0;
+  border-right: 1px solid var(--bes-hilo);
+  background:
+    radial-gradient(120% 75% at 50% 0%, color-mix(in srgb, var(--bg-elev-2, #1a2230) 70%, transparent), transparent 72%),
+    var(--bg-elev-0, #0b0f17);
+}
+/* El fondo elegido (o el que se está probando), con su opacidad: lo pinta
+   montar() en el JS. DETRÁS de todo con z-index escrito, no por orden de
+   aparición: el escenario es su propio contexto (isolation), el fondo va en
+   0 y la escena con Boberto en 2, así que nada de lo que pase adentro de la
+   escena (gestos, partículas, transforms) lo puede poner delante de él.
+   Termina en la línea del piso, como en la sidebar: debajo es piso.
+   La caja copia el 16:9 de la lámina. Una caja más ancha recorta el cielo
+   o el piso, y una máscara radial se comía los costados. Arriba de la caja
+   el escenario sigue con su fondo; el cielo apenas se funde. */
+.bes-escena-fondo {
+  position: absolute; z-index: 0; pointer-events: none;
+  left: 0; right: 0; bottom: var(--bes-piso);
+  width: 100%; aspect-ratio: 16 / 9; max-height: calc(100% - var(--bes-piso));
+  opacity: var(--bes-fondo-op, .85);
+  -webkit-mask-image: linear-gradient(to top, #000 94%, transparent);
+          mask-image: linear-gradient(to top, #000 94%, transparent);
+}
+.bes-escena-fondo .plt-fondo-svg { width: 100%; height: 100%; }
+.bes-escena-luz {
+  position: absolute; inset: 0; z-index: 1; pointer-events: none;
+  background: radial-gradient(40% 56% at 50% 40%, color-mix(in srgb, var(--accent, #2684ff) 15%, transparent), transparent 72%);
+}
+/* El piso: una franja apenas más oscura con su horizonte, que se apaga
+   hacia los costados para que no parezca una mesa. */
+.bes-escena-luz::before {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: var(--bes-piso);
+  background:
+    linear-gradient(90deg, transparent, color-mix(in srgb, var(--text, #e8eef7) 16%, transparent) 50%, transparent) top / 100% 1px no-repeat,
+    linear-gradient(to bottom, color-mix(in srgb, var(--bg, #05070b) 30%, transparent), color-mix(in srgb, var(--bg, #05070b) 62%, transparent));
+}
+/* Un item de grid no baja de su ancho mínimo de contenido, y ese contenido es
+   el canvas: sin min-width 0 la escena se estira para que entre el personaje,
+   y medirla para elegir su escala se vuelve circular.
+
+   El lienzo se apoya sobre el piso: va en la fila de arriba, pegado abajo, y
+   la fila de abajo mide el piso MENOS la distancia entre los pies y el borde
+   del lienzo. Esa distancia se MIDIÓ leyendo el alfa del canvas: el último
+   renglón opaco está 2,6 unidades arriba del borde (el aire de BOX más lo que
+   el cuerpo sube al respirar); con 2,4 el pie pisa la línea en vez de flotar
+   sobre ella. --bes-u lo publica el JS con la escala puesta.
+
+   Es una fila y no un padding-bottom porque el % de un padding se cuenta
+   contra el ANCHO: con padding, el piso del lienzo y el dibujado no
+   coincidían. */
+.bes-escena {
+  position: absolute; inset: 0; z-index: 2;
+  min-width: 0; min-height: 0;
+  display: grid; justify-items: center; align-items: end;
+  grid-template-rows: minmax(0, 1fr) max(0px, calc(var(--bes-piso) - var(--bes-u, 0px) * 2.4));
+}
+/* La luz que cae sobre el piso: un charco tenue, no una sombra — la sombra
+   de contacto ya la dibuja el motor en el lienzo, y dos sombras se leen como
+   un error. Es un pseudo de la escena y no un nodo porque la escena es del
+   motor (muda adentro al Boberto real) y no hay que meterle hijos. Absoluto,
+   así no ocupa celda de la grilla; z-index -1 lo pinta detrás del personaje. */
+.bes-escena::before {
+  content: ""; position: absolute; z-index: -1;
+  left: 50%; bottom: var(--bes-piso);
+  width: calc(var(--bes-u, 14px) * 22); height: calc(var(--bes-u, 14px) * 3);
+  transform: translate(-50%, 50%);
+  border-radius: 50%;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--accent, #2684ff) 16%, transparent), transparent);
+}
+.bes-escena canvas { display: block; max-width: 100%; }
+
+/* Marcas de encuadre en las cuatro esquinas: lo que separa "un escenario"
+   de "una caja oscura". */
+.bes-escena-marcas {
+  --bes-marca: color-mix(in srgb, var(--text, #e8eef7) 26%, transparent);
+  position: absolute; inset: 14px; z-index: 3; pointer-events: none;
+  background:
+    linear-gradient(var(--bes-marca), var(--bes-marca)) top left / 12px 1px no-repeat,
+    linear-gradient(var(--bes-marca), var(--bes-marca)) top left / 1px 12px no-repeat,
+    linear-gradient(var(--bes-marca), var(--bes-marca)) top right / 12px 1px no-repeat,
+    linear-gradient(var(--bes-marca), var(--bes-marca)) top right / 1px 12px no-repeat,
+    linear-gradient(var(--bes-marca), var(--bes-marca)) bottom left / 12px 1px no-repeat,
+    linear-gradient(var(--bes-marca), var(--bes-marca)) bottom left / 1px 12px no-repeat,
+    linear-gradient(var(--bes-marca), var(--bes-marca)) bottom right / 12px 1px no-repeat,
+    linear-gradient(var(--bes-marca), var(--bes-marca)) bottom right / 1px 12px no-repeat;
+}
+/* Con un borde elegido, las marcas de encuadre del estudio se pisan con
+   el marco. El rótulo "Vista previa" se queda. */
+.bes-escenario:has(> .plt-borde-marco[data-modelo]) .bes-escena-marcas { background: none; }
+/* El mismo rectángulo que la lámina. Inset, el trazo le pasaba por el medio
+   del dibujo. El alto copia el de .bes-escena-fondo (16:9 apoyado en el piso). */
+.bes-escenario > .plt-borde-marco {
+  left: 0; right: 0; top: auto;
+  bottom: var(--bes-piso);
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  max-height: calc(100% - var(--bes-piso));
+  height: auto;
+  border-radius: 0;
+}
+.bes-escenario:has(> .plt-borde-marco[data-modelo]) > .bes-escena-fondo {
+  -webkit-mask-image: none;
+          mask-image: none;
+}
+html[data-skin="neomirai"] .bes-escenario > .plt-borde-marco { border-radius: 0; }
+.bes-paneles .bes-borde-min {
+  position: relative; display: block; height: 60px; overflow: hidden;
+  border-radius: max(0px, calc(var(--bes-r) - 3px));
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--bg-elev-2, #1a2230) 70%, transparent), transparent 70%),
+    var(--bg-elev-0, #0b0f17);
+}
+.bes-paneles .bes-borde-min > .plt-borde-marco { inset: 8px; border-radius: 6px; }
+
+/* ── Borde del lugar ───────────────────────────────────────────────────────
+   El trazo de cada modelo. Vive acá, y no en boberto-dock.css, porque lo
+   usan tres cosas y una de ellas no carga la hoja del dock: el escenario
+   del estudio, la miniatura de la pestaña Bordes, y el slot de la sidebar.
+   La landing tiene estudio y no tiene dock; con el dibujo en la otra hoja
+   la pestaña se veía vacía. La geometría propia del slot se queda en
+   boberto-dock.css.
+   ─────────────────────────────────────────────────────────────────────────── */
+.plt-borde-marco {
+  --plt-borde: var(--accent, #2684ff);
+  position: absolute;
+  z-index: 5;
+  pointer-events: none;
+  box-sizing: border-box;
+  border-radius: 0;
+}
+.plt-borde-marco:not([data-modelo]) { display: none; }
+.plt-borde-marco[data-modelo="filete"] {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--plt-borde) 82%, white);
+}
+.plt-borde-marco[data-modelo="doble"] {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--plt-borde) 88%, white);
+  outline: 1px solid color-mix(in srgb, var(--plt-borde) 50%, transparent);
+  outline-offset: -5px;
+}
+.plt-borde-marco[data-modelo="visor"] {
+  background:
+    linear-gradient(var(--plt-borde), var(--plt-borde)) left top / 18px 2px no-repeat,
+    linear-gradient(var(--plt-borde), var(--plt-borde)) left top / 2px 18px no-repeat,
+    linear-gradient(var(--plt-borde), var(--plt-borde)) right top / 18px 2px no-repeat,
+    linear-gradient(var(--plt-borde), var(--plt-borde)) right top / 2px 18px no-repeat,
+    linear-gradient(var(--plt-borde), var(--plt-borde)) left bottom / 18px 2px no-repeat,
+    linear-gradient(var(--plt-borde), var(--plt-borde)) left bottom / 2px 18px no-repeat,
+    linear-gradient(var(--plt-borde), var(--plt-borde)) right bottom / 18px 2px no-repeat,
+    linear-gradient(var(--plt-borde), var(--plt-borde)) right bottom / 2px 18px no-repeat;
+}
+.plt-borde-marco[data-modelo="vidrio"] {
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, #fff 32%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #fff 55%, transparent),
+    inset 0 0 22px color-mix(in srgb, #fff 7%, transparent);
+}
+.plt-borde-marco[data-modelo="pulso"] {
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--plt-borde) 40%, transparent),
+    inset 0 0 22px color-mix(in srgb, var(--plt-borde) 32%, transparent);
+}
+.plt-borde-marco[data-modelo="arcade"] {
+  box-shadow:
+    inset 0 0 0 5px #14161e,
+    inset 0 0 0 6px color-mix(in srgb, var(--plt-borde) 80%, white),
+    inset 0 0 0 8px #0c0e14;
+}
+.plt-borde-marco[data-modelo="banda"] {
+  box-shadow: inset 0 0 0 3px var(--plt-borde);
+}
+.plt-borde-marco[data-modelo="foto"] {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--plt-borde) 92%, white);
+}
+.plt-borde-marco[data-modelo="foto"]::after {
+  content: "";
+  position: absolute;
+  inset: 5px;
+  border: 1px solid color-mix(in srgb, var(--plt-borde) 70%, transparent);
+  pointer-events: none;
+}
+.plt-borde-marco[data-modelo="guion"] {
+  border: 1.5px dashed color-mix(in srgb, var(--plt-borde) 88%, white);
+}
+.plt-borde-marco[data-modelo="cine"] {
+  background:
+    linear-gradient(var(--plt-borde), var(--plt-borde)) top / 100% 2px no-repeat,
+    linear-gradient(var(--plt-borde), var(--plt-borde)) bottom / 100% 2px no-repeat;
+}
+.plt-borde-marco[data-modelo="esquina"] {
+  background:
+    linear-gradient(var(--plt-borde), var(--plt-borde)) left top / 28% 2px no-repeat,
+    linear-gradient(var(--plt-borde), var(--plt-borde)) left top / 2px 34% no-repeat,
+    linear-gradient(var(--plt-borde), var(--plt-borde)) right top / 28% 2px no-repeat,
+    linear-gradient(var(--plt-borde), var(--plt-borde)) right top / 2px 34% no-repeat,
+    linear-gradient(var(--plt-borde), var(--plt-borde)) left bottom / 28% 2px no-repeat,
+    linear-gradient(var(--plt-borde), var(--plt-borde)) left bottom / 2px 34% no-repeat,
+    linear-gradient(var(--plt-borde), var(--plt-borde)) right bottom / 28% 2px no-repeat,
+    linear-gradient(var(--plt-borde), var(--plt-borde)) right bottom / 2px 34% no-repeat;
+}
+/* Anillo: la máscara deja sólo el canto y el gradiente gira adentro.
+   Sin movimiento queda el gradiente quieto. El composite va DESPUÉS del
+   shorthand: si no, el shorthand lo pisa y el anillo se ve como una línea. */
+.plt-borde-marco[data-modelo="neon"],
+.plt-borde-marco[data-modelo="barrido"],
+.plt-borde-marco[data-modelo="estela"],
+.plt-borde-marco[data-modelo="gemelos"],
+.plt-borde-marco[data-modelo="chispa"],
+.plt-borde-marco[data-modelo="flujo"],
+.plt-borde-marco[data-modelo="cruce"] {
+  padding: 2px;
+  overflow: hidden;
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+          mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+}
+/* El riel tenue, para que la luz que viaja tenga por dónde correr. Flujo
+   ya enciende el anillo entero y no lo necesita. */
+.plt-borde-marco[data-modelo="estela"],
+.plt-borde-marco[data-modelo="gemelos"],
+.plt-borde-marco[data-modelo="chispa"],
+.plt-borde-marco[data-modelo="flujo"],
+.plt-borde-marco[data-modelo="cruce"] {
+  padding: 3px;
+}
+.plt-borde-marco[data-modelo="estela"],
+.plt-borde-marco[data-modelo="gemelos"],
+.plt-borde-marco[data-modelo="chispa"],
+.plt-borde-marco[data-modelo="cruce"] {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--plt-borde) 58%, transparent);
+}
+.plt-borde-marco[data-modelo="neon"]::before,
+.plt-borde-marco[data-modelo="barrido"]::before,
+.plt-borde-marco[data-modelo="estela"]::before,
+.plt-borde-marco[data-modelo="gemelos"]::before,
+.plt-borde-marco[data-modelo="chispa"]::before,
+.plt-borde-marco[data-modelo="flujo"]::before,
+.plt-borde-marco[data-modelo="cruce"]::before,
+.plt-borde-marco[data-modelo="cruce"]::after {
+  content: "";
+  position: absolute;
+  left: 50%; top: 50%;
+  width: 240%; height: 240%;
+  transform: translate(-50%, -50%);
+}
+.plt-borde-marco[data-modelo="neon"]::before {
+  background: conic-gradient(from 0deg, #ff3df0, #3de1ff, #e4ff4a, #ff3df0);
+}
+.plt-borde-marco[data-modelo="barrido"]::before {
+  background: conic-gradient(from 0deg,
+    transparent 0 72%,
+    color-mix(in srgb, var(--plt-borde) 15%, transparent) 82%,
+    #fff 90%,
+    var(--plt-borde) 94%,
+    transparent 98% 100%);
+}
+/* Cola larga: se lee el recorrido, no un punto suelto. */
+.plt-borde-marco[data-modelo="estela"]::before {
+  background: conic-gradient(from 0deg,
+    transparent 0%,
+    color-mix(in srgb, var(--plt-borde) 12%, transparent) 22%,
+    color-mix(in srgb, var(--plt-borde) 45%, transparent) 46%,
+    var(--plt-borde) 62%,
+    #fff 70%,
+    transparent 78% 100%);
+}
+.plt-borde-marco[data-modelo="gemelos"]::before {
+  background: conic-gradient(from 0deg,
+    transparent 0%,
+    color-mix(in srgb, var(--plt-borde) 30%, transparent) 6%,
+    var(--plt-borde) 12%,
+    #fff 16%,
+    transparent 24% 50%,
+    color-mix(in srgb, var(--plt-borde) 30%, transparent) 56%,
+    var(--plt-borde) 62%,
+    #fff 66%,
+    transparent 74% 100%);
+}
+.plt-borde-marco[data-modelo="chispa"]::before {
+  background: conic-gradient(from 0deg,
+    transparent 0 90%,
+    color-mix(in srgb, var(--plt-borde) 55%, transparent) 94%,
+    #fff 97%,
+    transparent 100%);
+}
+.plt-borde-marco[data-modelo="flujo"]::before {
+  background: conic-gradient(from 0deg,
+    color-mix(in srgb, var(--plt-borde) 28%, transparent),
+    color-mix(in srgb, var(--plt-borde) 55%, transparent),
+    #fff,
+    var(--plt-borde),
+    color-mix(in srgb, var(--plt-borde) 28%, transparent));
+}
+.plt-borde-marco[data-modelo="cruce"]::before {
+  background: conic-gradient(from 0deg,
+    transparent 0 8%,
+    color-mix(in srgb, var(--plt-borde) 40%, transparent) 16%,
+    var(--plt-borde) 24%,
+    #fff 28%,
+    transparent 36% 100%);
+}
+.plt-borde-marco[data-modelo="cruce"]::after {
+  background: conic-gradient(from 180deg,
+    transparent 0 8%,
+    color-mix(in srgb, #7ef9ff 45%, transparent) 16%,
+    #7ef9ff 24%,
+    #fff 28%,
+    transparent 36% 100%);
+}
+@keyframes plt-borde-gira {
+  to { transform: translate(-50%, -50%) rotate(360deg); }
+}
+@keyframes plt-borde-pulso {
+  0%, 100% { opacity: .45; }
+  50% { opacity: 1; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  html[data-animations="on"] .plt-borde-marco[data-modelo="neon"]::before,
+  html[data-animations="on"] .plt-borde-marco[data-modelo="barrido"]::before,
+  html[data-animations="on"] .plt-borde-marco[data-modelo="estela"]::before,
+  html[data-animations="on"] .plt-borde-marco[data-modelo="gemelos"]::before,
+  html[data-animations="on"] .plt-borde-marco[data-modelo="chispa"]::before,
+  html[data-animations="on"] .plt-borde-marco[data-modelo="flujo"]::before,
+  html[data-animations="on"] .plt-borde-marco[data-modelo="cruce"]::before,
+  html[data-animations="on"] .plt-borde-marco[data-modelo="cruce"]::after {
+    animation: plt-borde-gira 4.2s linear infinite;
+  }
+  html[data-animations="on"] .plt-borde-marco[data-modelo="barrido"]::before { animation-duration: 3.2s; }
+  html[data-animations="on"] .plt-borde-marco[data-modelo="estela"]::before { animation-duration: 5.4s; }
+  html[data-animations="on"] .plt-borde-marco[data-modelo="gemelos"]::before { animation-duration: 3.6s; }
+  html[data-animations="on"] .plt-borde-marco[data-modelo="chispa"]::before { animation-duration: 1.7s; }
+  html[data-animations="on"] .plt-borde-marco[data-modelo="flujo"]::before { animation-duration: 7.5s; }
+  html[data-animations="on"] .plt-borde-marco[data-modelo="cruce"]::before { animation-duration: 3.4s; }
+  html[data-animations="on"] .plt-borde-marco[data-modelo="cruce"]::after {
+    animation-duration: 4.8s;
+    animation-direction: reverse;
+  }
+  html[data-animations="on"] .plt-borde-marco[data-modelo="pulso"] {
+    animation: plt-borde-pulso 2.8s ease-in-out infinite;
+  }
+}
+
+.bes-escena-marcas::before {
+  content: "Vista previa"; position: absolute; top: 8px; left: 20px;
+  font: 500 calc(9.5px * var(--smg-text, 1))/1 var(--font-mono, ui-monospace, monospace);
+  letter-spacing: .16em; text-transform: uppercase;
+  color: var(--bes-tinta-3);
+}
+
+/* El rótulo: qué tiene puesto, entero, sobre el piso. */
+.bes-modal .bes-rotulo {
+  position: absolute; z-index: 3; left: 50%; bottom: 18px;
+  transform: translateX(-50%);
+  box-sizing: border-box; max-width: calc(100% - 40px);
+  display: flex; align-items: center; gap: 8px;
+  margin: 0; padding: 4px 12px 4px 4px;
+  font-size: calc(12px * var(--smg-text, 1)); line-height: 1.3; white-space: nowrap;
+  background: color-mix(in srgb, var(--bg-elev-1, #111722) 80%, transparent);
+  border: 1px solid var(--bes-hilo);
+  border-radius: var(--bes-r-pastilla);
+  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+}
+.bes-modal .bes-rotulo:empty { display: none; }
+.bes-modal .bes-rotulo-k {
+  flex: 0 0 auto; padding: 4px 8px;
+  font: 600 calc(9.5px * var(--smg-text, 1))/1 var(--font-mono, ui-monospace, monospace);
+  letter-spacing: .14em; text-transform: uppercase;
+  color: var(--bes-tinta-2);
+  background: color-mix(in srgb, var(--text, #e8eef7) 9%, transparent);
+  border-radius: var(--bes-r-pastilla);
+}
+.bes-modal .bes-rotulo-v { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: 500; color: var(--bes-tinta); }
+
+/* ── El editor ── */
+.bes-panel {
+  min-width: 0; min-height: 0;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+  /* El pie decide su texto por el ancho del EDITOR, no de la ventana: con la
+     escala de la interfaz al 150 % la ventana es ancha y el editor no. */
+  container: bes-editor / inline-size;
+}
+.bes-panel .bes-tabs { flex: 0 0 auto; padding: 16px 20px 0; }
+/* Sólo la grilla scrollea. Las dos sombras del borde aparecen cuando hay más
+   contenido de ese lado (el truco de fondos `local`/`scroll`): sin ellas, una
+   grilla cortada justo entre dos filas parece terminada. */
+.bes-panel .bes-paneles {
+  flex: 1 1 auto; min-height: 0; margin: 0;
+  padding: 16px 20px 20px;
+  overflow-y: auto; overscroll-behavior: contain;
+  scrollbar-width: thin; scrollbar-gutter: stable;
+  background:
+    linear-gradient(var(--bg-elev-1, #111722) 30%, transparent) top / 100% 28px no-repeat local,
+    linear-gradient(transparent, var(--bg-elev-1, #111722) 70%) bottom / 100% 28px no-repeat local,
+    radial-gradient(farthest-side at 50% 0, color-mix(in srgb, var(--bg, #05070b) 40%, rgba(0,0,0,.2)), transparent) top / 100% 10px no-repeat scroll,
+    radial-gradient(farthest-side at 50% 100%, color-mix(in srgb, var(--bg, #05070b) 40%, rgba(0,0,0,.2)), transparent) bottom / 100% 10px no-repeat scroll;
+}
+
+/* ── El pie: una línea ──
+   Lo que hace cada botón va en su title. Escrito al lado como párrafo,
+   envolvía en tres renglones y se cortaba contra el borde del cuadro. */
+.bes-modal .bes-pie {
+  flex: 0 0 auto;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--bes-hilo);
+}
+.bes-pie .bes-pie-nota {
+  display: flex; align-items: center; gap: 9px; min-width: 0; margin: 0;
+  font-size: calc(12px * var(--smg-text, 1)); line-height: 1.3; color: var(--bes-tinta-3); white-space: nowrap;
+}
+.bes-pie .bes-pie-nota span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.bes-pie .bes-pie-corto { display: none; }
+.bes-pie .bes-pie-punto {
+  flex: 0 0 auto; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--ok, #3fb950);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok, #3fb950) 20%, transparent);
+}
+.bes-pie .bes-pie-acciones { display: flex; gap: 8px; flex: 0 0 auto; }
+.bes-pie .bes-boton {
+  flex: 0 0 auto; margin: 0; cursor: var(--cur-pointer, pointer);
+  height: 32px; padding: 0 14px;
+  font: inherit; font-size: calc(12px * var(--smg-text, 1)); font-weight: 600; letter-spacing: .02em; white-space: nowrap;
+  color: var(--bes-tinta);
+  background: color-mix(in srgb, var(--bg-elev-2, #1a2230) 85%, transparent);
+  border: 1px solid var(--border, rgba(255,255,255,.12));
+  border-radius: var(--bes-r);
+  transition: border-color .18s var(--bes-ease), background-color .18s var(--bes-ease), color .18s var(--bes-ease);
+}
+.bes-pie .bes-boton:hover { border-color: var(--bes-hilo-fuerte); }
+.bes-pie .bes-boton:focus-visible { outline: 2px solid var(--bes-foco); outline-offset: 2px; }
+/* "De fábrica" es la acción más drástica de las dos, así que es la más
+   callada: sin fondo, para que no se la apriete por ser la más visible. */
+.bes-pie .bes-boton--suave { background: transparent; color: var(--bes-tinta-2); border-color: var(--bes-hilo); }
+.bes-pie .bes-boton--suave:hover { color: var(--bes-tinta); }
+.bes-pie .bes-boton[hidden] { display: none; }
+
+/* ── El editor angosto ──
+   Por el ancho del EDITOR (container query) y no de la ventana: con la
+   escala de la interfaz al 150 % la ventana es ancha y el editor no. */
+@container bes-editor (max-width: 420px) {
+  .bes-pie .bes-pie-largo { display: none; }
+  .bes-pie .bes-pie-corto { display: inline; }
+  .bes-modal .bes-pie { padding-inline: 14px; gap: 8px; }
+  .bes-pie .bes-boton { padding: 0 10px; }
+  .bes-pie .bes-pie-acciones { gap: 6px; }
+  /* Donde no entra el ícono de cada apartado, se va el ícono y no el nombre. */
+  .bes-tabs .bes-tab--apartado svg { display: none; }
+  .bes-tabs .bes-tab--apartado { padding: 0 4px; font-size: 12px; }
+  .bes-panel .bes-tabs { padding-inline: 14px; }
+  .bes-panel .bes-paneles { padding-inline: 14px; }
+}
+/* Más angosto todavía, el aviso se va entero: los dos botones explican lo
+   suyo en el title, y un aviso cortado a la mitad no explica nada. */
+@container bes-editor (max-width: 330px) {
+  .bes-pie .bes-pie-nota { display: none; }
+  .bes-modal .bes-pie { justify-content: flex-end; }
+}
+
+@keyframes bes-velo  { from { opacity: 0; } to { opacity: 1; } }
+/* Sólo posición, como el panel: un cuadro que arranca transparente queda
+   invisible si los cuadros no avanzan. */
+@keyframes bes-entra { from { transform: translateY(10px) scale(.985); } to { transform: none; } }
+@keyframes bes-pane  { from { transform: translateY(3px); } to { transform: none; } }
+
+/* Teléfono y ventanas angostas: pantalla completa, la escena arriba y el
+   editor debajo. La escena se queda con algo más de un tercio del alto (en %, por lo
+   mismo que arriba: nada de vh); lo que se ajusta es la grilla, que scrollea. */
+@media (max-width: 799px) {
+  .bes-modal { padding: 0; }
+  .bes-dialogo { width: 100%; height: 100%; border: 0; border-radius: 0; }
+  .bes-cab { padding: 8px 8px 8px 16px; }
+  .bes-cab .bes-bajada { display: none; }
+  .bes-cuerpo { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(180px, 38%) minmax(0, 1fr); }
+  .bes-escenario { --bes-piso: 15%; border-right: 0; border-bottom: 1px solid var(--bes-hilo); }
+  .bes-escena-marcas { inset: 10px; }
+  .bes-modal .bes-rotulo { bottom: 12px; }
+  .bes-panel .bes-tabs { padding: 12px 14px 0; }
+  .bes-panel .bes-paneles { padding: 14px 14px 18px; }
+  .bes-modal .bes-pie { padding: 10px 14px; gap: 10px; }
+  .bes-pie .bes-boton { padding: 0 11px; }
+}
+/* En un teléfono, opciones un poco más chicas: entran cuatro gestos por
+   fila en vez de tres. */
+@media (max-width: 480px) {
+  .bes-paneles .bes-fila--icono,
+  .bes-paneles .bes-fila--interruptor { grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); }
+  .bes-paneles .bes-fila--muestra { grid-template-columns: repeat(auto-fill, minmax(62px, 1fr)); }
+}
+/* El desborde lateral sólo donde hay dedo: con mouse, una fila que se va por
+   el costado sin barra esconde pestañas que existen. */
+@media (pointer: coarse) {
+  .bes-tabs .bes-subtabs { overflow-x: auto; scrollbar-width: none; }
+  .bes-tabs .bes-subtabs::-webkit-scrollbar { display: none; }
+}
+
+/* La lámina es un cuadro quieto. Acá sólo cambia la opacidad al probar
+   otro fondo; el dock no anima nada. */
+@media (prefers-reduced-motion: no-preference) {
+  .bes-escena-fondo { transition: opacity .2s var(--bes-ease, ease); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bes-velo, .bes-dialogo, .bes-paneles .bes-pane:not([hidden]) { animation: none; }
+  .bes-tabs .bes-tab, .bes-tabs .bes-tab--eje::after, .bes-paneles .bes-chip,
+  .bes-paneles :is(.bes-tono, .bes-ico, .bes-pip), .bes-paneles .bes-pip::after,
+  .bes-modal .bes-x, .bes-pie .bes-boton { transition: none; }
+}

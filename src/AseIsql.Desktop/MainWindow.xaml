@@ -1,0 +1,149 @@
+<Window x:Class="AseIsql.Desktop.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:edit="http://icsharpcode.net/sharpdevelop/avalonedit" Style="{StaticResource {x:Type Window}}" TextOptions.TextFormattingMode="Display" Title="DBMON SQL" Width="1440" Height="900" MinWidth="860" MinHeight="560" WindowStartupLocation="CenterScreen" Closing="OnClosing">
+  <DockPanel>
+    <!-- DBMON shell: topbar (wordmark, status dot, actions) with the neon edge at its foot, then the subbar (menus,
+         actions, session chip) on 8 px hairlines. Boberto's 16:9 scene owns the right side of the whole band. -->
+    <Grid DockPanel.Dock="Top" Background="{DynamicResource Header}">
+      <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition x:Name="BobertoColumn" Width="300"/></Grid.ColumnDefinitions>
+      <DockPanel x:Name="HeaderLeft">
+        <Border x:Name="HeaderBar" DockPanel.Dock="Top" Background="{DynamicResource Header}" BorderBrush="{DynamicResource TopbarRule}" BorderThickness="0,0,0,1" Padding="20,10,16,6">
+          <Grid><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+              <Image Source="Assets/dbmon-sql.png" Width="26" Height="26" Margin="0,0,10,0" VerticalAlignment="Center" RenderOptions.BitmapScalingMode="HighQuality"/>
+              <!-- .logo-wave: one mono letter per span, dim ink lit by the accent in a 3 s wave (code builds and animates it). -->
+              <StackPanel x:Name="Wordmark" Orientation="Horizontal" VerticalAlignment="Center" Cursor="Hand" ToolTip="DBMON SQL" MouseLeftButtonUp="WordmarkClick"/>
+              <Grid Width="12" Height="12" Margin="8,2,0,0" VerticalAlignment="Center"><Ellipse x:Name="BrandHalo" Width="12" Height="12" Fill="{DynamicResource OkGlow}"/><Ellipse x:Name="BrandDot" Width="6" Height="6" Fill="{DynamicResource Ok}"/></Grid>
+              <Border x:Name="HeaderSubtitleBox" BorderBrush="{DynamicResource FaintBorder}" BorderThickness="1,0,0,0" Margin="16,0,0,0" Padding="14,0,0,0" VerticalAlignment="Center"><TextBlock x:Name="HeaderSubtitle" Text="SQL WORKSPACE · SAP ASE · IQ · RS" FontFamily="{DynamicResource MonoFont}" FontSize="10" Foreground="{DynamicResource Muted}"/></Border>
+            </StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+              <Button x:Name="CommandsButton" Style="{StaticResource PillButton}" Background="{DynamicResource Surface}" Click="PaletteClick" ToolTip="Search every command" MinWidth="250"><DockPanel><Border DockPanel.Dock="Right" BorderThickness="1" BorderBrush="{DynamicResource FaintBorder}" Padding="5,0" Margin="18,0,0,0" CornerRadius="{DynamicResource ControlRadius}"><TextBlock Text="Ctrl K" FontFamily="{DynamicResource MonoFont}" FontSize="10" Foreground="{DynamicResource Muted}"/></Border><TextBlock Style="{StaticResource GlyphText}" Text="&#xE721;"/><TextBlock x:Name="CommandsText" Text="Search commands…" Foreground="{DynamicResource Muted}" VerticalAlignment="Center"/></DockPanel></Button>
+              <Button x:Name="PersonalizeButton" Style="{StaticResource PillButton}" Click="PersonalizeClick" ToolTip="Personalize: palette, typography, interface and Boberto"><StackPanel Orientation="Horizontal"><TextBlock Style="{StaticResource GlyphText}" Text="&#xE713;" Margin="0,0,7,0"/><TextBlock x:Name="PersonalizeText" Text="Personalize" VerticalAlignment="Center"/></StackPanel></Button>
+            </StackPanel>
+          </Grid>
+        </Border>
+        <!-- smg_topbar_edge(): accent bar with a highlight sweeping every 7 s (code starts it when motion is on). -->
+        <Grid DockPanel.Dock="Top" Height="2" ClipToBounds="True"><Rectangle Fill="{DynamicResource EdgeBar}" Opacity="0.75"/><Rectangle x:Name="EdgeSweep"/></Grid>
+        <Border BorderBrush="{DynamicResource StrongBorder}" BorderThickness="0,0,0,1" Background="{DynamicResource SubbarHairlines}">
+          <DockPanel>
+            <Menu x:Name="MainMenu" DockPanel.Dock="Top" Padding="16,8,16,0"><MenuItem Header="Query" Tag="&#xE756;"><MenuItem Header="New query" InputGestureText="Ctrl+N" Click="NewClick"/><MenuItem Header="Open file…" InputGestureText="Ctrl+O" Click="OpenClick"/><MenuItem Header="Save" InputGestureText="Ctrl+S" Click="SaveClick"/><MenuItem Header="Save as…" InputGestureText="Ctrl+Shift+S" Click="SaveAsClick"/><Separator/><MenuItem Header="Execute query" InputGestureText="F9" Click="ExecuteClick"/><MenuItem Header="Execute selection" InputGestureText="Ctrl+E" Click="SelectionClick"/><MenuItem Header="Execute current line" InputGestureText="Alt+F9" Click="LineClick"/><MenuItem x:Name="RepeatMenu" Header="Repeat every…" InputGestureText="Ctrl+Shift+F9" Click="RepeatClick"/><MenuItem Header="Run on multiple servers…" InputGestureText="Shift+F9" Click="MultiRunClick"/><MenuItem Header="Cancel execution" InputGestureText="Esc" Click="CancelClick"/></MenuItem>
+          <MenuItem Header="Editor" Tag="&#xE70F;"><MenuItem Header="Undo" Command="ApplicationCommands.Undo" CommandTarget="{Binding ElementName=Editor}"/><MenuItem Header="Redo" Command="ApplicationCommands.Redo" CommandTarget="{Binding ElementName=Editor}"/><Separator/><MenuItem Header="Copy" Command="ApplicationCommands.Copy" CommandTarget="{Binding ElementName=Editor}"/><MenuItem Header="Paste" Command="ApplicationCommands.Paste" CommandTarget="{Binding ElementName=Editor}"/><MenuItem Header="Find…" InputGestureText="Ctrl+F" Click="FindClick"/><MenuItem Header="Find and replace…" InputGestureText="Ctrl+H" Click="ReplaceClick"/><Separator/><MenuItem Header="Comment / uncomment" Click="CommentClick"/><MenuItem Header="Duplicate line" InputGestureText="Ctrl+Shift+D" Click="DuplicateLineClick"/><MenuItem Header="Fill parameters…" InputGestureText="Ctrl+Shift+P" Click="FillParametersClick"/><MenuItem Header="Selection to UPPERCASE" Click="UpperClick"/><MenuItem Header="Selection to lowercase" Click="LowerClick"/><Separator/><MenuItem Header="Toggle bookmark" InputGestureText="Ctrl+F2" Click="BookmarkClick"/><MenuItem Header="Next bookmark" InputGestureText="F2" Click="NextBookmarkClick"/></MenuItem>
+          <MenuItem Header="Library" Tag="&#xE8F1;"><MenuItem Header="Recipes…" Click="LibraryClick"/><MenuItem Header="Save as recipe…" Click="SaveRecipeClick"/><MenuItem Header="Query history" InputGestureText="Ctrl+R" Click="HistoryClick"/></MenuItem>
+          <MenuItem x:Name="ToolsMenu" Header="Tools" Tag="&#xE90F;"><MenuItem Header="Search commands…" InputGestureText="Ctrl+K" Click="PaletteClick"/><MenuItem Header="Object explorer" InputGestureText="F4" Click="BrowserClick"/><Separator/><MenuItem Header="Export result to CSV…" Click="ExportClick"/></MenuItem>
+          <MenuItem Header="View" Tag="&#xE890;"><MenuItem Header="Personalize…" Click="PersonalizeClick"/><Separator/><MenuItem x:Name="ShowLogMenu" Header="Server messages" IsCheckable="True" IsChecked="True" Click="LogClick"/><MenuItem x:Name="ShowBobertoMenu" Header="Boberto companion" IsCheckable="True" IsChecked="True" Click="BobertoToggleClick"/><MenuItem Header="Return to editor" InputGestureText="Ctrl+Q" Click="QueryClick"/><Separator/><MenuItem Header="Word wrap" InputGestureText="Alt+Z" Click="WrapClick"/><MenuItem Header="Increase font size" InputGestureText="Ctrl++" Click="ZoomInClick"/><MenuItem Header="Decrease font size" InputGestureText="Ctrl+-" Click="ZoomOutClick"/><MenuItem Header="Reset font size" InputGestureText="Ctrl+0" Click="ZoomResetClick"/></MenuItem>
+          <MenuItem Header="Connection" Tag="&#xE968;"><MenuItem x:Name="ConnectMenu" Header="Connect…" InputGestureText="F11" Click="ConnectClick"/><MenuItem x:Name="DisconnectMenu" Header="Disconnect" InputGestureText="F12" Click="DisconnectClick" IsEnabled="False"/><Separator/><MenuItem Header="Exit" Click="ExitClick"/></MenuItem>
+          <MenuItem Header="Help" Tag="&#xE897;"><MenuItem Header="About DBMON SQL" Click="AboutClick"/></MenuItem>
+            </Menu>
+            <Border Padding="{DynamicResource ToolbarPadding}">
+              <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <!-- One row that never wraps (a taller header would widen Boberto's band): Run is a split button whose chevron holds
+                     the other ways to run; file actions are glyphs; labels turn into glyphs in narrow windows. -->
+                <StackPanel x:Name="CommandToolbar" Orientation="Horizontal" ClipToBounds="True">
+                  <Button x:Name="ExecuteButton" Background="{DynamicResource Accent}" Foreground="{DynamicResource OnAccent}" BorderBrush="{DynamicResource Accent}" Click="ExecuteClick" Margin="0,0,1,0"><StackPanel Orientation="Horizontal"><TextBlock Style="{StaticResource GlyphText}" Text="&#xE768;" FontSize="12" Margin="0,0,7,0"/><TextBlock Text="Run" FontWeight="SemiBold" VerticalAlignment="Center"/><TextBlock x:Name="RunKeyHint" Text="F9" FontFamily="{DynamicResource MonoFont}" FontSize="{DynamicResource SmallFontSize}" Opacity="0.75" Margin="10,0,0,0" VerticalAlignment="Center"/></StackPanel></Button>
+                  <Button x:Name="RunMenuButton" Click="RunMenuClick" Background="{DynamicResource Accent}" Foreground="{DynamicResource OnAccent}" BorderBrush="{DynamicResource Accent}" Padding="7,0" Margin="0,0,8,0" ToolTip="More ways to run: selection, current line, several servers, repeat on a timer"><TextBlock x:Name="RunMenuGlyph" Style="{StaticResource GlyphText}" Text="&#xE70D;" FontSize="10" Margin="0"/></Button>
+                  <Button x:Name="CancelButton" Click="CancelClick" IsEnabled="False" ToolTip="Cancel the running query · Esc"><StackPanel Orientation="Horizontal"><TextBlock Style="{StaticResource GlyphText}" Text="&#xE71A;" FontSize="12" Margin="0,0,7,0"/><TextBlock x:Name="CancelText" Text="Cancel" VerticalAlignment="Center"/></StackPanel></Button>
+                  <Border Width="1" Height="22" Background="{DynamicResource FaintBorder}" Margin="6,0,10,0"/>
+                  <Button Click="NewClick" ToolTip="New query · Ctrl+N" Padding="9,0"><TextBlock Style="{StaticResource GlyphText}" Text="&#xE8A5;" FontSize="13" Margin="0"/></Button>
+                  <Button Click="OpenClick" ToolTip="Open SQL file · Ctrl+O" Padding="9,0"><TextBlock Style="{StaticResource GlyphText}" Text="&#xE8E5;" FontSize="13" Margin="0"/></Button>
+                  <Button Click="SaveClick" ToolTip="Save · Ctrl+S" Padding="9,0"><TextBlock Style="{StaticResource GlyphText}" Text="&#xE74E;" FontSize="13" Margin="0"/></Button>
+                  <Border Width="1" Height="22" Background="{DynamicResource FaintBorder}" Margin="6,0,10,0"/>
+                  <Button x:Name="ObjectsButton" Click="BrowserClick" ToolTip="Object explorer · F4"><StackPanel Orientation="Horizontal"><TextBlock Style="{StaticResource GlyphText}" Text="&#xE81E;" FontSize="12" Margin="0,0,7,0"/><TextBlock x:Name="ObjectsText" Text="Objects" VerticalAlignment="Center"/></StackPanel></Button>
+                  <Button x:Name="RecipesButton" Click="LibraryClick" ToolTip="Recipe library · ASE, IQ and Replication Server"><StackPanel Orientation="Horizontal"><TextBlock Style="{StaticResource GlyphText}" Text="&#xE736;" FontSize="12" Margin="0,0,7,0"/><TextBlock x:Name="RecipesText" Text="Recipes" VerticalAlignment="Center"/></StackPanel></Button>
+                </StackPanel>
+                <!-- Session chip: connects when there is no session, otherwise offers the session's actions. -->
+                <Button x:Name="ConnectButton" Grid.Column="1" VerticalAlignment="Center" Style="{StaticResource SessionChip}" Click="SessionChipClick" ToolTip="Connect to SAP ASE, IQ or Replication Server · F11"><StackPanel Orientation="Horizontal"><Ellipse x:Name="ConnectionDot" Width="8" Height="8" Margin="0,0,9,0" VerticalAlignment="Center" Fill="{DynamicResource Muted}"/><TextBlock x:Name="ConnectionBadge" Text="Connect…" VerticalAlignment="Center" MaxWidth="360" TextTrimming="CharacterEllipsis"/><TextBlock x:Name="ConnectionChevron" Style="{StaticResource GlyphText}" Text="&#xE70D;" FontSize="10" Margin="10,0,0,0" Visibility="Collapsed"/></StackPanel></Button>
+              </Grid>
+            </Border>
+          </DockPanel>
+        </Border>
+      </DockPanel>
+      <!-- A Canvas measures as zero, so the WebView2 never sets the header height; code sizes the band to the left block. -->
+      <Canvas Grid.Column="1" ClipToBounds="True">
+      <Border x:Name="BobertoPanel" Background="{DynamicResource Header}" BorderBrush="{DynamicResource FaintBorder}" BorderThickness="1,0,0,1">
+        <DockPanel>
+          <StackPanel DockPanel.Dock="Right" Width="34" Background="{DynamicResource Header}">
+            <Button x:Name="BobertoButton" Style="{StaticResource IconButton}" Content="&#xE771;" Click="BobertoClick" ToolTip="Customize Boberto: gestures, costumes, accessories, backgrounds and borders"/>
+            <Button x:Name="BobertoHideButton" Style="{StaticResource IconButton}" Content="&#xE8BB;" Click="BobertoHideClick" ToolTip="Hide Boberto · View → Boberto companion shows it again"/>
+          </StackPanel>
+          <ContentControl x:Name="BobertoHost" Focusable="False"/>
+        </DockPanel>
+      </Border>
+      </Canvas>
+    </Grid>
+    <!-- Repeat caution: an amber band in the DBMON idiom (tint, left rule, hairline) on every palette, under the header and
+         aligned with the work cards, while SQL runs on a timer. The rail at its foot fills until the next run. -->
+    <Border x:Name="RepeatBanner" DockPanel.Dock="Top" Visibility="Collapsed" Margin="16,10,16,0" Background="#24F5A524" BorderBrush="#B3F5A524" BorderThickness="1" CornerRadius="{DynamicResource ControlRadius}" ClipToBounds="True">
+      <Grid>
+        <Grid.ColumnDefinitions><ColumnDefinition Width="4"/><ColumnDefinition/></Grid.ColumnDefinitions>
+        <Grid.RowDefinitions><RowDefinition/><RowDefinition Height="2"/></Grid.RowDefinitions>
+        <Border Grid.RowSpan="2" Background="#F5A524"/>
+        <Grid Grid.Column="1" Margin="12,7,10,7">
+          <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*" MinWidth="0"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+          <Ellipse x:Name="RepeatPulse" Width="8" Height="8" Fill="#F5A524" VerticalAlignment="Center" Margin="0,0,10,0"/>
+          <Border Grid.Column="1" Background="#F5A524" CornerRadius="{DynamicResource ControlRadius}" Padding="7,2,8,2" VerticalAlignment="Center"><StackPanel Orientation="Horizontal"><TextBlock Style="{StaticResource GlyphText}" Text="&#xE895;" FontSize="11" Margin="0,0,6,0" Foreground="#1A1406"/><TextBlock Text="REPEATING" FontFamily="{DynamicResource MonoFont}" FontWeight="Bold" FontSize="11" Foreground="#1A1406" VerticalAlignment="Center"/></StackPanel></Border>
+          <TextBlock x:Name="RepeatTitle" Grid.Column="2" FontFamily="{DynamicResource MonoFont}" FontWeight="SemiBold" Foreground="{DynamicResource Ink}" VerticalAlignment="Center" Margin="10,0,0,0"/>
+          <TextBlock x:Name="RepeatDetail" Grid.Column="3" FontFamily="{DynamicResource MonoFont}" FontSize="{DynamicResource SmallFontSize}" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="12,1,12,0"/>
+          <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center">
+            <TextBlock x:Name="RepeatCountdown" FontFamily="{DynamicResource MonoFont}" FontWeight="Bold" Foreground="{DynamicResource Ink}" VerticalAlignment="Center" Margin="0,0,12,0"/>
+            <Button x:Name="RepeatNowButton" Click="RepeatNowClick" Margin="0,0,8,0" ToolTip="Start the next run without waiting for the countdown"><StackPanel Orientation="Horizontal"><TextBlock Style="{StaticResource GlyphText}" Text="&#xE768;" FontSize="11" Margin="0,0,6,0"/><TextBlock x:Name="RepeatNowText" Text="Run now" VerticalAlignment="Center"/></StackPanel></Button>
+            <Button x:Name="RepeatStopButton" Click="RepeatStopClick" Background="#F5A524" Foreground="#1A1406" BorderBrush="#F5A524" ToolTip="Stop repeating · Esc"><StackPanel Orientation="Horizontal"><TextBlock Style="{StaticResource GlyphText}" Text="&#xE71A;" FontSize="11" Margin="0,0,7,0" Foreground="#1A1406"/><TextBlock x:Name="RepeatStopText" Text="Stop repeating" FontWeight="SemiBold" VerticalAlignment="Center"/></StackPanel></Button>
+          </StackPanel>
+        </Grid>
+        <Border Grid.Row="1" Grid.Column="1" Background="#33F5A524"/>
+        <Border x:Name="RepeatProgress" Grid.Row="1" Grid.Column="1" Background="#F5A524" HorizontalAlignment="Left" Width="0"/>
+      </Grid>
+    </Border>
+    <!-- .smg-footer colophon: accent double rule above, mono status line, the Neo Mirai signature at the end. -->
+    <Border DockPanel.Dock="Bottom" Background="{DynamicResource Header}">
+      <DockPanel>
+        <StackPanel DockPanel.Dock="Top"><Border Height="1" Background="{DynamicResource AccentWeak}"/><Border Height="1" Margin="0,2,0,0" Background="{DynamicResource AccentRule}"/><Border Height="1" Margin="0,1,0,0" Background="{DynamicResource TopbarGlow}"/></StackPanel>
+        <Grid Margin="16,6,14,7"><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+          <TextBlock x:Name="StatusText" Text="Ready" Foreground="{DynamicResource Muted}" FontFamily="{DynamicResource MonoFont}" FontSize="{DynamicResource SmallFontSize}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+          <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+            <TextBlock x:Name="PositionText" Text="Ln 1, Col 1" FontFamily="{DynamicResource MonoFont}" FontSize="{DynamicResource SmallFontSize}" Foreground="{DynamicResource Muted}" Margin="0,0,12,0" VerticalAlignment="Center"/>
+            <!-- Session facts reported by the server: where the session stands (database) and who it is (spid, login, charset). -->
+            <StackPanel x:Name="SessionFactsPanel" Orientation="Horizontal" VerticalAlignment="Center" Visibility="Collapsed">
+              <Border BorderBrush="{DynamicResource FaintBorder}" BorderThickness="1,0,0,0" Margin="0,2,2,2"/>
+              <Button x:Name="DatabaseButton" Style="{StaticResource StatusSegment}" Click="DatabaseClick" ToolTip="Current database · click to switch"><StackPanel Orientation="Horizontal"><TextBlock Text="DB" Foreground="{DynamicResource Muted}" Margin="0,0,6,0"/><TextBlock x:Name="DatabaseText" Foreground="{DynamicResource Accent}" FontWeight="SemiBold" MaxWidth="220" TextTrimming="CharacterEllipsis"/><TextBlock Style="{StaticResource GlyphText}" Text="&#xE70D;" FontSize="8" Margin="6,1,0,0"/></StackPanel></Button>
+              <Button x:Name="SpidButton" Style="{StaticResource StatusSegment}" Click="SpidClick" ToolTip="Server process id of this session · click to copy"><StackPanel Orientation="Horizontal"><TextBlock Text="SPID" Foreground="{DynamicResource Muted}" Margin="0,0,6,0"/><TextBlock x:Name="SpidText" Foreground="{DynamicResource Ink}" FontWeight="SemiBold"/></StackPanel></Button>
+              <TextBlock x:Name="LoginText" FontFamily="{DynamicResource MonoFont}" FontSize="{DynamicResource SmallFontSize}" Foreground="{DynamicResource Muted}" Margin="10,0,0,0" VerticalAlignment="Center" MaxWidth="160" TextTrimming="CharacterEllipsis" ToolTip="Login of this session"/>
+              <TextBlock x:Name="CharsetText" FontFamily="{DynamicResource MonoFont}" FontSize="{DynamicResource SmallFontSize}" Foreground="{DynamicResource Muted}" Margin="12,0,0,0" VerticalAlignment="Center" ToolTip="Client character set"/>
+              <Border BorderBrush="{DynamicResource FaintBorder}" BorderThickness="1,0,0,0" Margin="12,2,12,2"/>
+            </StackPanel>
+            <TextBlock x:Name="ConnectionStatus" Text="Disconnected" FontFamily="{DynamicResource MonoFont}" FontSize="{DynamicResource SmallFontSize}" Foreground="{DynamicResource Muted}" VerticalAlignment="Center"/>
+            
+          </StackPanel>
+        </Grid>
+      </DockPanel>
+    </Border>
+    <Grid x:Name="WorkArea" Margin="16,12,16,12" SizeChanged="WorkAreaSizeChanged">
+      <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="8"/><RowDefinition x:Name="LogRow" Height="190"/></Grid.RowDefinitions>
+      <Grid.ColumnDefinitions><ColumnDefinition x:Name="BrowserColumn" Width="0"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+      <ContentControl x:Name="BrowserPanel" Grid.Column="0" Style="{StaticResource NeoCard}" Margin="0,0,14,0" Visibility="Collapsed">
+        <DockPanel Margin="14,14,12,12"><StackPanel DockPanel.Dock="Top">
+          <DockPanel Margin="0,0,0,8"><Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Content="&#xE72C;" Click="ReloadBrowserClick" ToolTip="Reload catalog"/><TextBlock Style="{StaticResource SectionLabel}" Text="OBJECT EXPLORER"/></DockPanel>
+          <TextBlock x:Name="BrowserConnection" Text="No connection" FontFamily="{DynamicResource MonoFont}" FontSize="{DynamicResource SmallFontSize}" Foreground="{DynamicResource Accent}" TextWrapping="Wrap" Margin="0,0,0,10"/>
+          <Grid Margin="0,0,0,8"><TextBox x:Name="BrowserSearch" KeyDown="BrowserSearchKeyDown" Padding="30,7,9,7" ToolTip="Filter objects by name on the server · Enter applies"/><TextBlock Style="{StaticResource GlyphText}" Text="&#xE721;" Margin="10,0,0,0" IsHitTestVisible="False" Foreground="{DynamicResource Muted}" HorizontalAlignment="Left"/><TextBlock Text="Filter objects…" IsHitTestVisible="False" Margin="31,0,0,0" VerticalAlignment="Center" Foreground="{DynamicResource Muted}"><TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding Text, ElementName=BrowserSearch}" Value=""><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></TextBlock.Style></TextBlock><Border HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,8,0" BorderThickness="1" BorderBrush="{DynamicResource FaintBorder}" Padding="5,0" IsHitTestVisible="False"><TextBlock Text="Enter" FontFamily="{DynamicResource MonoFont}" FontSize="10" Foreground="{DynamicResource Muted}"/></Border></Grid>
+        </StackPanel><TreeView x:Name="BrowserTree" BorderThickness="0"/></DockPanel>
+      </ContentControl>
+      <ContentControl Grid.Column="1" Style="{StaticResource NeoCard}">
+        <TabControl x:Name="Workspace" BorderThickness="0" SelectionChanged="TabChanged">
+          <TabItem x:Name="QueryTab" Header="Query">
+            <Grid><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition/></Grid.RowDefinitions>
+              <!-- Offline: SQL can be written, opened and saved; nothing executes until a session exists. -->
+              <Border x:Name="OfflineBanner" Grid.Row="0" Margin="12,0,12,8" Padding="12,6" CornerRadius="{DynamicResource ControlRadius}" Background="{DynamicResource AccentTint}" BorderBrush="{DynamicResource AccentCardRing}" BorderThickness="1" Visibility="Collapsed">
+                <DockPanel><Button DockPanel.Dock="Right" Click="ConnectClick" ToolTip="Connect · F11" Background="{DynamicResource Accent}" Foreground="{DynamicResource OnAccent}" BorderBrush="{DynamicResource Accent}" MinHeight="28"><TextBlock Text="Connect…   F11" FontWeight="SemiBold"/></Button>
+                  <TextBlock Text="&#x25E4;" Foreground="{DynamicResource Accent}" FontWeight="Bold" Margin="0,0,8,0" VerticalAlignment="Center"/><TextBlock Text="OFFLINE" FontFamily="{DynamicResource MonoFont}" FontWeight="Bold" FontSize="{DynamicResource SmallFontSize}" Foreground="{DynamicResource Accent}" Margin="0,0,12,0" VerticalAlignment="Center"/><TextBlock x:Name="OfflineText" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" TextWrapping="Wrap" Text="You can write, open and save SQL. Connect to SAP ASE, IQ or Replication Server to execute it."/></DockPanel>
+              </Border>
+              <edit:TextEditor x:Name="Editor" Grid.Row="1" FontFamily="{DynamicResource MonoFont}" FontSize="{DynamicResource EditorFontSize}" KeyboardNavigation.DirectionalNavigation="None" ShowLineNumbers="True" WordWrap="False" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto" Padding="8,12" Background="{DynamicResource Surface}" Foreground="{DynamicResource Ink}" LineNumbersForeground="{DynamicResource LineNumber}" TextChanged="EditorChanged"/>
+            </Grid>
+          </TabItem>
+        </TabControl>
+      </ContentControl>
+      <GridSplitter x:Name="LogSplitter" Grid.Row="1" Grid.ColumnSpan="2" Height="8" HorizontalAlignment="Stretch" Background="Transparent"/>
+      <ContentControl x:Name="LogPanel" Grid.Row="2" Grid.ColumnSpan="2" Style="{StaticResource NeoCard}">
+        <DockPanel><Border DockPanel.Dock="Top" BorderBrush="{DynamicResource FaintBorder}" BorderThickness="0,0,0,1" Padding="16,6,14,5"><Grid><StackPanel Orientation="Horizontal"><TextBlock Text="&#x259A;" Foreground="{DynamicResource Accent}" FontSize="10" Margin="0,0,7,0" VerticalAlignment="Center"/><TextBlock Style="{StaticResource SectionLabel}" Text="MESSAGES · LATEST RUN"/></StackPanel><TextBlock x:Name="LogCount" Text="0 messages" HorizontalAlignment="Right" FontFamily="{DynamicResource MonoFont}" FontSize="{DynamicResource SmallFontSize}" Foreground="{DynamicResource Muted}"/></Grid></Border>
+          <DataGrid x:Name="Messages" AutoGenerateColumns="False" SelectionUnit="FullRow" Margin="2,0,2,2"><DataGrid.Columns><DataGridTextColumn Header="Time" Binding="{Binding Time}" Width="115"/><DataGridTextColumn Header="Code" Binding="{Binding Number}" Width="70"/><DataGridTextColumn Header="Source" Binding="{Binding Source}" Width="130"/><DataGridTextColumn Header="Message" Binding="{Binding Text}" Width="*"/></DataGrid.Columns></DataGrid>
+        </DockPanel>
+      </ContentControl>
+    </Grid>
+  </DockPanel>
+</Window>
