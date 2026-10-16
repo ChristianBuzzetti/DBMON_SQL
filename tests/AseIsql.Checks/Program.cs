@@ -375,6 +375,32 @@ Check("Repeat caution detects state changes in code only, ignoring temporary tab
     Assert(SqlRisk.StateChanges(byId["ase_tablas_mas_accedidas"]).Count == 0 && SqlRisk.StateChanges(byId["ase_top10_cpu"]).Count == 0 && SqlRisk.StateChanges(byId["rs_who_sqm"]).Count == 0);
     Assert(SqlRisk.StateChanges(byId["ase_act_kill_spid"]).Count > 0 && SqlRisk.StateChanges(byId["rs_resume_skip"]).Count > 0 && SqlRisk.StateChanges(byId["iq_drop_connection"]).Count > 0);
 });
+Check("Session options send only what changed, with noexec last on and first off", () => {
+    var off = AseSessionOptions.Default;
+    Assert(AseSessionOptions.Script(off, off).Count == 0);
+    Assert(AseSessionOptions.Script(off, off with { StatisticsIo = true }).SequenceEqual(new[] { "set statistics io on" }));
+    // Turning on: noexec trails, so showplan and the statistics are already in force when nothing runs any more.
+    var all = off with { NoExec = true, ShowPlan = true, StatisticsIo = true, StatisticsTime = true };
+    Assert(AseSessionOptions.Script(off, all).SequenceEqual(new[] { "set showplan on", "set statistics io on", "set statistics time on", "set noexec on" }));
+    // Turning off: noexec leads, because nothing after it would execute otherwise.
+    Assert(AseSessionOptions.Script(all, off).SequenceEqual(new[] { "set noexec off", "set showplan off", "set statistics io off", "set statistics time off" }));
+    Assert(AseSessionOptions.Script(all, all with { StatisticsTime = false }).SequenceEqual(new[] { "set statistics time off" }));
+});
+Check("Compatibility mode is set only when chosen and never claimed back to the server default", () => {
+    var off = AseSessionOptions.Default;
+    Assert(off.Compatibility == CompatibilityMode.ServerDefault);
+    Assert(AseSessionOptions.Script(off, off with { Compatibility = CompatibilityMode.Off }).SequenceEqual(new[] { "set compatibility_mode off" }));
+    Assert(AseSessionOptions.Script(off, off with { Compatibility = CompatibilityMode.On }).SequenceEqual(new[] { "set compatibility_mode on" }));
+    // ASE has no statement that restores the server's own setting, so the move back emits nothing.
+    Assert(AseSessionOptions.Script(off with { Compatibility = CompatibilityMode.On }, off).Count == 0);
+});
+Check("Session option tags name every option in force and nothing else", () => {
+    Assert(AseSessionOptions.Default.Tags.Count == 0 && AseSessionOptions.Default.IsDefault);
+    var options = AseSessionOptions.Default with { NoExec = true, StatisticsIo = true, Compatibility = CompatibilityMode.Off };
+    Assert(options.Tags.SequenceEqual(new[] { "NOEXEC", "STATS IO", "COMPAT OFF" }) && !options.IsDefault);
+    // Compatibility alone is not the default state either: the chip has to show it.
+    Assert(!(AseSessionOptions.Default with { Compatibility = CompatibilityMode.On }).IsDefault);
+});
 Console.WriteLine($"{passed} checks passed. No ASE server was contacted.");
 
 sealed class ThrowingEngine : IQueryEngine

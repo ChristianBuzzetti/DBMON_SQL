@@ -1,4 +1,4 @@
-﻿using System.Collections.ObjectModel;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Data;
 using System.Diagnostics;
@@ -181,6 +181,8 @@ public partial class MainWindow : Window
             lastRunFailed = output.Error != null;
             if (output.Error != null) { AddMessage(1, output.ErrorSource, output.Error, output.ErrorRawText); SetLogVisible(true); }
             else AddMessage(0, SourceLabel, $"Done · {Counts.Of(output.Tables.Count, "result")} · {Counts.Of(rowCount, "row")} · {Elapsed(elapsedMs)}");
+            // An empty run under NOEXEC looks like a broken server; say which option produced it, every time.
+            if (aseOptions.NoExec && engine is AseIsql.Odbc.OdbcSession { Platform: ServerPlatform.Ase }) AddMessage(0, "CLIENT", "NOEXEC is on: the server compiled this script and executed none of it. Tools › SAP ASE session options turns it off.");
             if (output.Tables.Count > 0) Workspace.SelectedItem = Workspace.Items.OfType<TabItem>().First(tab => ReferenceEquals(tab.Tag, output.Tables[0]));
             StatusText.Text = output.Error == null ? $"Ready · {Counts.Of(output.Tables.Count, "result")} · {Counts.Of(rowCount, "row")} · {Elapsed(elapsedMs)} · {SourceLabel}" : "Error / partial output · see Messages";
         }
@@ -933,7 +935,20 @@ public partial class MainWindow : Window
                 Require(DataFolder.Migrate(target,legacy)==null&&File.ReadAllText(Path.Combine(target,"appearance.json"))=="{}","An existing DBMON_SQL folder is never overwritten by an old one");
                 Require(DataFolder.Root.EndsWith(Path.DirectorySeparatorChar+"DBMON_SQL",StringComparison.Ordinal)&&AppearanceStore.PathName.StartsWith(DataFolder.Root,StringComparison.Ordinal),"Appearance, profiles, recipes and the Boberto profile live under DBMON_SQL");
             }finally{if(Directory.Exists(folderFixture))Directory.Delete(folderFixture,true);}
-            Require(QueryTab.FocusVisualStyle==null,"Tabs draw keyboard focus with their own frame, without the dotted rectangle over the border");
+            // Keyboard focus is a FocusVisualStyle again, which WPF shows for keyboard navigation only; it is inset so
+            // it never covers the frame's own border, which is what the dotted default used to do.
+            var focusRing=(QueryTab.FocusVisualStyle?.Setters.OfType<Setter>().FirstOrDefault(setter=>setter.Property==Control.TemplateProperty)?.Value as ControlTemplate)?.LoadContent() as Border;
+            Require(focusRing is {BorderThickness.Left:>0} && focusRing.Margin.Left>=1 && focusRing.Margin.Left==focusRing.Margin.Top,"Tabs draw keyboard focus with a ring inset inside the frame, never over its border");
+            Workspace.SelectedItem=QueryTab;Workspace.UpdateLayout();
+            // The plate's shadow lives on its own layer: the header text is never rendered through an effect, which
+            // would swap its antialiasing and make the selected tab read heavier than its neighbours.
+            Require(QueryTab.Template.FindName("Frame",QueryTab) is Border {Effect:null} && QueryTab.Template.FindName("Lift",QueryTab) is Border {Effect:not null,Visibility:Visibility.Visible} && QueryTab.UseLayoutRounding,"The selected tab lifts on a layer behind its plate and rounds its layout, so the header keeps its antialiasing and the ring keeps all four sides");
+            AseOptionsOpened(AseOptionsMenu,new RoutedEventArgs());
+            Require(AseOptionsMenu.Items.Count>=7 && !AseOptionsMenu.IsEnabled && AseOptionsMenu.Items.OfType<MenuItem>().All(item=>!item.IsEnabled),"ASE session options build their menu and every entry stays disabled without a connected ASE session");
+            aseOptions=AseSessionOptions.Default with {NoExec=true};RefreshAseOptions();
+            Require(SetOptionsText.Text=="NOEXEC" && SetOptionsButton.Visibility==Visibility.Collapsed,"The SET chip names the options in force and stays hidden while no ASE session owns them");
+            aseOptions=AseSessionOptions.Default;RefreshAseOptions();
+            Require(SetOptionsText.Text.Length==0,"Clearing the ASE session options empties the SET chip");
             var widthTable=new DataTable();widthTable.Columns.Add("state");widthTable.Columns.Add("n");widthTable.Rows.Add("Awaiting Command for the replication DSI thread","1");
             Require(FitColumnWidth(widthTable,0,"state")>FitColumnWidth(widthTable,1,"n")+120&&FitColumnWidth(widthTable,1,"n")<=110&&FitColumnWidth(widthTable,0,"state")<=MaxFittedColumn,"Result columns open wide enough for their first rows' text, compact for short values and capped for long ones");
             string insertBefore=Editor.Text;
