@@ -135,7 +135,7 @@ public partial class MainWindow
     private void OpenPersonalization(bool studio=false)
     {
         if(personalizing||!IsLoaded)return;personalizing=true;
-        try{var window=new PersonalizationWindow(appearance,ApplyAppearance,studio){Owner=this};window.ShowDialog();}
+        try{var window=new PersonalizationWindow(appearance,ApplyAppearance,studio,testProfile:BobertoProfile){Owner=this};window.ShowDialog();}
         finally{personalizing=false;}
         _=bobertoDock?.EnsureLiveAsync();
         SaveAppearance();

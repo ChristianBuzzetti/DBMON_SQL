@@ -28,6 +28,12 @@ public partial class MainWindow
         Directory.CreateDirectory(ShowcaseDirectory!);
         // Frames come from this process's own windows only, so nothing else on the screen can enter the recording.
         using var recorder = new ShowcaseRecorder(new System.Windows.Interop.WindowInteropHelper(this).Handle, Path.Combine(ShowcaseDirectory!, "frames"));
+        // A fixed starting look in the showcase's own profile, so the tour opens the same way every time.
+        if (bobertoDock != null)
+        {
+            try { await bobertoDock.Ready.WaitAsync(TimeSpan.FromSeconds(20)); await bobertoDock.EvaluateAsync("(()=>{const B=window.BOBERTO;B.setCharacter(null);B.setSkin('auto');B.setHatColor(null);B.setHat('auriculares');B.setFondo('mirai-noche');B.setBorde('neon');return true;})()"); await Task.Delay(800); }
+            catch (Exception ex) when (ex is TimeoutException or InvalidOperationException or ObjectDisposedException) { }
+        }
         var clock = System.Diagnostics.Stopwatch.StartNew();
         // Scene marks save the current frame as a still for the README.
         void Mark(string name) { recorder.Still(Path.Combine(ShowcaseDirectory!, name + ".png")); File.AppendAllText(Path.Combine(ShowcaseDirectory!, "marks.txt"), name + " " + clock.Elapsed.TotalSeconds.ToString("0.00", CultureInfo.InvariantCulture) + Environment.NewLine); }
@@ -87,7 +93,35 @@ public partial class MainWindow
         for (int i = 0; i < 60 && repeat != null; i++) await Task.Delay(100);
         await Task.Delay(1500);
 
-        // 4 · Personalize: a few of the 19 palettes, applied live.
+        // 4 · Boberto Studio: accessory, colors, background and frame, clicked in the Studio itself.
+        _ = Dispatcher.InvokeAsync(async () =>
+        {
+            await Task.Delay(600);
+            var window = Application.Current.Windows.OfType<PersonalizationWindow>().First();
+            var studio = window.Studio!;
+            for (int i = 0; i < 100; i++) { try { if (await studio.EvaluateAsync("!!(window.desktopStudio&&window.desktopStudio.facts().ready)") == "true") break; } catch (InvalidOperationException) { } await Task.Delay(100); }
+            await studio.EvaluateAsync(StudioPicker);
+            await Task.Delay(900);
+            await StudioStep(studio, "Accessory", null, 500);
+            await StudioStep(studio, "Crown", "window.BOBERTO.setHat('corona')", 1100); Mark("studio-crown");
+            await StudioStep(studio, "Samurai", "window.BOBERTO.setHat('samurai')", 1100);
+            await StudioStep(studio, "Accessory color", null, 400);
+            await studio.EvaluateAsync("window.BOBERTO.setHatColor('#c0392b')"); await Task.Delay(900);
+            await StudioStep(studio, "Body", null, 400);
+            await studio.EvaluateAsync("window.BOBERTO.setSkinColor('#2b2f3a')"); await Task.Delay(900);
+            await StudioStep(studio, "Background", null, 500);
+            await StudioStep(studio, "Cyberpunk", "window.BOBERTO.setFondo('cyberpunk')", 1100);
+            await StudioStep(studio, "Torii", "window.BOBERTO.setFondo('jp-torii')", 1100); Mark("studio-background");
+            await StudioStep(studio, "Borders", null, 500);
+            await StudioStep(studio, "Spark", "window.BOBERTO.setBorde('chispa')", 1200); Mark("studio-border");
+            await StudioStep(studio, "Gestures", null, 400);
+            await studio.EvaluateAsync("window.BOBERTO.playGesture('saluda')"); await Task.Delay(2200);
+            window.Close();
+        });
+        await Glide(BobertoButton); OpenPersonalization(true);
+        await Task.Delay(2200); // the header dock reloads with the look chosen in Studio
+
+        // 5 · Personalize: a few of the 19 palettes, applied live.
         _ = Dispatcher.InvokeAsync(async () =>
         {
             await Task.Delay(900);
@@ -114,8 +148,10 @@ public partial class MainWindow
     private async Task Glide(FrameworkElement target, double fx = 0.5, double fy = 0.5)
     {
         if (!target.IsVisible) return;
-        var device = PresentationSource.FromVisual(target)?.CompositionTarget?.TransformToDevice ?? Matrix.Identity;
-        var point = target.PointToScreen(new Point(target.ActualWidth * fx, target.ActualHeight * fy));
+        await GlideTo(target.PointToScreen(new Point(target.ActualWidth * fx, target.ActualHeight * fy)));
+    }
+    private static async Task GlideTo(Point point)
+    {
         GetCursorPos(out var start);
         const int steps = 18;
         for (int i = 1; i <= steps; i++)
@@ -125,6 +161,38 @@ public partial class MainWindow
             await Task.Delay(16);
         }
         await Task.Delay(180);
+    }
+
+    // Finds a visible Studio control by its label (tab or option), remembers it and returns its center in CSS pixels.
+    private const string StudioPicker = """
+        window.__pick = (text) => {
+          const norm = s => (s || '').replace(/\s+/g, ' ').trim().toLowerCase(), want = norm(text);
+          const all = [...document.querySelectorAll('button,[role=tab],[role=button],[title],[aria-label],li,label')].filter(e => e.offsetParent !== null);
+          const label = e => [e.getAttribute('aria-label'), e.title, e.textContent].map(norm);
+          const el = all.find(e => label(e).some(v => v === want)) || all.find(e => label(e).some(v => v.startsWith(want + ' ') || v.startsWith(want + '\n')));
+          if (!el) return null;
+          el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+          const r = el.getBoundingClientRect(); window.__picked = el;
+          return JSON.stringify({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
+        };
+        true
+        """;
+
+    // Glides the pointer to a Studio control and clicks it there; when the label is not found, the engine call shows
+    // the same change so the recording still tells the story.
+    private async Task StudioStep(BobertoStudioControl studio, string label, string? fallback, int holdMs)
+    {
+        string raw = await studio.EvaluateAsync("window.__pick(" + System.Text.Json.JsonSerializer.Serialize(label) + ")");
+        string? json = raw == "null" ? null : System.Text.Json.JsonSerializer.Deserialize<string>(raw);
+        if (json != null)
+        {
+            using var point = System.Text.Json.JsonDocument.Parse(json);
+            var screen = studio.PointToScreen(new Point(point.RootElement.GetProperty("x").GetDouble(), point.RootElement.GetProperty("y").GetDouble()));
+            await GlideTo(screen);
+            await studio.EvaluateAsync("window.__picked && window.__picked.click()");
+        }
+        else if (fallback != null) await studio.EvaluateAsync(fallback);
+        await Task.Delay(holdMs);
     }
 
     private static async Task TypeInto(Action<string> append, string text, int delayMs)

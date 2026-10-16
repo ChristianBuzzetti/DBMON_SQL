@@ -12,7 +12,7 @@
 ![.NET](https://img.shields.io/badge/.NET-10-512bd4)
 ![Version](https://img.shields.io/badge/version-0.1.0-cb6a3e)
 
-<img src="docs/media/dbmon-sql-tour.gif" width="900" alt="DBMON SQL tour: writing and running a query, inserting a recipe with a parameter, repeating a query on a timer and switching palettes" />
+<img src="docs/media/dbmon-sql-tour.gif" width="900" alt="DBMON SQL tour: writing and running a query, inserting a recipe with a parameter, repeating a query on a timer, dressing Boberto in Studio and switching palettes" />
 
 <sub>Recorded from the app's built-in showcase with synthetic data from a fictional <code>DEMO_ASE</code> server · <a href="docs/media/dbmon-sql-tour.mp4">MP4 version</a></sub>
 
@@ -45,6 +45,8 @@ DBMON SQL keeps the dense, keyboard-driven workflow of the classic `isql` / AseI
 | <img src="docs/media/workspace.png" alt="Query results with typed values, messages panel and session facts in the status bar" /> | <img src="docs/media/parameters.png" alt="Recipe library with the parameter form and a live SQL preview" /> |
 | **Repeat on a timer** | **19 palettes, applied live** |
 | <img src="docs/media/repeat.png" alt="A query repeating every 5 seconds with the caution band, countdown and Stop control" /> | <img src="docs/media/palette-synthwave.png" alt="Personalize window with palette tiles and a live preview" /> |
+| **Boberto Studio** | **Accessories, colors, backgrounds and frames** |
+| <img src="docs/media/studio-crown.png" alt="Boberto Studio choosing the Crown accessory" /> | <img src="docs/media/studio-background.png" alt="Boberto Studio with the samurai accessory and the Torii background" /> |
 
 ## Requirements
 
