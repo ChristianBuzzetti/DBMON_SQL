@@ -20,13 +20,6 @@ public sealed class DiagnosticMessages
         // Identical text embedded in the server payload is still user evidence.
         display = string.Join('\n', display.Split('\n').Select(line =>
             line.StartsWith(DriverPrefix, StringComparison.Ordinal) ? line[DriverPrefix.Length..].TrimStart(' ') : line));
-        // The frame can own a whole line, and removing it then leaves the record starting with a blank one. Messages
-        // shows a single line per record, so such a record reads as empty while its text sits out of sight below.
-        // Only the leading blank goes: trailing text is left exactly as the server wrote it.
-        display = display.TrimStart('\r', '\n', ' ');
-        // ASE separates its trailing blocks with records that are nothing but the transport frame. Unframing leaves
-        // them empty, and an empty display is the caller's signal to drop the record: it carries no server text, and
-        // the frame is the one thing this class exists to hide. RawText still holds it for anyone who asks.
         return new(number, "ODBC " + state, OdbcSession.Redact(display, password), OdbcSession.Redact(raw, password));
     }
 }

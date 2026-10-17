@@ -190,21 +190,6 @@ Check("Cumulative SAP diagnostics display only appended frame with raw evidence"
     Assert(reader.Read(5704,"ZZZZZ",first+second,"").Text==first+second);
     Assert(reader.Read(1,"ZZZZZ","independent message","").Text=="independent message");
 });
-Check("A frame on its own line leaves the payload visible on the first line of the record",()=>{
-    const string prefix="[SAP][ASE ODBC Driver][Adaptive Server Enterprise]";
-    // A record can arrive with the frame occupying a line of its own; Messages shows one line per record, so a
-    // leading blank would make it read as empty while its text sat out of sight below.
-    const string stats="Table: Worktable1 scan count 1, logical reads: (regular=881 apf=0 total=881)";
-    var message=new DiagnosticMessages().Read(3615,"ZZZZZ",prefix+"\n"+stats,"");
-    Assert(message.Text==stats && message.RawText==prefix+"\n"+stats);
-    // Trailing text stays exactly as the server wrote it, newlines included.
-    Assert(new DiagnosticMessages().Read(1,"x",prefix+" Server warning.\r\n","").Text=="Server warning.\r\n");
-    // A record that is nothing but the frame carries no server text: it comes back empty, which is how the
-    // session and the failure summary know to drop it instead of showing a blank row. Raw evidence is kept.
-    var bare=new DiagnosticMessages().Read(0,"ZZZZZ","\n"+prefix,"");
-    Assert(bare.Text.Length==0 && bare.RawText=="\n"+prefix);
-    Assert(new DiagnosticMessages().Read(0,"ZZZZZ",prefix,"").Text.Length==0);
-});
 Check("Diagnostic normalizer preserves unframed payload and redacts raw transport secret",()=>{
     var reader=new DiagnosticMessages(); reader.Read(1,"x","prefix","");
     Assert(reader.Read(2,"x","prefixsuffix","").Text=="prefixsuffix");
@@ -389,63 +374,6 @@ Check("Repeat caution detects state changes in code only, ignoring temporary tab
     var byId = recipes.RootElement.EnumerateArray().ToDictionary(r => r.GetProperty("id").GetString()!, r => r.GetProperty("sql").GetString()!);
     Assert(SqlRisk.StateChanges(byId["ase_tablas_mas_accedidas"]).Count == 0 && SqlRisk.StateChanges(byId["ase_top10_cpu"]).Count == 0 && SqlRisk.StateChanges(byId["rs_who_sqm"]).Count == 0);
     Assert(SqlRisk.StateChanges(byId["ase_act_kill_spid"]).Count > 0 && SqlRisk.StateChanges(byId["rs_resume_skip"]).Count > 0 && SqlRisk.StateChanges(byId["iq_drop_connection"]).Count > 0);
-});
-Check("Session options send only what changed, with noexec last on and first off", () => {
-    var off = AseSessionOptions.Default;
-    Assert(AseSessionOptions.Script(off, off).Count == 0);
-    Assert(AseSessionOptions.Script(off, off with { StatisticsTime = true }).SequenceEqual(new[] { "set statistics time on" }));
-    // Turning on: noexec trails, so showplan and the statistics are already in force when nothing runs any more.
-    var all = off with { NoExec = true, ShowPlan = true, StatisticsTime = true };
-    Assert(AseSessionOptions.Script(off, all).SequenceEqual(new[] { "set showplan on", "set statistics time on", "set noexec on" }));
-    // Turning off: noexec leads, because nothing after it would execute otherwise.
-    Assert(AseSessionOptions.Script(all, off).SequenceEqual(new[] { "set noexec off", "set showplan off", "set statistics time off" }));
-    // statistics io is gone on purpose: the driver delivered its per-table record empty. Nothing may emit it.
-    Assert(AseSessionOptions.Script(off, all).Concat(AseSessionOptions.Script(all, off)).All(line => !line.Contains("statistics io")));
-});
-Check("A change made while noexec is on is bracketed, so it never depends on the server honouring SET there", () => {
-    var off = AseSessionOptions.Default;
-    var noexec = off with { NoExec = true };
-    // The bug this covers: showplan switched on under noexec looked applied here and did nothing on the session.
-    Assert(AseSessionOptions.Script(noexec, noexec with { ShowPlan = true }).SequenceEqual(new[] { "set noexec off", "set showplan on", "set noexec on" }));
-    var all = off with { NoExec = true, ShowPlan = true, StatisticsTime = true };
-    Assert(AseSessionOptions.Script(all, all with { StatisticsTime = false }).SequenceEqual(new[] { "set noexec off", "set statistics time off", "set noexec on" }));
-    Assert(AseSessionOptions.Script(noexec, noexec with { Compatibility = CompatibilityMode.Off }).SequenceEqual(new[] { "set noexec off", "set compatibility_mode off", "set noexec on" }));
-    // Nothing to bracket when noexec itself is the only move, in either direction.
-    Assert(AseSessionOptions.Script(noexec, off).SequenceEqual(new[] { "set noexec off" }));
-    Assert(AseSessionOptions.Script(off, noexec).SequenceEqual(new[] { "set noexec on" }));
-    Assert(AseSessionOptions.Script(noexec, noexec).Count == 0);
-    // Statistics time measures execution, so noexec silences it; showplan is the one that still reports.
-    Assert((noexec with { StatisticsTime = true }).StatisticsSilencedByNoExec);
-    Assert(!(noexec with { ShowPlan = true }).StatisticsSilencedByNoExec && !(off with { StatisticsTime = true }).StatisticsSilencedByNoExec);
-});
-Check("Compatibility mode is set only when chosen and never claimed back to the server default", () => {
-    var off = AseSessionOptions.Default;
-    Assert(off.Compatibility == CompatibilityMode.ServerDefault);
-    Assert(AseSessionOptions.Script(off, off with { Compatibility = CompatibilityMode.Off }).SequenceEqual(new[] { "set compatibility_mode off" }));
-    Assert(AseSessionOptions.Script(off, off with { Compatibility = CompatibilityMode.On }).SequenceEqual(new[] { "set compatibility_mode on" }));
-    // ASE has no statement that restores the server's own setting, so the move back emits nothing.
-    Assert(AseSessionOptions.Script(off with { Compatibility = CompatibilityMode.On }, off).Count == 0);
-});
-Check("Session option tags name every option in force and nothing else", () => {
-    Assert(AseSessionOptions.Default.Tags.Count == 0 && AseSessionOptions.Default.IsDefault);
-    var options = AseSessionOptions.Default with { NoExec = true, StatisticsTime = true, Compatibility = CompatibilityMode.Off };
-    Assert(options.Tags.SequenceEqual(new[] { "NOEXEC", "STATS TIME", "COMPAT OFF" }) && !options.IsDefault);
-    // No option can put a statistics io tag on the chip any more.
-    Assert(!options.Tags.Any(tag => tag.Contains("IO")));
-    // Compatibility alone is not the default state either: the chip has to show it.
-    Assert(!(AseSessionOptions.Default with { Compatibility = CompatibilityMode.On }).IsDefault);
-});
-Check("Only the options that make ASE talk after the last row ask for a trailing flush, with a no-op re-assert", () => {
-    var off = AseSessionOptions.Default;
-    Assert(off.TrailingFlushStatement == null);
-    // noexec alone executes nothing, so there is no trailing block to collect.
-    Assert((off with { NoExec = true }).TrailingFlushStatement == null);
-    Assert((off with { Compatibility = CompatibilityMode.Off }).TrailingFlushStatement == null);
-    // Each one re-asserts an option that is already on, so the flush cannot change the session.
-    Assert((off with { StatisticsTime = true }).TrailingFlushStatement == "set statistics time on");
-    Assert((off with { ShowPlan = true }).TrailingFlushStatement == "set showplan on");
-    var all = off with { ShowPlan = true, StatisticsTime = true };
-    Assert(all.TrailingFlushStatement == "set statistics time on" && AseSessionOptions.Script(all, all).Count == 0);
 });
 Console.WriteLine($"{passed} checks passed. No ASE server was contacted.");
 

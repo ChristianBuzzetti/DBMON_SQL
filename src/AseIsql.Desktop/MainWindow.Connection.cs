@@ -50,8 +50,7 @@ public partial class MainWindow
         // Adopt the resource before UI work, and consume the validated snapshot
         // captured before opening ODBC rather than re-reading a closed dialog.
         StopRepeat("Stopped: a new session replaced the one it ran on.");
-        // SET options belonged to the session that is being replaced; the new one starts at the server's defaults.
-        engine=session;lastProfile=selection.Profile;aseOptions=AseSessionOptions.Default;
+        engine=session;lastProfile=selection.Profile;
         history.Clear();BrowserTree.Items.Clear();databaseNames=null;ClearResults(true);resultCounter=0;ClearMessages();
         AddMessage(0,"CLIENT","Connected · "+engine.Name+(timing==null?"":" · "+timing));
         foreach(var message in loginMessages)AddMessage(message.Number,message.Source,message.Text,message.RawText);
@@ -66,7 +65,7 @@ public partial class MainWindow
         try
         {
             await Task.Run(session.Dispose);
-            engine = new DisconnectedQueryEngine(); history.Clear(); BrowserTree.Items.Clear(); databaseNames = null; aseOptions = AseSessionOptions.Default;
+            engine = new DisconnectedQueryEngine(); history.Clear(); BrowserTree.Items.Clear(); databaseNames = null;
             ClearResults(true);
             ClearMessages();
             AddMessage(0, "CLIENT", session.Platform.Title() + " session closed.");
@@ -112,7 +111,6 @@ public partial class MainWindow
             (extraTargets.Count > 0 ? " · +" + Counts.Of(extraTargets.Count, "server") : "");
         ConnectionStatus.ToolTip = extraTargets.Count > 0 ? "Sessions for multi-server runs: " + string.Join(", ", extraTargets.Select(t => t.Label)) : null;
         RunMenuButton.IsEnabled = !changingSession;
-        RefreshAseOptions();
         BrowserConnection.Text = live ? engine.Name : "No connection";
         HeaderSubtitle.Text = "SQL WORKSPACE · " + (live ? CurrentPlatform.Title().ToUpperInvariant() : "SAP ASE · IQ · RS");
         UpdateTitle();
