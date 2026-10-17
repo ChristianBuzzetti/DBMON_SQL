@@ -45,6 +45,9 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
                 foreach (OdbcError error in args.Errors)
                 {
                     var message = diagnostics.Read(error.NativeError, error.SQLState, error.Message, this.password);
+                    // Nothing but a transport frame: ASE separates its trailing blocks with these, and a row that
+                    // shows no server text is noise in Messages.
+                    if (message.Text.Length == 0) continue;
                     var target = activeOutput?.Messages ?? loginMessages;
                     if (target.Count >= 500) { target.RemoveAt(0); if (activeOutput != null) activeOutput.OmittedMessages++; }
                     target.Add(message);
@@ -159,7 +162,9 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
         var errors = odbc.Errors.Cast<OdbcError>().ToArray();
         var reader = new DiagnosticMessages();
         string details = string.Join("\n", errors.DistinctBy(e => (e.SQLState, e.NativeError, e.Message))
-            .Select(e => $"[{e.SQLState} / {e.NativeError}] {reader.Read(e.NativeError,e.SQLState,e.Message,password).Text}"));
+            .Select(e => (Error: e, Text: reader.Read(e.NativeError, e.SQLState, e.Message, password).Text))
+            .Where(record => record.Text.Length != 0)
+            .Select(record => $"[{record.Error.SQLState} / {record.Error.NativeError}] {record.Text}"));
         bool certificateList = errors.Any(e => IsCertificateAuthorityFailure(e.SQLState, e.Message));
         return (certificateList ? "Unable to load the TLS CA certificate list. Check TrustedFile and its format. No unencrypted retry was attempted.\n\n" : "") +
             (details.Length == 0 ? Redact(exception.Message, password) : details);
@@ -168,6 +173,13 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
     public static bool IsCertificateAuthorityFailure(string state, string message) =>
         state.Equals("SC001", StringComparison.OrdinalIgnoreCase) &&
         message.Contains("setting the certificate authority list", StringComparison.OrdinalIgnoreCase);
+
+    // Set by the window when a SET option makes ASE emit messages after the last row (the execution times, the
+    // plan's tail). Those reach the driver, but System.Data.Odbc hands over diagnostics only on calls that
+    // report them, and the final SQLMoreResults reports no data, so the block is never raised as an InfoMessage. This
+    // is a no-op statement run right after the batches, inside the window where messages still belong to this run,
+    // purely to give the driver that call. Null when no option needs it, which is the usual case.
+    public string? TrailingFlush { get; set; }
 
     public QueryOutput Execute(string sql, CancellationToken cancellation = default)
     {
@@ -201,6 +213,17 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
                 }
                 if (reader.RecordsAffected >= 0) output.Messages.Add(new QueryMessage(0, profile.Platform.Tag(), $"Rows affected: {reader.RecordsAffected}"));
                 if (profile.Platform == ServerPlatform.Ase) database = connection.Database;
+            }
+            // A failure here is never the run's failure: the results are already read and complete.
+            if (TrailingFlush is { Length: > 0 } flush && !cancellation.IsCancellationRequested)
+            {
+                try
+                {
+                    using var flushCommand = connection.CreateCommand();
+                    flushCommand.CommandText = flush; flushCommand.CommandTimeout = 10;
+                    flushCommand.ExecuteNonQuery();
+                }
+                catch (Exception ex) when (ex is OdbcException or InvalidOperationException) { }
             }
         }
         catch (OdbcException ex)

@@ -4,7 +4,7 @@ using AseIsql.Odbc;
 
 namespace AseIsql.Desktop;
 
-// SAP ASE session options: noexec, showplan, statistics io/time and compatibility_mode, sent as SET statements on the
+// SAP ASE session options: noexec, showplan, statistics time and compatibility_mode, sent as SET statements on the
 // open session. One builder feeds both the Tools submenu and the status-bar chip, so there is a single description of
 // what each option does and a single place that decides the next state.
 public partial class MainWindow
@@ -29,8 +29,6 @@ public partial class MainWindow
         Toggle("Show plan", aseOptions.ShowPlan, aseOptions with { ShowPlan = !aseOptions.ShowPlan },
             "set showplan on/off · the query plan arrives as server messages. Pair it with No exec to read a plan without running the query.");
         items.Add(new Separator());
-        Toggle("Statistics IO", aseOptions.StatisticsIo, aseOptions with { StatisticsIo = !aseOptions.StatisticsIo },
-            "set statistics io on/off · scan counts, logical and physical reads per table, as server messages.");
         Toggle("Statistics time", aseOptions.StatisticsTime, aseOptions with { StatisticsTime = !aseOptions.StatisticsTime },
             "set statistics time on/off · parse, compile and execution time, as server messages.");
         items.Add(new Separator());
@@ -52,8 +50,11 @@ public partial class MainWindow
         return items;
     }
 
+    // SubmenuOpened bubbles, so the compatibility submenu opening would re-enter here and rebuild — that is, destroy —
+    // the very item the mouse is on, closing the whole menu. Only the top item's own opening rebuilds it.
     private void AseOptionsOpened(object sender, RoutedEventArgs e)
     {
+        if (!ReferenceEquals(e.OriginalSource, AseOptionsMenu)) return;
         AseOptionsMenu.Items.Clear();
         foreach (var item in AseOptionItems()) AseOptionsMenu.Items.Add(item);
     }
@@ -78,6 +79,7 @@ public partial class MainWindow
         aseOptions = next;
         AddMessage(0, "CLIENT", "Session options · " + string.Join(" · ", script));
         if (next.NoExec) AddMessage(0, "CLIENT", "NOEXEC is on: until you turn it off, the server compiles every script and runs none.");
+        if (next.StatisticsSilencedByNoExec) AddMessage(0, "CLIENT", "Statistics time measures execution, so it reports nothing while NOEXEC is on. Show plan still produces its plan.");
         RefreshAseOptions();
         StatusText.Text = next.Tags.Count == 0 ? "Session options · all off" : "Session options · " + string.Join(" · ", next.Tags);
     }, "Session options");
@@ -85,6 +87,8 @@ public partial class MainWindow
     private void RefreshAseOptions()
     {
         bool ase = engine is OdbcSession { IsOpen: true, Platform: ServerPlatform.Ase };
+        // Only the options that make ASE talk after the last row pay for the extra call; everyone else gets none.
+        if (engine is OdbcSession session) session.TrailingFlush = ase ? aseOptions.TrailingFlushStatement : null;
         AseOptionsMenu.IsEnabled = AseOptionsAvailable;
         AseOptionsMenu.ToolTip = ase
             ? "SET options on this session only · they are gone when it closes, and multi-server and repeat runs open their own sessions"

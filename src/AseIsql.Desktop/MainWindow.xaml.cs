@@ -182,7 +182,8 @@ public partial class MainWindow : Window
             if (output.Error != null) { AddMessage(1, output.ErrorSource, output.Error, output.ErrorRawText); SetLogVisible(true); }
             else AddMessage(0, SourceLabel, $"Done · {Counts.Of(output.Tables.Count, "result")} · {Counts.Of(rowCount, "row")} · {Elapsed(elapsedMs)}");
             // An empty run under NOEXEC looks like a broken server; say which option produced it, every time.
-            if (aseOptions.NoExec && engine is AseIsql.Odbc.OdbcSession { Platform: ServerPlatform.Ase }) AddMessage(0, "CLIENT", "NOEXEC is on: the server compiled this script and executed none of it. Tools › SAP ASE session options turns it off.");
+            if (aseOptions.NoExec && engine is AseIsql.Odbc.OdbcSession { Platform: ServerPlatform.Ase }) AddMessage(0, "CLIENT", "NOEXEC is on: the server compiled this script and executed none of it. Tools › SAP ASE session options turns it off."
+                + (aseOptions.StatisticsSilencedByNoExec ? " Statistics time measures execution, so it reports nothing until it is off." : ""));
             if (output.Tables.Count > 0) Workspace.SelectedItem = Workspace.Items.OfType<TabItem>().First(tab => ReferenceEquals(tab.Tag, output.Tables[0]));
             StatusText.Text = output.Error == null ? $"Ready · {Counts.Of(output.Tables.Count, "result")} · {Counts.Of(rowCount, "row")} · {Elapsed(elapsedMs)} · {SourceLabel}" : "Error / partial output · see Messages";
         }
@@ -943,8 +944,13 @@ public partial class MainWindow : Window
             // The plate's shadow lives on its own layer: the header text is never rendered through an effect, which
             // would swap its antialiasing and make the selected tab read heavier than its neighbours.
             Require(QueryTab.Template.FindName("Frame",QueryTab) is Border {Effect:null} && QueryTab.Template.FindName("Lift",QueryTab) is Border {Effect:not null,Visibility:Visibility.Visible} && QueryTab.UseLayoutRounding,"The selected tab lifts on a layer behind its plate and rounds its layout, so the header keeps its antialiasing and the ring keeps all four sides");
-            AseOptionsOpened(AseOptionsMenu,new RoutedEventArgs());
+            AseOptionsOpened(AseOptionsMenu,new RoutedEventArgs(MenuItem.SubmenuOpenedEvent,AseOptionsMenu));
             Require(AseOptionsMenu.Items.Count>=7 && !AseOptionsMenu.IsEnabled && AseOptionsMenu.Items.OfType<MenuItem>().All(item=>!item.IsEnabled),"ASE session options build their menu and every entry stays disabled without a connected ASE session");
+            // SubmenuOpened bubbles from the nested compatibility item: handling it there would rebuild the menu the
+            // mouse is on and close the whole dropdown.
+            var compatibilityItem=AseOptionsMenu.Items.OfType<MenuItem>().First(item=>item.Items.Count>0);
+            AseOptionsOpened(AseOptionsMenu,new RoutedEventArgs(MenuItem.SubmenuOpenedEvent,compatibilityItem));
+            Require(ReferenceEquals(AseOptionsMenu.Items.OfType<MenuItem>().First(item=>item.Items.Count>0),compatibilityItem),"Opening the compatibility submenu does not rebuild the menu it hangs from");
             aseOptions=AseSessionOptions.Default with {NoExec=true};RefreshAseOptions();
             Require(SetOptionsText.Text=="NOEXEC" && SetOptionsButton.Visibility==Visibility.Collapsed,"The SET chip names the options in force and stays hidden while no ASE session owns them");
             aseOptions=AseSessionOptions.Default;RefreshAseOptions();
