@@ -90,6 +90,7 @@ public partial class MainWindow : Window
         else if (key == Key.F2 && modifiers is ModifierKeys.None or ModifierKeys.Shift) { GoBookmark(modifiers==ModifierKeys.Shift); e.Handled=true; }
         // Esc ends a repeat as well as the run in progress: nothing keeps firing after the user asked it to stop.
         else if (key == Key.Escape && (running != null || repeat != null)) { if (repeat != null) StopRepeat("Stopped with Esc."); if (running != null) _ = running.CancelAsync(); e.Handled = true; }
+        else if (key == Key.Down && modifiers == ModifierKeys.None && Editor.TextArea.IsKeyboardFocusWithin && MoveCaretToEndOfLastLine()) e.Handled = true;
         else if (key is Key.Up or Key.Down && modifiers == ModifierKeys.Shift && Editor.TextArea.IsKeyboardFocusWithin && ExtendSelectionToDocumentEdge(key == Key.Up)) e.Handled = true;
         else if (modifiers == ModifierKeys.Control)
         {
@@ -128,6 +129,25 @@ public partial class MainWindow : Window
         int anchor = area.Selection.IsEmpty || segment == null ? caret : segment.Offset == caret ? segment.EndOffset : segment.Offset;
         area.Caret.Offset = target;
         area.Selection = ICSharpCode.AvalonEdit.Editing.Selection.Create(area, anchor, target);
+        return true;
+    }
+
+    // AvalonEdit leaves the caret where it is when Down is pressed on the last line. Move it to the end of that line.
+    // A wrapped last line still steps through its visual rows; only the final row jumps to the line end.
+    private bool MoveCaretToEndOfLastLine()
+    {
+        var area = Editor.TextArea;
+        var document = Editor.Document;
+        if (area.Caret.Line != document.LineCount) return false;
+        if (Editor.WordWrap)
+        {
+            var visual = area.TextView.GetOrConstructVisualLine(document.GetLineByNumber(area.Caret.Line));
+            if (visual.TextLines.Count > 1 && visual.GetTextLine(area.Caret.VisualColumn) != visual.TextLines[^1]) return false;
+        }
+        int target = document.GetLineByNumber(document.LineCount).EndOffset;
+        if (area.Caret.Offset == target && area.Selection.IsEmpty) return true;
+        area.ClearSelection();
+        area.Caret.Offset = target;
         return true;
     }
     private async Task ExecuteAsync(bool lineOnly = false, bool selectionOnly = false, string? sqlOverride = null, string? label = null, bool repeatRun = false, int? replaceRun = null)
@@ -444,6 +464,11 @@ public partial class MainWindow : Window
             Require(ExtendSelectionToDocumentEdge(true) && Editor.SelectionLength == 7, "Repeated Shift Up at the document start keeps the selection");
             int lastLineStart = Editor.Document.GetLineByNumber(2).Offset; Editor.Select(0, 0); Editor.TextArea.Caret.Offset = lastLineStart + 3;
             Require(!ExtendSelectionToDocumentEdge(true) && ExtendSelectionToDocumentEdge(false) && Editor.SelectedText == Editor.Text[(lastLineStart + 3)..], "Shift Down on the last line extends to the end while inner lines keep native movement");
+            Editor.Select(0, 0); Editor.TextArea.Caret.Offset = lastLineStart + 3;
+            Require(MoveCaretToEndOfLastLine() && Editor.SelectionLength == 0 && Editor.TextArea.Caret.Offset == Editor.Document.TextLength, "Down on the last line moves the caret to the end of that line");
+            Require(MoveCaretToEndOfLastLine() && Editor.TextArea.Caret.Offset == Editor.Document.TextLength, "Down at the end of the last line stays there");
+            Editor.Select(0, 0); Editor.TextArea.Caret.Offset = 3;
+            Require(!MoveCaretToEndOfLastLine() && Editor.TextArea.Caret.Offset == 3, "Down on an earlier line keeps native movement");
             Editor.Select(0, 0); Editor.TextArea.Caret.Offset = 0; EditingCommands.SelectDownByLine.Execute(null, Editor.TextArea);
             int selectionStart = Editor.SelectionStart, selectionLength = Editor.SelectionLength;
             string selected = Editor.SelectedText;
