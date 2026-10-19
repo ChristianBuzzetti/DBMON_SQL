@@ -36,7 +36,8 @@ public partial class MainWindow
         TabItem? first = null;
         for (int i = 0; i < tables.Count; i++)
         {
-            string header = i < names.Count ? names[i] : "Result " + (++resultCounter).ToString(System.Globalization.CultureInfo.InvariantCulture);
+            string? preferred = tables[i].ExtendedProperties["ResultHeader"] as string;
+            string header = i < names.Count ? names[i] : preferred ?? "Result " + (++resultCounter).ToString(System.Globalization.CultureInfo.InvariantCulture);
             var tab = AddResult(tables[i], 0, header: header, insertAt: insertAt + i);
             resultRuns[tables[i]] = run; first ??= tab;
         }

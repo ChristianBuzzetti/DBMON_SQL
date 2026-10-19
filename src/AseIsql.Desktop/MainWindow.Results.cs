@@ -53,6 +53,13 @@ public partial class MainWindow
             delimited.Items.Add(option);
         }
         menu.Items.Add(delimited); menu.Items.Add(new Separator());
+        var viewCell = new MenuItem { Header = "View cell text…" };
+        viewCell.Click += (_, _) => OpenSelectedCellText(grid);
+        selectionActions.Add(viewCell); menu.Items.Add(viewCell);
+        var resetRowHeight = new MenuItem { Header = "Auto-fit row height" };
+        resetRowHeight.Click += (_, _) => { foreach (var row in VisualChildren<DataGridRow>(grid)) row.Height = double.NaN; };
+        menu.Items.Add(resetRowHeight);
+        menu.Items.Add(new Separator());
         var closeFromGrid = new MenuItem { Header = "Close resultset" };
         closeFromGrid.Click += (_, _) => CloseResult(tab); menu.Items.Add(closeFromGrid);
         menu.Opened += (_, _) => {
@@ -65,8 +72,66 @@ public partial class MainWindow
             if (cell == null) return;
             SelectContextCell(grid, cell.DataContext, cell.Column); cell.Focus();
         };
+        AttachRowResize(grid);
         grid.CommandBindings.Add(new CommandBinding(ApplicationCommands.Copy, (_, e) => { CopyResult(grid, ResultCopy.Selection, '\t'); e.Handled = true; },
             (_, e) => { e.CanExecute = grid.SelectedCells.Count > 0; e.Handled = true; }));
+    }
+
+    private void OpenSelectedCellText(DataGrid grid)
+    {
+        var cell = grid.SelectedCells.FirstOrDefault(c => c.IsValid && c.Item is DataRowView);
+        if (cell.Item is not DataRowView row) return;
+        int ordinal = grid.Columns.IndexOf(cell.Column); if (ordinal < 0 || ordinal >= row.Row.Table.Columns.Count) return;
+        var column = row.Row.Table.Columns[ordinal];
+        string text = row[ordinal] is DBNull ? "NULL" : row[ordinal] is byte[] bytes ? "0x" + Convert.ToHexString(bytes) : Convert.ToString(row[ordinal], System.Globalization.CultureInfo.InvariantCulture) ?? "";
+        TextWindow((string.IsNullOrWhiteSpace(column.Caption) ? UnnamedColumn : column.Caption) + " [" + column.DataType.Name + "]", text);
+    }
+
+    // Because RowHeader is hidden for density, the bottom 5 px of each DataGridRow acts as its vertical resize handle:
+    // dragging stretches or shrinks the row, double-clicking the edge restores auto-height, and double-clicking inside
+    // a long or multiline cell opens its full text in a scrollable window.
+    private void AttachRowResize(DataGrid grid)
+    {
+        DataGridRow? resizingRow = null; double startY = 0, startHeight = 0;
+        static DataGridRow? BottomEdgeRow(DataGrid owner, MouseEventArgs e)
+        {
+            var row = FindAncestor<DataGridRow>(e.OriginalSource as DependencyObject);
+            if (row == null || !owner.IsAncestorOf(row)) return null;
+            double y = e.GetPosition(row).Y;
+            return y >= Math.Max(0, row.ActualHeight - 5) && y <= row.ActualHeight + 2 ? row : null;
+        }
+        grid.PreviewMouseMove += (_, e) => {
+            if (resizingRow != null)
+            {
+                if (e.LeftButton != MouseButtonState.Pressed) { resizingRow = null; grid.ReleaseMouseCapture(); grid.Cursor = null; return; }
+                double min = double.IsNaN(grid.MinRowHeight) || grid.MinRowHeight <= 0 ? 24 : grid.MinRowHeight;
+                resizingRow.Height = Math.Max(min, startHeight + (e.GetPosition(grid).Y - startY));
+                e.Handled = true; return;
+            }
+            grid.Cursor = BottomEdgeRow(grid, e) != null ? Cursors.SizeNS : null;
+        };
+        grid.PreviewMouseLeftButtonDown += (_, e) => {
+            if (BottomEdgeRow(grid, e) is { } edgeRow)
+            {
+                if (e.ClickCount == 2) { edgeRow.Height = double.NaN; e.Handled = true; return; }
+                resizingRow = edgeRow; startY = e.GetPosition(grid).Y; startHeight = edgeRow.ActualHeight;
+                grid.CaptureMouse(); e.Handled = true; return;
+            }
+            if (e.ClickCount == 2 && FindAncestor<DataGridCell>(e.OriginalSource as DependencyObject) is { DataContext: DataRowView rowView, Column: { } col })
+            {
+                int ordinal = grid.Columns.IndexOf(col);
+                if (ordinal >= 0 && ordinal < rowView.Row.Table.Columns.Count)
+                {
+                    string text = Convert.ToString(rowView[ordinal], System.Globalization.CultureInfo.InvariantCulture) ?? "";
+                    if (text.Length > 120 || text.IndexOfAny(['\r', '\n']) >= 0)
+                    { SelectContextCell(grid, rowView, col); OpenSelectedCellText(grid); e.Handled = true; }
+                }
+            }
+        };
+        grid.PreviewMouseLeftButtonUp += (_, e) => {
+            if (resizingRow == null) return;
+            resizingRow = null; grid.ReleaseMouseCapture(); grid.Cursor = null; e.Handled = true;
+        };
     }
 
     private static T? FindAncestor<T>(DependencyObject? node) where T : DependencyObject

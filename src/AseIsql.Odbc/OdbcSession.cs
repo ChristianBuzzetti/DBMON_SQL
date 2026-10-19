@@ -26,6 +26,7 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
     private string? login, charset;
     private readonly object messagesGate = new();
     private QueryOutput? activeOutput;
+    private bool suppressMessages;
     private readonly List<QueryMessage> loginMessages = [];
     private readonly DiagnosticMessages diagnostics = new();
     public ServerPlatform Platform => profile.Platform;
@@ -42,9 +43,13 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
         connection.InfoMessage += (_, args) => {
             lock (messagesGate)
             {
+                if (suppressMessages) return;
                 foreach (OdbcError error in args.Errors)
                 {
                     var message = diagnostics.Read(error.NativeError, error.SQLState, error.Message, this.password);
+                    // Nothing but a transport frame: ASE separates its trailing blocks with these, and a row that
+                    // shows no server text is noise in Messages.
+                    if (message.Text.Length == 0) continue;
                     var target = activeOutput?.Messages ?? loginMessages;
                     if (target.Count >= 500) { target.RemoveAt(0); if (activeOutput != null) activeOutput.OmittedMessages++; }
                     target.Add(message);
@@ -74,9 +79,9 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
 
     // In chained mode a select opens a transaction implicitly; these probes then run nothing and the facts stay as
     // they were, so reading the status never changes the user's transaction state.
-    private const string FactsProbe = "if @@tranchained = 0 select @@spid, db_name(), suser_name(), @@client_csname";
-    private const string BasicFactsProbe = "if @@tranchained = 0 select @@spid, db_name(), suser_name()";
-    private const string DatabaseProbe = "if @@tranchained = 0 select db_name()";
+    private const string FactsProbe = "if @@tranchained = 0 select /* dbmon_execio */ @@spid, db_name(), suser_name(), @@client_csname";
+    private const string BasicFactsProbe = "if @@tranchained = 0 select /* dbmon_execio */ @@spid, db_name(), suser_name()";
+    private const string DatabaseProbe = "if @@tranchained = 0 select /* dbmon_execio */ db_name()";
     // IQ runs ODBC in autocommit, so a probe never leaves a transaction open there.
     private const string IqFactsProbe = "select connection_property('Number'), db_name(), current user, connection_property('CharSet')";
     private static readonly Regex UseStatement = new(@"\buse\s+\S", RegexOptions.IgnoreCase | RegexOptions.NonBacktracking);
@@ -159,7 +164,9 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
         var errors = odbc.Errors.Cast<OdbcError>().ToArray();
         var reader = new DiagnosticMessages();
         string details = string.Join("\n", errors.DistinctBy(e => (e.SQLState, e.NativeError, e.Message))
-            .Select(e => $"[{e.SQLState} / {e.NativeError}] {reader.Read(e.NativeError,e.SQLState,e.Message,password).Text}"));
+            .Select(e => (Error: e, Text: reader.Read(e.NativeError, e.SQLState, e.Message, password).Text))
+            .Where(record => record.Text.Length != 0)
+            .Select(record => $"[{record.Error.SQLState} / {record.Error.NativeError}] {record.Text}"));
         bool certificateList = errors.Any(e => IsCertificateAuthorityFailure(e.SQLState, e.Message));
         return (certificateList ? "Unable to load the TLS CA certificate list. Check TrustedFile and its format. No unencrypted retry was attempted.\n\n" : "") +
             (details.Length == 0 ? Redact(exception.Message, password) : details);
@@ -169,38 +176,71 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
         state.Equals("SC001", StringComparison.OrdinalIgnoreCase) &&
         message.Contains("setting the certificate authority list", StringComparison.OrdinalIgnoreCase);
 
-    public QueryOutput Execute(string sql, CancellationToken cancellation = default)
+    // Set by the window when a SET option makes ASE emit messages after the last row (the execution times, the
+    // total writes). Those reach the driver, but System.Data.Odbc hands over diagnostics only on calls that
+    // report them, and the final SQLMoreResults reports no data, so the block is never raised as an InfoMessage. This
+    // is a no-op statement run right after the batches, inside the window where messages still belong to this run,
+    // purely to give the driver that call. Null when no option needs it, which is the usual case.
+    public string? TrailingFlush { get; set; }
+    // Set when "set plan for show_execio_xml to message on" is active on this session: after the batches finish,
+    // showplan_in_xml(0) returns the executed plans as a result set so per-table logical and physical reads arrive
+    // without depending on ODBC's diagnostic channel.
+    public bool CaptureExecutionIo { get; set; }
+
+    public QueryOutput Execute(string sql, CancellationToken cancellation = default) => Execute(sql, cancellation, userRun: true);
+
+    public QueryOutput Execute(string sql, CancellationToken cancellation, bool userRun)
     {
         cancellation.ThrowIfCancellationRequested();
         var output = new QueryOutput();
         if (!IsOpen) { output.Error = "The " + profile.Platform.Tag() + " session is disconnected."; return output; }
         if (sql.Length > 1024 * 1024) { output.Error = "Local limit: 1 MiB of SQL text per execution."; return output; }
-        lock (messagesGate) activeOutput = output;
+        lock (messagesGate) { activeOutput = output; suppressMessages = false; }
         try
         {
             var batches = SqlScript.Split(sql, cancellation: cancellation);
             if (batches.Count == 0) { output.Error = "No SQL to execute."; return output; }
             if (batches.Count > 256) { output.Error = "Local limit: 256 GO batches per execution."; return output; }
             var budget = new ResultBudget(profile.MaxRows);
+            var ioPlans = new List<ExecutionIoPlan>();
             foreach (string batch in batches)
             {
                 cancellation.ThrowIfCancellationRequested();
-                using var command = connection.CreateCommand();
-                command.CommandText = batch; command.CommandTimeout = profile.QueryTimeout;
-                // Cancel is best effort in ODBC. The UI requests it from a worker
-                // thread and keeps ownership until the actual call returns.
-                using var registration = cancellation.Register(() => {
-                    try { command.Cancel(); } catch (Exception ex) when (ex is OdbcException or InvalidOperationException or ObjectDisposedException) { }
-                });
-                using var reader = command.ExecuteReader();
-                try { ResultReader.Read(reader, output, budget, cancellation); }
-                catch (Exception ex) when (ex is ResultLimitException or OperationCanceledException)
+                if (userRun && profile.Platform == ServerPlatform.Ase && CaptureExecutionIo && !cancellation.IsCancellationRequested)
+                    ArmExecutionIo(cancellation);
+                using (var command = connection.CreateCommand())
                 {
-                    try { command.Cancel(); } catch (OdbcException cancelError) { output.Messages.Add(new QueryMessage(0, "ODBC", "Cancellation was not confirmed. Open the original diagnostic for details.", Redact(cancelError.Message, password))); }
-                    throw;
+                    command.CommandText = batch; command.CommandTimeout = profile.QueryTimeout;
+                    // Cancel is best effort in ODBC. The UI requests it from a worker
+                    // thread and keeps ownership until the actual call returns.
+                    using var registration = cancellation.Register(() => {
+                        try { command.Cancel(); } catch (Exception ex) when (ex is OdbcException or InvalidOperationException or ObjectDisposedException) { }
+                    });
+                    using var reader = command.ExecuteReader();
+                    try { ResultReader.Read(reader, output, budget, cancellation); }
+                    catch (Exception ex) when (ex is ResultLimitException or OperationCanceledException)
+                    {
+                        try { command.Cancel(); } catch (OdbcException cancelError) { output.Messages.Add(new QueryMessage(0, "ODBC", "Cancellation was not confirmed. Open the original diagnostic for details.", Redact(cancelError.Message, password))); }
+                        throw;
+                    }
+                    if (reader.RecordsAffected >= 0) output.Messages.Add(new QueryMessage(0, profile.Platform.Tag(), $"Rows affected: {reader.RecordsAffected}"));
                 }
-                if (reader.RecordsAffected >= 0) output.Messages.Add(new QueryMessage(0, profile.Platform.Tag(), $"Rows affected: {reader.RecordsAffected}"));
+                if (userRun && profile.Platform == ServerPlatform.Ase && CaptureExecutionIo && !cancellation.IsCancellationRequested)
+                    CollectExecutionIo(output, ioPlans, batch, cancellation);
                 if (profile.Platform == ServerPlatform.Ase) database = connection.Database;
+            }
+            if (ioPlans.Any(p => p.Scans.Count > 0))
+                output.Tables.Add(ExecutionIo.ToTable(ioPlans));
+            // A failure here is never the run's failure: the results are already read and complete.
+            if (userRun && TrailingFlush is { Length: > 0 } flush && !cancellation.IsCancellationRequested)
+            {
+                try
+                {
+                    using var flushCommand = connection.CreateCommand();
+                    flushCommand.CommandText = flush; flushCommand.CommandTimeout = 10;
+                    flushCommand.ExecuteNonQuery();
+                }
+                catch (Exception ex) when (ex is OdbcException or InvalidOperationException) { }
             }
         }
         catch (OdbcException ex)
@@ -219,11 +259,106 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
         catch (OperationCanceledException) { output.Error = "Cancellation requested. Received results are partial; verify the session before continuing."; }
         finally
         {
-            lock (messagesGate) activeOutput = null;
+            lock (messagesGate) { activeOutput = null; suppressMessages = true; }
             // A USE in any batch, even one followed by a failure, can move the session; read where it stands now.
-            if (profile.Platform == ServerPlatform.Ase && !connectionIssue && !cancellation.IsCancellationRequested && MayChangeDatabase(sql)) RefreshDatabase();
+            if (profile.Platform == ServerPlatform.Ase && !connectionIssue && !cancellation.IsCancellationRequested && MayChangeDatabase(sql))
+                RefreshDatabase();
+            lock (messagesGate) suppressMessages = false;
         }
         return output;
+    }
+
+    private QueryOutput RunInternalBatch(string sql, CancellationToken cancellation, int maxRows = 64)
+    {
+        var probe = new QueryOutput();
+        using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        command.CommandTimeout = 15;
+        using var registration = cancellation.Register(() => {
+            try { command.Cancel(); } catch (Exception ex) when (ex is OdbcException or InvalidOperationException or ObjectDisposedException) { }
+        });
+        using var reader = command.ExecuteReader();
+        ResultReader.Read(reader, probe, new ResultBudget(maxRows), cancellation);
+        return probe;
+    }
+
+    private string ReadPlanXml(string sql, CancellationToken cancellation)
+    {
+        var probe = RunInternalBatch(sql, cancellation);
+        var xml = new System.Text.StringBuilder();
+        foreach (var table in probe.Tables)
+            foreach (DataRow row in table.Rows)
+                for (int i = 0; i < table.Columns.Count; i++)
+                    if (row[i] is string text && text.Length > 0)
+                        xml.AppendLine(text);
+        return xml.ToString().Trim();
+    }
+
+    private void ArmExecutionIo(CancellationToken cancellation)
+    {
+        lock (messagesGate) suppressMessages = true;
+        try
+        {
+            RunInternalBatch("set textsize 16777216", cancellation);
+            RunInternalBatch("set plan for show_execio_xml to message on", cancellation);
+        }
+        catch (Exception ex) when (ex is OdbcException or InvalidOperationException or FormatException or InvalidCastException or OverflowException or ResultLimitException) { }
+        finally
+        {
+            lock (messagesGate) suppressMessages = false;
+        }
+    }
+
+    private void CollectExecutionIo(QueryOutput output, List<ExecutionIoPlan> ioPlans, string batch, CancellationToken cancellation)
+    {
+        string rawXml;
+        lock (messagesGate) suppressMessages = true;
+        try
+        {
+            rawXml = ReadPlanXml("select showplan_in_xml(0)", cancellation);
+            if (rawXml.Length == 0)
+                rawXml = ReadPlanXml("select showplan_in_xml(-1)", cancellation);
+            if (rawXml.Length == 0 && TrailingFlush is { Length: > 0 } && SqlRisk.StateChanges(batch).Count == 0)
+            {
+                RunInternalBatch("set statistics time off", cancellation);
+                RunInternalBatch("set textsize 16777216", cancellation);
+                RunInternalBatch("set plan for show_execio_xml to message on", cancellation);
+                RunInternalBatch(batch, cancellation, profile.MaxRows);
+                rawXml = ReadPlanXml("select showplan_in_xml(0)", cancellation);
+                if (rawXml.Length == 0)
+                    rawXml = ReadPlanXml("select showplan_in_xml(-1)", cancellation);
+                RunInternalBatch("set statistics time on", cancellation);
+            }
+        }
+        catch (Exception ex) when (ex is OdbcException or InvalidOperationException or FormatException or InvalidCastException or OverflowException or ResultLimitException)
+        {
+            output.Messages.Add(new QueryMessage(0, "CLIENT", "Statistics IO plan read failed: " + Redact(ex.Message, password)));
+            return;
+        }
+        finally
+        {
+            lock (messagesGate) suppressMessages = false;
+        }
+        var report = ExecutionIo.Parse(rawXml);
+        if (report.Plans.Count == 0)
+        {
+            output.Messages.Add(new QueryMessage(0, "CLIENT",
+                rawXml.Length == 0
+                    ? "Statistics IO: showplan_in_xml(0) and (-1) returned an empty buffer."
+                    : $"Statistics IO: no user execution plan found in {rawXml.Length} chars ({report.Unreadable} unreadable).",
+                rawXml.Length == 0 ? null : rawXml));
+            return;
+        }
+        foreach (var plan in report.Plans)
+        {
+            ioPlans.Add(plan);
+            foreach (string line in ExecutionIo.Summary(plan))
+                output.Messages.Add(new QueryMessage(3615, profile.Platform.Tag(), line, plan.Xml));
+            if (plan.MissingStatistics.Count > 0)
+                output.Messages.Add(new QueryMessage(0, profile.Platform.Tag(), "Missing statistics · " + string.Join(", ", plan.MissingStatistics), plan.Xml));
+        }
+        if (report.Unreadable > 0)
+            output.Messages.Add(new QueryMessage(0, "CLIENT", $"Statistics IO: {report.Unreadable} plan block(s) could not be parsed.", rawXml));
     }
 
     public static string Redact(string text, string secret)

@@ -51,7 +51,8 @@ public partial class MainWindow
         using var cancellation=new CancellationTokenSource(); running=cancellation; ExecuteButton.IsEnabled=false; CancelButton.IsEnabled=true; RefreshConnection();
         ClearMessages(); AddMessage(0,"CLIENT",label+" · "+engine.Name);
         try {
-            var output=await Task.Run(()=>session.Execute(sql,cancellation.Token));
+            string tagged = label == "Session options" ? sql : "/* dbmon_execio */\n" + sql;
+            var output=await Task.Run(()=>session.Execute(tagged,cancellation.Token,userRun:false));
             foreach(var message in output.Messages) AddMessage(message.Number,message.Source,message.Text,message.RawText);
             if(output.OmittedMessages>0) AddMessage(0,"CLIENT",$"{output.OmittedMessages} earlier messages were omitted by the retention limit.");
             if(output.Error!=null) { AddMessage(1,output.ErrorSource,output.Error,output.ErrorRawText); SetLogVisible(true); StatusText.Text="Catalog partial/unavailable: "+output.Error; if(output.Tables.Count==0)return null; }

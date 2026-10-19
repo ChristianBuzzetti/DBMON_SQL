@@ -181,6 +181,9 @@ public partial class MainWindow : Window
             lastRunFailed = output.Error != null;
             if (output.Error != null) { AddMessage(1, output.ErrorSource, output.Error, output.ErrorRawText); SetLogVisible(true); }
             else AddMessage(0, SourceLabel, $"Done · {Counts.Of(output.Tables.Count, "result")} · {Counts.Of(rowCount, "row")} · {Elapsed(elapsedMs)}");
+            // An empty run under NOEXEC looks like a broken server; say which option produced it, every time.
+            if (aseOptions.NoExec && engine is AseIsql.Odbc.OdbcSession { Platform: ServerPlatform.Ase }) AddMessage(0, "CLIENT", "NOEXEC is on: the server compiled this script and executed none of it. Tools › SAP ASE session options turns it off."
+                + (aseOptions.StatisticsSilencedByNoExec ? " Statistics IO and statistics time measure execution, so they report nothing until it is off." : ""));
             if (output.Tables.Count > 0) Workspace.SelectedItem = Workspace.Items.OfType<TabItem>().First(tab => ReferenceEquals(tab.Tag, output.Tables[0]));
             StatusText.Text = output.Error == null ? $"Ready · {Counts.Of(output.Tables.Count, "result")} · {Counts.Of(rowCount, "row")} · {Elapsed(elapsedMs)} · {SourceLabel}" : "Error / partial output · see Messages";
         }
@@ -214,7 +217,11 @@ public partial class MainWindow : Window
     {
         string origin = source ?? OriginOf(engine);
         resultOrigins[table] = (sql ?? executingSql, origin);
-        var grid = new DataGrid { ItemsSource = table.DefaultView, AutoGenerateColumns = false };
+        // Result rows keep the compact minimum height for single-line cells, grow for multiline payloads (such as
+        // XML plans or stored procedure text), scroll smoothly by pixel, and can be dragged taller or shorter.
+        var grid = new DataGrid { ItemsSource = table.DefaultView, AutoGenerateColumns = false, RowHeight = double.NaN };
+        grid.SetResourceReference(DataGrid.MinRowHeightProperty, "GridRowHeight");
+        VirtualizingPanel.SetScrollUnit(grid, ScrollUnit.Pixel);
         grid.SetResourceReference(Control.FontFamilyProperty,"MonoFont");
         foreach (DataColumn column in table.Columns)
             // Expressions without an alias arrive unnamed; the header says so while copies keep the source caption.
@@ -258,9 +265,12 @@ public partial class MainWindow : Window
         for (int row = 0; row < rows && widest < MaxFittedColumn; row++)
         {
             string text = NullDisplayConverter.Instance.Convert(table.Rows[row][ordinal], typeof(string), null!, CultureInfo.InvariantCulture) as string ?? "";
-            int lineEnd = text.IndexOfAny(['\r', '\n']); if (lineEnd >= 0) text = text[..lineEnd];
-            if (text.Length > 120) text = text[..120];
-            widest = Math.Max(widest, Measure(text, regular));
+            foreach (string rawLine in text.Split('\n').Take(40))
+            {
+                string line = rawLine.TrimEnd('\r').Replace("\t", "    ", StringComparison.Ordinal);
+                if (line.Length > 120) line = line[..120];
+                widest = Math.Max(widest, Measure(line, regular));
+            }
         }
         return Math.Clamp(Math.Ceiling(widest) + 28, 72, MaxFittedColumn);
     }
@@ -933,16 +943,32 @@ public partial class MainWindow : Window
                 Require(DataFolder.Migrate(target,legacy)==null&&File.ReadAllText(Path.Combine(target,"appearance.json"))=="{}","An existing DBMON_SQL folder is never overwritten by an old one");
                 Require(DataFolder.Root.EndsWith(Path.DirectorySeparatorChar+"DBMON_SQL",StringComparison.Ordinal)&&AppearanceStore.PathName.StartsWith(DataFolder.Root,StringComparison.Ordinal),"Appearance, profiles, recipes and the Boberto profile live under DBMON_SQL");
             }finally{if(Directory.Exists(folderFixture))Directory.Delete(folderFixture,true);}
-            // Keyboard focus is a FocusVisualStyle, which WPF shows for keyboard navigation only; it is inset so it
-            // never covers the frame's own border, which is what the dotted default used to do.
+            // Keyboard focus is a FocusVisualStyle again, which WPF shows for keyboard navigation only; it is inset so
+            // it never covers the frame's own border, which is what the dotted default used to do.
             var focusRing=(QueryTab.FocusVisualStyle?.Setters.OfType<Setter>().FirstOrDefault(setter=>setter.Property==Control.TemplateProperty)?.Value as ControlTemplate)?.LoadContent() as Border;
             Require(focusRing is {BorderThickness.Left:>0} && focusRing.Margin.Left>=1 && focusRing.Margin.Left==focusRing.Margin.Top,"Tabs draw keyboard focus with a ring inset inside the frame, never over its border");
             Workspace.SelectedItem=QueryTab;Workspace.UpdateLayout();
             // The plate's shadow lives on its own layer: the header text is never rendered through an effect, which
             // would swap its antialiasing and make the selected tab read heavier than its neighbours.
             Require(QueryTab.Template.FindName("Frame",QueryTab) is Border {Effect:null} && QueryTab.Template.FindName("Lift",QueryTab) is Border {Effect:not null,Visibility:Visibility.Visible} && QueryTab.UseLayoutRounding,"The selected tab lifts on a layer behind its plate and rounds its layout, so the header keeps its antialiasing and the ring keeps all four sides");
-            var widthTable=new DataTable();widthTable.Columns.Add("state");widthTable.Columns.Add("n");widthTable.Rows.Add("Awaiting Command for the replication DSI thread","1");
-            Require(FitColumnWidth(widthTable,0,"state")>FitColumnWidth(widthTable,1,"n")+120&&FitColumnWidth(widthTable,1,"n")<=110&&FitColumnWidth(widthTable,0,"state")<=MaxFittedColumn,"Result columns open wide enough for their first rows' text, compact for short values and capped for long ones");
+            AseOptionsOpened(AseOptionsMenu,new RoutedEventArgs(MenuItem.SubmenuOpenedEvent,AseOptionsMenu));
+            Require(AseOptionsMenu.Items.Count>=7 && !AseOptionsMenu.IsEnabled && AseOptionsMenu.Items.OfType<MenuItem>().All(item=>!item.IsEnabled) && AseOptionsMenu.Items.OfType<MenuItem>().Any(item=>item.Header as string=="Statistics IO"),"ASE session options build their menu with Statistics IO and every entry stays disabled without a connected ASE session");
+            // SubmenuOpened bubbles from the nested compatibility item: handling it there would rebuild the menu the
+            // mouse is on and close the whole dropdown.
+            var compatibilityItem=AseOptionsMenu.Items.OfType<MenuItem>().First(item=>item.Items.Count>0);
+            AseOptionsOpened(AseOptionsMenu,new RoutedEventArgs(MenuItem.SubmenuOpenedEvent,compatibilityItem));
+            Require(ReferenceEquals(AseOptionsMenu.Items.OfType<MenuItem>().First(item=>item.Items.Count>0),compatibilityItem),"Opening the compatibility submenu does not rebuild the menu it hangs from");
+            aseOptions=AseSessionOptions.Default with {NoExec=true,StatisticsIo=true};RefreshAseOptions();
+            Require(SetOptionsText.Text=="NOEXEC · STATS IO" && SetOptionsButton.Visibility==Visibility.Collapsed,"The SET chip names the options in force and stays hidden while no ASE session owns them");
+            aseOptions=AseSessionOptions.Default;RefreshAseOptions();
+            Require(SetOptionsText.Text.Length==0,"Clearing the ASE session options empties the SET chip");
+            var widthTable=new DataTable();widthTable.Columns.Add("state");widthTable.Columns.Add("n");widthTable.Columns.Add("xml");widthTable.Rows.Add("Awaiting Command for the replication DSI thread","1","<q>\n  <line>Subordinate SQL Text: select count(*) from master..sysobjects</line>\n</q>");
+            Require(FitColumnWidth(widthTable,0,"state")>FitColumnWidth(widthTable,1,"n")+120&&FitColumnWidth(widthTable,1,"n")<=110&&FitColumnWidth(widthTable,0,"state")<=MaxFittedColumn&&FitColumnWidth(widthTable,2,"xml")>280,"Result columns open wide enough for their first rows' text including multiline payloads, compact for short values and capped for long ones");
+            var multilineTab=AddResult(widthTable,99);Workspace.SelectedItem=multilineTab;Workspace.UpdateLayout();
+            var multilineGrid=(DataGrid)((DockPanel)multilineTab.Content).Children.OfType<DataGrid>().Single();
+            var renderedRow=VisualChildren<DataGridRow>(multilineGrid).FirstOrDefault();
+            Require(double.IsNaN(multilineGrid.RowHeight)&&VirtualizingPanel.GetScrollUnit(multilineGrid)==ScrollUnit.Pixel&&renderedRow!=null&&renderedRow.ActualHeight>(double)Application.Current.Resources["GridRowHeight"]*1.5,"Multiline result cells grow their row vertically instead of clipping at one line and scroll by pixel");
+            CloseResult(multilineTab);
             string insertBefore=Editor.Text;
             Editor.Text="select 1\nselect 2";Editor.Document.UndoStack.ClearAll();Editor.Select(2,4);Editor.TextArea.Caret.Offset=6;
             InsertRecipeOnNewLine("kill 42");
