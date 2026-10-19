@@ -958,10 +958,15 @@ public partial class MainWindow : Window
             var compatibilityItem=AseOptionsMenu.Items.OfType<MenuItem>().First(item=>item.Items.Count>0);
             AseOptionsOpened(AseOptionsMenu,new RoutedEventArgs(MenuItem.SubmenuOpenedEvent,compatibilityItem));
             Require(ReferenceEquals(AseOptionsMenu.Items.OfType<MenuItem>().First(item=>item.Items.Count>0),compatibilityItem),"Opening the compatibility submenu does not rebuild the menu it hangs from");
-            aseOptions=AseSessionOptions.Default with {NoExec=true,StatisticsIo=true};RefreshAseOptions();
-            Require(SetOptionsText.Text=="NOEXEC · STATS IO" && SetOptionsButton.Visibility==Visibility.Collapsed,"The SET chip names the options in force and stays hidden while no ASE session owns them");
-            aseOptions=AseSessionOptions.Default;RefreshAseOptions();
-            Require(SetOptionsText.Text.Length==0,"Clearing the ASE session options empties the SET chip");
+            var setBeforeEngine=engine;
+            try{
+                aseOptions=AseSessionOptions.Default with {NoExec=true,StatisticsIo=true};RefreshAseOptions();
+                Require(SetOptionsText.Text=="NOEXEC · STATS IO" && SetOptionsButton.Visibility==Visibility.Collapsed,"The SET chip stays hidden while no ASE session owns the options");
+                engine=new FactsSmokeEngine();RefreshConnection();
+                Require(SessionFactsPanel.Visibility==Visibility.Visible && SetOptionsButton.Visibility==Visibility.Visible && SetOptionsText.Visibility==Visibility.Visible && SetOptionsText.Text=="NOEXEC · STATS IO","An ASE session shows the SET chip right after the character set and names the options in force");
+                aseOptions=AseSessionOptions.Default;RefreshAseOptions();
+                Require(SetOptionsButton.Visibility==Visibility.Visible && SetOptionsText.Visibility==Visibility.Collapsed && SetOptionsText.Text.Length==0,"Clearing the ASE session options keeps the SET launcher visible right after the character set while hiding the active-options label");
+            }finally{aseOptions=AseSessionOptions.Default;engine=setBeforeEngine;RefreshConnection();}
             var widthTable=new DataTable();widthTable.Columns.Add("state");widthTable.Columns.Add("n");widthTable.Columns.Add("xml");widthTable.Rows.Add("Awaiting Command for the replication DSI thread","1","<q>\n  <line>Subordinate SQL Text: select count(*) from master..sysobjects</line>\n</q>");
             Require(FitColumnWidth(widthTable,0,"state")>FitColumnWidth(widthTable,1,"n")+120&&FitColumnWidth(widthTable,1,"n")<=110&&FitColumnWidth(widthTable,0,"state")<=MaxFittedColumn&&FitColumnWidth(widthTable,2,"xml")>280,"Result columns open wide enough for their first rows' text including multiline payloads, compact for short values and capped for long ones");
             var multilineTab=AddResult(widthTable,99);Workspace.SelectedItem=multilineTab;Workspace.UpdateLayout();

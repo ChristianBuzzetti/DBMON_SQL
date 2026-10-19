@@ -87,6 +87,7 @@ public partial class MainWindow
     private void RefreshAseOptions()
     {
         bool ase = engine is OdbcSession { IsOpen: true, Platform: ServerPlatform.Ase };
+        bool showChip = ase || engine is ISessionFacts { Facts.Platform: ServerPlatform.Ase } and not OdbcSession;
         // Only the options that make ASE talk after the last row pay for the extra call; everyone else gets none.
         if (engine is OdbcSession session)
         {
@@ -98,10 +99,14 @@ public partial class MainWindow
             ? "SET options on this session only · they are gone when it closes, and multi-server and repeat runs open their own sessions"
             : "Connect to SAP ASE to set session options";
         var tags = aseOptions.Tags;
-        SetOptionsButton.Visibility = ase && tags.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        SetOptionsButton.Visibility = showChip ? Visibility.Visible : Visibility.Collapsed;
+        SetOptionsButton.IsEnabled = running == null && !changingSession;
         SetOptionsText.Text = string.Join(" · ", tags);
+        SetOptionsText.Visibility = tags.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         SetOptionsText.SetResourceReference(System.Windows.Controls.TextBlock.ForegroundProperty, aseOptions.NoExec ? "ErrorInk" : "Accent");
-        SetOptionsButton.ToolTip = (aseOptions.NoExec ? "NOEXEC is on: scripts are compiled, not executed. " : "")
-            + "SAP ASE session options in force · click to change";
+        SetOptionsButton.ToolTip = tags.Count == 0
+            ? "SAP ASE session options · all off · click to change"
+            : (aseOptions.NoExec ? "NOEXEC is on: scripts are compiled, not executed. " : "")
+                + "SAP ASE session options in force · click to change";
     }
 }
