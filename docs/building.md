@@ -31,6 +31,16 @@ The product version lives only in [`Directory.Build.props`](../Directory.Build.p
 
 Smoke screenshots are written next to the executable in `UiSmoke/`.
 
+### Workspace regression checks (2026-10-20)
+
+`./build.ps1 -Test -Publish` passed 82 core checks and 281 UI checks for the 0.1.0 development package.
+The new checks cover literal database underscores and constrained popup scrolling, four-DIP tab-plate gaps,
+numbering after the final result closes (including sole-run replacements), timestamped history reload and
+malformed-file preservation, and raw multiline SQL copying while explicit delimited formats keep escaping.
+History fixtures use unique system-temporary directories, never the user's saved history.
+Window captures include Query/Result selection and the dated history dialog. No ASE query was executed.
+Native clipboard transfer is not asserted by these checks; they verify the text producer used by Copy/Ctrl+C.
+
 ## Command-line switches
 
 | Switch | Purpose |

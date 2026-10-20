@@ -25,15 +25,15 @@ public static class DelimitedText
     // Serialize source values once, independently of truncated grid display text.
     // Sparse selection holes and DBNull are empty fields; this text format has no NULL type.
     public static string Serialize(IReadOnlyList<string> headers, IEnumerable<IReadOnlyList<object?>> rows, char delimiter = '\t',
-        bool includeHeaders = false, bool headersOnly = false, bool forceQuotes = false, int maxCharacters = ClipboardCharacterLimit)
+        bool includeHeaders = false, bool headersOnly = false, bool forceQuotes = false, int maxCharacters = ClipboardCharacterLimit, bool quoteFields = true)
     {
         var output = new StringWriter(CultureInfo.InvariantCulture);
-        Write(output, headers, rows, delimiter, includeHeaders, headersOnly, forceQuotes, maxCharacters);
+        Write(output, headers, rows, delimiter, includeHeaders, headersOnly, forceQuotes, maxCharacters, quoteFields);
         return output.ToString();
     }
 
     public static void Write(TextWriter output, IReadOnlyList<string> headers, IEnumerable<IReadOnlyList<object?>> rows, char delimiter = '\t',
-        bool includeHeaders = false, bool headersOnly = false, bool forceQuotes = false, long maxCharacters = ClipboardCharacterLimit)
+        bool includeHeaders = false, bool headersOnly = false, bool forceQuotes = false, long maxCharacters = ClipboardCharacterLimit, bool quoteFields = true)
     {
         if (delimiter is '\r' or '\n' or '"' || maxCharacters < 1) throw new ArgumentException("Invalid delimiter or limit.");
         long written = 0;
@@ -44,7 +44,8 @@ public static class DelimitedText
             if (value is byte[] bytes && 2L + 2L * bytes.Length > maxCharacters - written) Check(2L + 2L * bytes.Length);
             string text = value switch { null or DBNull => "", byte[] binary => "0x" + Convert.ToHexString(binary),
                 DateTime time => time.ToString("O", CultureInfo.InvariantCulture), _ => Convert.ToString(value, CultureInfo.InvariantCulture) ?? "" };
-            bool quote = forceQuotes || text.IndexOfAny([delimiter, '\r', '\n', '"']) >= 0;
+            // Ordinary clipboard text must preserve generated SQL; explicit delimited formats retain CSV escaping.
+            bool quote = forceQuotes || (quoteFields && text.IndexOfAny([delimiter, '\r', '\n', '"']) >= 0);
             Check((long)text.Length + (quote ? 2L + text.Count(c => c == '"') : 0));
             if (!quote) { output.Write(text); return; }
             output.Write('"');

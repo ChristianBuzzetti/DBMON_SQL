@@ -29,7 +29,10 @@ public partial class MainWindow
             if (previous.Count > 0)
             {
                 insertAt = Workspace.Items.IndexOf(previous[0]); names = previous.Select(ResultName).ToList();
+                int nextNumber = resultCounter;
                 foreach (var tab in previous) CloseResult(tab);
+                // Replacement is not a user closing every result: retain the sequence and the saved names.
+                resultCounter = nextNumber;
                 insertAt = Math.Min(insertAt, Workspace.Items.Count);
             }
         }

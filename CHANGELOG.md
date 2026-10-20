@@ -15,7 +15,7 @@ All notable changes to DBMON SQL are listed here. The project follows [Semantic 
 - AvalonEdit SQL editor with highlighting, find/replace, bookmarks, comments, case transforms, duplicate line, word wrap and zoom.
 - `F9` script or selection, `Ctrl+E` selection, `Alt+F9` current line, `Esc` cancel; `GO` batches like `isql`.
 - `:name` parameters with a form, live preview, escaping inside quotes and single-token values outside them.
-- Query history per session and command search (`Ctrl+K`).
+- Persistent, timestamped query history (latest 100 entries, newest first) and command search (`Ctrl+K`).
 
 ### Results
 - Typed values and `NULL` preserved; messages kept in their own panel with original diagnostics.

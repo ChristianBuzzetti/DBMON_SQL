@@ -52,7 +52,7 @@ public partial class MainWindow
         StopRepeat("Stopped: a new session replaced the one it ran on.");
         // SET options belonged to the session that is being replaced; the new one starts at the server's defaults.
         engine=session;lastProfile=selection.Profile;aseOptions=AseSessionOptions.Default;
-        history.Clear();BrowserTree.Items.Clear();databaseNames=null;ClearResults(true);resultCounter=0;ClearMessages();
+        BrowserTree.Items.Clear();databaseNames=null;ClearResults(true);resultCounter=0;ClearMessages();
         AddMessage(0,"CLIENT","Connected · "+engine.Name+(timing==null?"":" · "+timing));
         foreach(var message in loginMessages)AddMessage(message.Number,message.Source,message.Text,message.RawText);
         RefreshConnection();Workspace.SelectedItem=QueryTab;Editor.Focus();
@@ -66,7 +66,7 @@ public partial class MainWindow
         try
         {
             await Task.Run(session.Dispose);
-            engine = new DisconnectedQueryEngine(); history.Clear(); BrowserTree.Items.Clear(); databaseNames = null; aseOptions = AseSessionOptions.Default;
+            engine = new DisconnectedQueryEngine();  BrowserTree.Items.Clear(); databaseNames = null; aseOptions = AseSessionOptions.Default;
             ClearResults(true);
             ClearMessages();
             AddMessage(0, "CLIENT", session.Platform.Title() + " session closed.");
@@ -136,21 +136,26 @@ public partial class MainWindow
         if (engine is not OdbcSession { IsOpen: true, Platform: ServerPlatform.Ase }) { StatusText.Text = "Switching databases applies to a connected SAP ASE session."; return; }
         if (databaseNames == null && await ReadCatalog(DatabasesSql, "Databases") is { } output) RememberDatabases(output);
         if (databaseNames == null) return;
+        CreateDatabaseMenu().IsOpen = true;
+    }, "Databases");
+
+    private ContextMenu CreateDatabaseMenu()
+    {
         string current = (engine as ISessionFacts)?.Facts.Database ?? "";
         var menu = new ContextMenu { PlacementTarget = DatabaseButton, Placement = System.Windows.Controls.Primitives.PlacementMode.Top };
-        foreach (string name in databaseNames)
+        foreach (string name in databaseNames ?? [])
         {
-            var item = new MenuItem { Header = name, IsChecked = name.Equals(current, StringComparison.Ordinal) };
+            var item = new MenuItem { Header = new TextBlock { Text = name }, IsChecked = name.Equals(current, StringComparison.Ordinal) };
             item.Click += (_, _) => RunCatalogAction(() => UseDatabase(name), "Switch database");
             menu.Items.Add(item);
         }
-        if (databaseNames.Count == 0) menu.Items.Add(new MenuItem { Header = "No databases returned", IsEnabled = false });
+        if (databaseNames is not { Count: > 0 }) menu.Items.Add(new MenuItem { Header = "No databases returned", IsEnabled = false });
         menu.Items.Add(new Separator());
         var reload = new MenuItem { Header = "Reload list" };
-        reload.Click += (_, _) => { databaseNames = null; DatabaseClick(this, e); };
+        reload.Click += (_, _) => { databaseNames = null; DatabaseClick(this, new RoutedEventArgs()); };
         menu.Items.Add(reload);
-        menu.IsOpen = true;
-    }, "Databases");
+        return menu;
+    }
 
     private async Task UseDatabase(string name)
     {

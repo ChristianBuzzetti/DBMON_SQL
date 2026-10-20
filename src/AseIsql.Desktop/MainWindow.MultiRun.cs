@@ -97,7 +97,7 @@ public partial class MainWindow
                 if (outcome.Output.Error != null) AddMessage(1, label, outcome.Output.Error, outcome.Output.ErrorRawText);
                 else AddMessage(0, label, $"Done · {Counts.Of(outcome.Output.Tables.Count, "result")} · {Counts.Of(outcome.Output.Tables.Sum(t => t.Rows.Count), "row")} · {Elapsed(outcome.ElapsedMs)}");
             }
-            history.Insert(0, sql); if (history.Count > 100) history.RemoveAt(100);
+            RecordHistory(sql);
             foreach (var added in Workspace.Items.OfType<TabItem>().Skip(firstNew).Where(t => t.Tag is DataTable table && !resultRuns.ContainsKey(table))) resultRuns[(DataTable)added.Tag] = multiRun;
             TrimResults(multiRun.Id);
             int failed = outcomes.Count(o => o.Output.Error != null);

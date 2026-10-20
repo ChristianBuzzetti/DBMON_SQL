@@ -31,11 +31,11 @@ public partial class MainWindow
         };
         var menu = new ContextMenu();
         var selectionActions = new List<MenuItem>();
-        MenuItem CopyItem(string header, ResultCopy mode, char delimiter = '\t')
+        MenuItem CopyItem(string header, ResultCopy mode, char delimiter = '\t', bool delimited = false)
         {
             var item = new MenuItem { Header = header };
             if (mode is ResultCopy.Selection or ResultCopy.WithHeaders) selectionActions.Add(item);
-            item.Click += (_, _) => CopyResult(grid, mode, delimiter); return item;
+            item.Click += (_, _) => CopyResult(grid, mode, delimiter, delimited); return item;
         }
         menu.Items.Add(CopyItem("Copy", ResultCopy.Selection));
         menu.Items.Add(CopyItem("Copy with headers", ResultCopy.WithHeaders));
@@ -47,9 +47,9 @@ public partial class MainWindow
         foreach (var (name, delimiter) in new[] { ("Tab", '\t'), ("Comma (CSV)", ','), ("Semicolon", ';'), ("Pipe", '|') })
         {
             var option = new MenuItem { Header = name };
-            option.Items.Add(CopyItem("Selection", ResultCopy.Selection, delimiter));
-            option.Items.Add(CopyItem("Selection with headers", ResultCopy.WithHeaders, delimiter));
-            option.Items.Add(CopyItem("All with headers", ResultCopy.AllWithHeaders, delimiter));
+            option.Items.Add(CopyItem("Selection", ResultCopy.Selection, delimiter, delimited: true));
+            option.Items.Add(CopyItem("Selection with headers", ResultCopy.WithHeaders, delimiter, delimited: true));
+            option.Items.Add(CopyItem("All with headers", ResultCopy.AllWithHeaders, delimiter, delimited: true));
             delimited.Items.Add(option);
         }
         menu.Items.Add(delimited); menu.Items.Add(new Separator());
@@ -157,11 +157,12 @@ public partial class MainWindow
         bool active = tab.IsSelected; int index = Workspace.Items.IndexOf(tab);
         pinnedResults.Remove((DataTable)tab.Tag); resultOrigins.Remove((DataTable)tab.Tag); diffSources.Remove((DataTable)tab.Tag); resultRuns.Remove((DataTable)tab.Tag);
         Workspace.Items.Remove(tab);
+        if (!ResultTabs.Any()) resultCounter = 0;
         if (active) Workspace.SelectedIndex = Math.Max(0, Math.Min(index, Workspace.Items.Count - 1));
         if (Workspace.SelectedItem == QueryTab) { Editor.Focus(); StatusText.Text = "Result closed · Query · " + SourceLabel; }
     }
 
-    private static string BuildResultCopy(DataGrid grid, ResultCopy mode, char delimiter)
+    private static string BuildResultCopy(DataGrid grid, ResultCopy mode, char delimiter, bool delimited = false)
     {
         bool all = mode is ResultCopy.All or ResultCopy.AllWithHeaders, headersOnly = mode == ResultCopy.HeadersOnly;
         var selected = all || headersOnly ? [] : grid.SelectedCells.Where(c => c.IsValid && c.Item is DataRowView).ToArray();
@@ -177,12 +178,12 @@ public partial class MainWindow
         var headers = columns.Select((column, index) => source != null ? source.Columns[ordinals[index]].Caption : column.Header?.ToString() ?? "").ToArray();
         var rows = headersOnly ? Enumerable.Empty<IReadOnlyList<object?>>() : items.Select(row => (IReadOnlyList<object?>)columns.Select((column, index) =>
             all || selectedPairs.Contains((row.Row, column)) ? row.Row[ordinals[index]] : null).ToArray());
-        return DelimitedText.Serialize(headers, rows, delimiter, includeHeaders: mode is ResultCopy.WithHeaders or ResultCopy.AllWithHeaders, headersOnly: headersOnly);
+        return DelimitedText.Serialize(headers, rows, delimiter, includeHeaders: mode is ResultCopy.WithHeaders or ResultCopy.AllWithHeaders, headersOnly: headersOnly, quoteFields: delimited);
     }
 
-    private void CopyResult(DataGrid grid, ResultCopy mode, char delimiter)
+    private void CopyResult(DataGrid grid, ResultCopy mode, char delimiter, bool delimited = false)
     {
-        try { string text = BuildResultCopy(grid, mode, delimiter); Clipboard.SetText(text); StatusText.Text = "Copied to clipboard · " + mode; }
+        try { string text = BuildResultCopy(grid, mode, delimiter, delimited); Clipboard.SetText(text); StatusText.Text = "Copied to clipboard · " + mode; }
         catch (Exception ex) when (ex is ArgumentException or ExternalException or InvalidOperationException)
         { ShowError("Unable to copy: " + ex.Message); }
     }

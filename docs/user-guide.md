@@ -63,7 +63,7 @@ The SQL editor is [AvalonEdit](https://github.com/icsharpcode/AvalonEdit) with S
 - **Editor menu** and right-click: undo/redo, copy/paste, comment or uncomment lines, duplicate line (`Ctrl+Shift+D`), selection to upper or lower case.
 - **Word wrap** `Alt+Z`; **zoom** `Ctrl++`, `Ctrl+-`, `Ctrl+0`.
 - **Files**: `Ctrl+N` new, `Ctrl+O` open, `Ctrl+S` save, `Ctrl+Shift+S` save as. Files are UTF-8; the previous version is kept as a backup when you overwrite. Unsaved changes are confirmed before they are discarded.
-- **History** `Ctrl+R`: queries run in this session; double-click one to load it.
+- **History** `Ctrl+R`: the latest 100 queries across sessions, newest date/time first; double-click one to load its complete SQL. Stored as plaintext in `%LOCALAPPDATA%\DBMON_SQL\query-history.json` with atomic-write backups. Keep sensitive SQL out of history. Unreadable history files are preserved and a warning is shown instead of overwriting them.
 - **Command search** `Ctrl+K`: every command by name.
 
 Right-clicking an identifier (`orders`, `dbo.orders`, `sales..orders`, `[my table]`) offers **object actions** for it: on ASE, *Select TOP 100*, `sp_help`, `sp_depends`, `sp_helpindex`, `sp_spaceused` and *View code*; on IQ, *Select TOP 100*, `sp_iqcolumn`, `sp_iqindex` and `sp_iqtablesize`.
@@ -93,7 +93,7 @@ Every result set opens in its own tab: **Result 1**, **Result 2**…
 
 Right-click the grid for:
 
-- **Copy**, *Copy with headers*, *Copy headers only*, *Copy all*, *Copy all with headers* and **Copy delimited** (tab, comma, semicolon, pipe). Copies follow the visible column order and source values, not clipped cell text.
+- **Copy**, *Copy with headers*, *Copy headers only*, *Copy all*, *Copy all with headers* and **Copy delimited** (tab, comma, semicolon, pipe). Ordinary Copy/Ctrl+C and Copy all preserve literal text, including SQL line breaks and double quotes, without CSV quoting. Columns are separated by tabs and result rows by newlines. Use Copy delimited or CSV export when you need escaped, unambiguous fields for a spreadsheet. Copies follow the visible column order and source values, not clipped cell text.
 - **View source SQL**, **Freeze first column**, **Bar chart…**, **Transpose result**.
 - **Export** to JSON, Markdown, an HTML report, a SQL `IN` list or `INSERT` statements. CSV export is under *Tools*.
 
@@ -216,7 +216,7 @@ Builds before 16 October 2026 used `%LOCALAPPDATA%\ASE ISQL Desktop`; the first 
 | Result tabs | 40 (oldest unpinned close first) |
 | Pinned results | 8, 64 MiB in total |
 | Messages per execution | 500 (older ones are counted as omitted) |
-| Query history | 100 queries per session |
+| Query history | 100 queries across sessions · newest first · 32 MiB file limit |
 | Repeat interval | 5 seconds to 24 hours |
 
 When a limit is reached, the output is marked partial and Messages explains which limit applied.

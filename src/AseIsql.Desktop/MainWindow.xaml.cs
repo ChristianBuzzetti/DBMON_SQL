@@ -23,7 +23,6 @@ public partial class MainWindow : Window
     private IQueryEngine engine = new DisconnectedQueryEngine();
     private readonly bool isSmoke = Environment.GetCommandLineArgs().Contains("--smoke");
     private readonly ObservableCollection<LogMessage> log = [];
-    private readonly List<string> history = [];
     private CancellationTokenSource? running;
     private string? documentPath;
     private string savedText = "";
@@ -66,12 +65,13 @@ public partial class MainWindow : Window
             }
         };
         Loaded += async (_, _) => {
-            Editor.Focus(); RefreshConnection();
+            Editor.Focus(); RefreshConnection(); LoadHistory();
             if (IsShowcase) await RunShowcase();
             else if (isSmoke) await VerifySmoke();
             else if(!Environment.GetCommandLineArgs().Any(arg=>arg is "--startup-report" or "--ui-preview")) { ConnectClick(this,new RoutedEventArgs()); if(engine is not OdbcSession) { AddMessage(0,"CLIENT","Working offline. SQL can be edited and saved; connect with F11 to execute."); StatusText.Text="Disconnected · connect with F11 to execute SQL"; } }
             // After the login (which starts Messages afresh), so the one-time move stays visible.
             if (!isSmoke && DataFolder.MigrationNote is { } moved) AddMessage(0, "CLIENT", moved);
+            if (historyWarning != null) AddMessage(0, "CLIENT", historyWarning);
         };
     }
 
@@ -197,7 +197,7 @@ public partial class MainWindow : Window
             foreach (QueryMessage message in output.Messages) AddMessage(message.Number, message.Source, message.Text, message.RawText);
             if (output.OmittedMessages > 0) AddMessage(0, "CLIENT", $"{output.OmittedMessages} earlier messages were omitted by the retention limit.");
             // A repeat records its SQL once when it starts, not on every run.
-            if (!repeatRun && !string.IsNullOrWhiteSpace(sql)) { history.Insert(0, sql); if (history.Count > 100) history.RemoveAt(100); }
+            if (!repeatRun) RecordHistory(sql);
             lastRunFailed = output.Error != null;
             if (output.Error != null) { AddMessage(1, output.ErrorSource, output.Error, output.ErrorRawText); SetLogVisible(true); }
             else AddMessage(0, SourceLabel, $"Done · {Counts.Of(output.Tables.Count, "result")} · {Counts.Of(rowCount, "row")} · {Elapsed(elapsedMs)}");
@@ -408,17 +408,6 @@ public partial class MainWindow : Window
         ShowLogMenu.IsChecked = show;
     }
     private void TabChanged(object sender, SelectionChangedEventArgs e) { if (ready && e.Source == Workspace && Workspace.SelectedItem is TabItem { Tag: DataTable table } tab) StatusText.Text = $"{ResultName(tab)} · {resultOrigins.GetValueOrDefault(table).Source} · {Counts.Of(table.Rows.Count, "row")} · {Counts.Of(table.Columns.Count, "column")}"; }
-    private void HistoryClick(object sender, RoutedEventArgs e)
-    {
-        var items = new ListBox { ItemsSource = history, Margin = new Thickness(14) };
-        items.SetResourceReference(Control.FontFamilyProperty,"MonoFont");
-        var window = new Window { Owner = this, Title = "SQL History · " + engine.Name + " · this session only", Width = 720, Height = 400, WindowStartupLocation = WindowStartupLocation.CenterOwner };
-        var panel = new DockPanel();
-        var hint = new TextBlock { Text = history.Count == 0 ? "No queries have been executed in this session." : "Double-click to load a query into the editor.", Margin = new Thickness(14) };
-        DockPanel.SetDock(hint, Dock.Top); panel.Children.Add(hint); panel.Children.Add(items); window.Content = panel;
-        items.MouseDoubleClick += (_, _) => { if (items.SelectedItem is string query && ConfirmDiscard()) { SetDocument(query, null); window.Close(); } };
-        window.ShowDialog();
-    }
     private void ExportClick(object sender, RoutedEventArgs e)
     {
         if (Workspace.SelectedItem is not TabItem { Tag: DataTable table }) { ShowError("Select a Result tab to export."); return; }
@@ -444,6 +433,7 @@ public partial class MainWindow : Window
             Require(Editor.Text == savedText, "Execution preserves SQL buffer");
             Require(((TabItem)Workspace.Items[1]).Tag is DataTable table && table.Rows[0][2] is DBNull, "NULL preserved as DBNull");
             Require(log.Any(m => m.Text.Contains("Done")), "Execution messages separate from tables");
+            await VerifyWorkspacePolish(Require);
             int tabsBefore = Workspace.Items.Count, historyBefore = history.Count;
             Editor.Select(0, 0); await ExecuteAsync(selectionOnly: true);
             Require(Workspace.Items.Count == tabsBefore && history.Count == historyBefore && log[^1].Text.StartsWith("Ctrl+E"), "Empty Ctrl+E selection does not execute the script");
@@ -511,7 +501,7 @@ public partial class MainWindow : Window
                 string factsSql=Editor.Text;await ExecuteAsync();await Dispatcher.InvokeAsync(()=>UpdateLayout(),System.Windows.Threading.DispatcherPriority.ContextIdle);
                 CaptureSmokeVisual(this,"status-session.png");
                 var unnamedGrid=((DockPanel)((TabItem)Workspace.SelectedItem).Content).Children.OfType<DataGrid>().Single();
-                string unnamedCopy=BuildResultCopy(unnamedGrid,ResultCopy.AllWithHeaders,',');
+                string unnamedCopy=BuildResultCopy(unnamedGrid,ResultCopy.AllWithHeaders,',', delimited: true);
                 Require(unnamedGrid.Columns[0].Header.Equals(UnnamedColumn)&&!unnamedCopy.Contains(UnnamedColumn)&&unnamedCopy.Contains("1969")&&Editor.Text==factsSql,"An unnamed column shows a placeholder header while copies keep the empty source caption");
                 Require(log.Any(m=>m.Text.Contains("· 1 result · 1 row ·"))&&StatusText.Text.StartsWith("Ready · 1 result · 1 row · "),"Counts read as 1 result and 1 row, with the same elapsed time in Messages and status"+$" ({StatusText.Text})");
                 Require(UseTarget("master")=="master"&&UseTarget("sales db")=="[sales db]"&&UseTarget("a]b; drop")=="[a]]b; drop]","Database switching sends regular names as typed and delimits anything else");
@@ -528,7 +518,7 @@ public partial class MainWindow : Window
                 await ExecuteOnTargetsAsync(AvailableTargets(),multiSql,"script");
                 var multiTabs=Workspace.Items.OfType<TabItem>().Where(tab=>tab.Tag is DataTable).ToList();
                 Require(multiTabs.Count==4&&multiTabs[0].Header.Equals("All · 1")&&multiTabs[1].Header.Equals("Diff · 1")&&multiTabs.Any(tab=>tab.Header.Equals("beta · 1"))&&((DataTable)multiTabs[0].Tag).Rows.Count==2&&((DataTable)multiTabs[0].Tag).Columns[0].Caption=="server"&&Workspace.SelectedItem==multiTabs[0],"Parallel run publishes a combined result with a server column first, then each server's own results"+$" ({string.Join(" | ",multiTabs.Select(tab=>tab.Header))})");
-                Require(log.Any(m=>m.Source=="broken"&&m.Number==1)&&log.Any(m=>m.Source=="beta"&&m.Text.StartsWith("Done · 1 result · 1 row"))&&StatusText.Text.Contains("3 servers · 2 ok · 1 failed")&&Editor.Text==multiSql&&history[0]==multiSql,"A failing server reports in Messages under its own label without hiding the others"+$" ({StatusText.Text})");
+                Require(log.Any(m=>m.Source=="broken"&&m.Number==1)&&log.Any(m=>m.Source=="beta"&&m.Text.StartsWith("Done · 1 result · 1 row"))&&StatusText.Text.Contains("3 servers · 2 ok · 1 failed")&&Editor.Text==multiSql&&history[0].Sql==multiSql,"A failing server reports in Messages under its own label without hiding the others"+$" ({StatusText.Text})");
                 CaptureSmokeVisual(this,"multi-run-results.png");
                 var betaTab=multiTabs.Single(tab=>tab.Header.Equals("beta · 1"));
                 var betaFooter=((DockPanel)betaTab.Content).Children.OfType<Grid>().Single();
@@ -864,7 +854,7 @@ public partial class MainWindow : Window
             Require(BuildResultCopy(copyGrid, ResultCopy.Selection, '\t') == "\ta\r\nnot-selected\t\r\n", "Sparse clipboard selection follows visual order and leaves unselected cells empty");
             Require(BuildResultCopy(copyGrid, ResultCopy.WithHeaders, '\t').StartsWith("second\tfirst\r\n"), "Copy with headers follows reordered source captions");
             Require(BuildResultCopy(copyGrid, ResultCopy.HeadersOnly, '\t') == "second\tfirst\r\n", "Copy headers only excludes result rows");
-            Require(BuildResultCopy(copyGrid, ResultCopy.AllWithHeaders, ',') == "second,first\r\n\"line,one\nline two\",a\r\nnot-selected,z\r\n", "Copy all CSV includes complete sorted rows and escaped multiline cells");
+            Require(BuildResultCopy(copyGrid, ResultCopy.AllWithHeaders, ',', delimited: true) == "second,first\r\n\"line,one\nline two\",a\r\nnot-selected,z\r\n", "Copy all CSV includes complete sorted rows and escaped multiline cells");
             SelectContextCell(copyGrid, copyGrid.Items[0], copyGrid.Columns[0]);
             Require(copyGrid.SelectedCells.Count == 2, "Right click inside selected cells preserves multi-cell selection");
             SelectContextCell(copyGrid, copyGrid.Items[0], copyGrid.Columns[1]);
@@ -872,7 +862,7 @@ public partial class MainWindow : Window
             Require(copyGrid.ContextMenu.Items.OfType<MenuItem>().Any(item => item.Header.Equals("Copy delimited")), "Result context menu offers delimiter choices");
             var filterPanel=((DockPanel)copyTab.Content).Children.OfType<DockPanel>().Single();
             var localFilter=filterPanel.Children.OfType<TextBox>().Single(); localFilter.Text="line,one";
-            Require(copyGrid.Items.Count==1 && BuildResultCopy(copyGrid,ResultCopy.All,',').Contains("line two"), "Local filter and full-view copy share visible rows");
+            Require(copyGrid.Items.Count==1 && BuildResultCopy(copyGrid,ResultCopy.All,',', delimited: true).Contains("line two"), "Local filter and full-view copy share visible rows");
             localFilter.Text="["; Require(copyGrid.Items.Count==0, "Local filter escapes bracket wildcards as literal values"); localFilter.Text="";
             TogglePin(copyTab); var preservedOrigin=resultOrigins[copyTable];
             Editor.Text="select 12 as recent"; await ExecuteAsync();
@@ -1058,7 +1048,7 @@ public partial class MainWindow : Window
             Require(CountVisualRows(grid) is > 0 and < 200, "100k grid creates only visible row controls");
             checks.Add($"PERF 100k rows: {largeTimer.Elapsed.TotalMilliseconds:F1} ms including data creation and first layout; {CountVisualRows(grid)} realized row controls");
             var copyTimer = Stopwatch.StartNew();
-            string completeCopy = BuildResultCopy(grid, ResultCopy.AllWithHeaders, ',');
+            string completeCopy = BuildResultCopy(grid, ResultCopy.AllWithHeaders, ',', delimited: true);
             Require(completeCopy.StartsWith("id,description\r\n") && completeCopy.EndsWith("99999,Test row 99999\r\n") && completeCopy.Count(c => c == '\n') == 100001, "Copy all includes all 100k rows beyond the viewport");
             checks.Add($"PERF copy all 100k rows: {copyTimer.Elapsed.TotalMilliseconds:F1} ms; {completeCopy.Length} characters; serialization only, OS clipboard not measured");
         }

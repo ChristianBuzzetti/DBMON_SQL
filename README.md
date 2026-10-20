@@ -92,7 +92,7 @@ Cancelling the login keeps the app open offline: you can write, open and save SQ
 | `F4` | Object explorer |
 | `F11` / `F12` | Connect / disconnect |
 | `Ctrl+N` `Ctrl+O` `Ctrl+S` `Ctrl+Shift+S` | New, open, save, save as |
-| `Ctrl+R` | Query history (this session) |
+| `Ctrl+R` | Saved query history |
 | `Ctrl+F` / `Ctrl+H` | Find / find and replace |
 | `Ctrl+F2` / `F2` / `Shift+F2` | Toggle / next / previous bookmark |
 | `Ctrl+Shift+D` | Duplicate line |

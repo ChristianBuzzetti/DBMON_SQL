@@ -59,7 +59,7 @@ public partial class MainWindow
     private void StartRepeat(RepeatPlan plan)
     {
         repeat=plan;plan.NextRun=DateTime.Now;
-        if(!string.IsNullOrWhiteSpace(plan.Sql)){history.Insert(0,plan.Sql);if(history.Count>100)history.RemoveAt(100);}
+        RecordHistory(plan.Sql);
         repeatClock??=new DispatcherTimer {Interval=TimeSpan.FromMilliseconds(250)};
         repeatClock.Tick-=RepeatClockTick;repeatClock.Tick+=RepeatClockTick;repeatClock.Start();
         RepeatBanner.Visibility=Visibility.Visible;RunMenuGlyph.Text="\uE895";RepeatMenu.Header="Stop repeating";

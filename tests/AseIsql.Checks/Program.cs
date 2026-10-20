@@ -8,6 +8,44 @@ int passed = 0;
 void Check(string name, Action body) { body(); Console.WriteLine("PASS " + name); passed++; }
 void Assert(bool value) { if (!value) throw new Exception("Assertion failed"); }
 var engine = new DemoQueryEngine();
+Check("Query history survives reload with exact SQL and newest dates first", () => {
+    string directory = Path.Combine(Path.GetTempPath(), "dbmon-history-" + Guid.NewGuid().ToString("N"));
+    string path = Path.Combine(directory, "history.json");
+    var store = new QueryHistoryStore(path);
+    Assert(store.Load().Count == 0);
+    var older = new QueryHistoryEntry(DateTimeOffset.Parse("2026-10-19T20:00:00Z"), "select 'mon_db'\n-- exact SQL");
+    var newer = new QueryHistoryEntry(DateTimeOffset.Parse("2026-10-20T10:00:00-03:00"), "select 2");
+    store.Save([older, newer]);
+    var loaded = new QueryHistoryStore(path).Load();
+    Assert(loaded.SequenceEqual(new[] { newer, older }));
+    store.Save(loaded.Prepend(new QueryHistoryEntry(newer.ExecutedAt.AddMinutes(1), "select 3")));
+    Assert(new QueryHistoryStore(path).Load().Count == 3 && Directory.GetFiles(directory, "*.bak").Length == 1);
+    Console.WriteLine("History fixture: " + directory);
+});
+Check("Query history bounds retention and preserves malformed files", () => {
+    string directory = Path.Combine(Path.GetTempPath(), "dbmon-history-" + Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(directory);
+    string path = Path.Combine(directory, "history.json");
+    var store = new QueryHistoryStore(path);
+    var now = DateTimeOffset.UtcNow;
+    store.Save(Enumerable.Range(0, 105).Select(i => new QueryHistoryEntry(now.AddMinutes(i), "select " + i)));
+    Assert(store.Load().Count == 100 && store.Load()[0].Sql == "select 104" && store.Load()[99].Sql == "select 5");
+    string valid = File.ReadAllText(path);
+    try { store.Save([new QueryHistoryEntry(now, " ")]); Assert(false); } catch (System.Text.Json.JsonException) { }
+    Assert(File.ReadAllText(path) == valid);
+    try { new QueryHistoryStore(directory).Save([new QueryHistoryEntry(now, "select 1")]); Assert(false); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+    Assert(File.ReadAllText(path) == valid);
+    foreach (string invalid in new[] { "{broken", "null", "[null]", "[{\"ExecutedAt\":\"2026-10-20T00:00:00Z\",\"Sql\":null}]", "[{\"Sql\":\"select 1\"}]" }) {
+        File.WriteAllText(path, invalid);
+        try { store.Load(); Assert(false); } catch (System.Text.Json.JsonException) { }
+        Assert(File.ReadAllText(path) == invalid);
+    }
+    using (var oversized = File.Create(path)) oversized.SetLength(32L * 1024 * 1024 + 1);
+    try { store.Load(); Assert(false); } catch (IOException) { }
+    Assert(new FileInfo(path).Length == 32L * 1024 * 1024 + 1);
+    try { new QueryHistoryStore(directory).Load(); Assert(false); } catch (UnauthorizedAccessException) { } catch (IOException) { }
+    Console.WriteLine("History fixture: " + directory);
+});
 Check("INSERT target keeps bracketed and quoted parts containing dots", () => {
     var t = new DataTable(); t.Columns.Add("v", typeof(int)); t.Rows.Add(1);
     Assert(ResultFormats.Inserts(t, "[dbo].[a.b]") == "INSERT INTO [dbo].[a.b] ([v]) VALUES (1);");
