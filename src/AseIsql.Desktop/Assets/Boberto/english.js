@@ -24,6 +24,11 @@ Object.assign(bobertoEnglish,{
 'Repisas en los bordes y la pared libre en el medio.':'Shelves at the edges and a bare wall in the middle.','Un sillón a la izquierda y una planta a la derecha, pared azul media.':'An armchair on the left and a plant on the right, medium blue wall.','Libros a la izquierda y un reloj a la derecha, pared arena.':'Books on the left and a clock on the right, sand wall.','Libros a la izquierda, una lámpara y una planta a la derecha.':'Books on the left, a lamp and a plant on the right.',
 'Cielo azul noche con una constelación a cada lado.':'Night-blue sky with a constellation on each side.','Una luna creciente a la izquierda y nubes bajas.':'A crescent moon on the left and low clouds.','Oscuro. La rueda del zodiaco a la izquierda y constelaciones a la derecha.':'Dark. The zodiac wheel on the left and constellations on the right.','Oscuro. Los doce signos sobre la eclíptica, constelaciones y una luna chica.':'Dark. The twelve signs on the ecliptic, constellations and a small moon.'
 });
+// Expanded SMG_APPS catalog. Keep engine identifiers and stored values unchanged.
+Object.assign(bobertoEnglish,{
+'Caballero medieval':'Medieval knight','Explorador steampunk':'Steampunk explorer','Faraón':'Pharaoh','Vaquero':'Cowboy','Guardián del bosque':'Forest guardian','Bombero':'Firefighter','Detective':'Detective','Mosquetero':'Musketeer','Bufón':'Jester','Marinero':'Sailor','Mariachi':'Mariachi','Ninja':'Ninja','Gaitero escocés':'Scottish piper','Expedición polar':'Polar expedition',
+'Bronce y pátina':'Bronze and patina','Mármol':'Marble','Vitral':'Stained glass','Circuito':'Circuit','Pesas':'Weightlifting','Magia':'Magic','Guardia':'On call','Barrilete':'Kite'
+});
 const translateBoberto=text=>bobertoEnglish[text]||text.split(' · ').map(part=>bobertoEnglish[part]||part).join(' · ');
 bobertoEnglish.Otro='Custom';bobertoEnglish['Personalizar a Boberto']='Customize Boberto';
 for(const method of ['listGestures','listHats','listCharacters','listSkins','listEyes','listHatColors','listHatColors2','listFxEffects','listGlowColors','listFondos','listBordes']){

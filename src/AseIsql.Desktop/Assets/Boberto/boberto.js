@@ -139,6 +139,13 @@
     yukata: '#2d4a7a', jetpack: '#d9a21b',
     brasita: '#c63a24', caparazon: '#2a9d8f', brotito: '#4f9a45', chispa: '#4b3fc4',
     sombrita: '#2c3554',
+    caballero: '#8095ad', steampunk: '#795037', faraon: '#214a91',
+    vaquero: '#995f36', guardian: '#42704b',
+    bombero: '#b8322a', detective: '#8a6f4c', mosquetero: '#2c4f9e',
+    bufon: '#a52a4a', marinero: '#eeece4',
+    pintor: '#b0283a', mariachi: '#1d1d22', ninja: '#23262e', gaitero: '#2f5d3a',
+    polar: '#2e5f8a',
+    astronauta: '#eef1f5', buzo: '#b9863c', helice: '#d63a3a',
   };
 
   // Corpus de tips: lo pone cada app (ver BOBERTO_HOST).
@@ -244,6 +251,21 @@
     { id: 'copa',        name: 'Sombrero Copa', icon: '🎩' },
     { id: 'pirata',      name: 'Pirata',      icon: '🏴‍☠️' },
     { id: 'samurai',     name: 'Samurái',     icon: '⚔️' },
+    { id: 'caballero',   name: 'Caballero medieval', icon: '🛡️' },
+    { id: 'steampunk',   name: 'Explorador steampunk', icon: '⚙️' },
+    { id: 'faraon',      name: 'Faraón', icon: '𓂀' },
+    { id: 'vaquero',     name: 'Vaquero', icon: '🤠' },
+    { id: 'guardian',    name: 'Guardián del bosque', icon: '🌿' },
+    { id: 'bombero',     name: 'Bombero',     icon: '🧑‍🚒' },
+    { id: 'detective',   name: 'Detective',   icon: '🔎' },
+    { id: 'mosquetero',  name: 'Mosquetero',  icon: '🤺' },
+    { id: 'bufon',       name: 'Bufón',       icon: '🃏' },
+    { id: 'marinero',    name: 'Marinero',    icon: '⚓' },
+    { id: 'pintor',      name: 'Pintor',      icon: '🎨' },
+    { id: 'mariachi',    name: 'Mariachi',    icon: '🎸' },
+    { id: 'ninja',       name: 'Ninja',       icon: '🥷' },
+    { id: 'gaitero',     name: 'Gaitero escocés', icon: '🏴' },
+    { id: 'polar',       name: 'Expedición polar', icon: '🧊' },
     { id: 'astronauta',  name: 'Astronauta',  icon: '🧑‍🚀' },
     { id: 'buzo',        name: 'Escafandra',  icon: '🤿' },
     { id: 'alas',        name: 'Alas',        icon: '🪽' },
@@ -298,6 +320,11 @@
     { id: 'escarcha',       name: 'Escarcha',       serie: 'Materiales',     icon: '❄️' },
     { id: 'nebulosa',       name: 'Nebulosa',       serie: 'Materiales',     icon: '🌌' },
     { id: 'celestial',      name: 'Celestial',      serie: 'Materiales',     icon: '✨' },
+    { id: 'bronce',         name: 'Bronce y pátina', serie: 'Materiales',    icon: '🔔' },
+    { id: 'marmol',         name: 'Mármol',         serie: 'Materiales',     icon: '🏛️' },
+    { id: 'vitral',         name: 'Vitral',         serie: 'Materiales',     icon: '🪟' },
+    { id: 'circuito',       name: 'Circuito',       serie: 'Materiales',     icon: '🔌' },
+    { id: 'ambar',          name: 'Ámbar',          serie: 'Materiales',     icon: '🍯' },
   ];
   /* Los personajes de franquicia que se retiraron el 14/10/2026, y el disfraz
    * que los reemplaza. Los cuatro de Rick and Morty además habían sido
@@ -322,8 +349,13 @@
   // Paletas del accesorio. Viven acá y no en el panel porque ahora hay DOS
   // interfaces que las ofrecen —el panel de Ajustes y la vitrina de la
   // landing— y dos listas escritas a mano se separan en el próximo color.
+  //
+  // El primero no es un color: es el de fábrica. Guarda HAT_DARK, que el
+  // motor lee como "el color propio de la pieza" (HAT_NATURAL) y sólo cae en
+  // grafito en los accesorios que no traen uno. Se llamaba "Grafito" y con el
+  // caballero puesto pintaba acero: el nombre decía una cosa y la escena otra.
   const HAT_COLOR_PRESETS = [
-    { id: '#2a2c34', name: 'Grafito' }, { id: '#ffffff', name: 'Blanco' },
+    { id: HAT_DARK, name: 'Natural', desc: 'El color propio de cada accesorio' }, { id: '#ffffff', name: 'Blanco' },
     { id: '#5b8cff', name: 'Azul' },    { id: '#10b981', name: 'Esmeralda' },
     { id: '#f59e0b', name: 'Ámbar' },   { id: '#f43f5e', name: 'Rojo' },
     { id: '#ec4899', name: 'Rosa' },    { id: '#bd93f9', name: 'Violeta' },
@@ -1523,8 +1555,781 @@
     return { x: ex, y: ey, ang: Math.atan2(ey - py, ex - px), izq, der, en };
   }
 
+  /**
+   * Si la mano de ese lado está libre en el cuadro en curso (-1 izquierda,
+   * 1 derecha, en coordenadas del lienzo). Las poses con prop apagan el brazo
+   * que lo sostiene (`armR: false`, `armL: false`) y lo dibuja el prop: el
+   * puntero del pizarrón, la taza, la lupa. Un accesorio que lleve algo en
+   * esa mano lo guarda mientras tanto; si no, se pisan los dos objetos.
+   */
+  function manoLibre(side) {
+    const p = _poseActual || {};
+    return side > 0 ? p.armR !== false : p.armL !== false;
+  }
+
+  // These primitives belong only to the detailed ensembles below.
+  // Their geometry stays outside the eyes and above/below the mouth opening.
+  function ensemblePlate(c, points, light, dark, edge, width) {
+    c.beginPath();
+    points.forEach(([x, y], i) => i ? c.lineTo(x, y) : c.moveTo(x, y));
+    c.closePath();
+    const ys = points.map(p => p[1]);
+    const fill = c.createLinearGradient(3, Math.min(...ys), 12, Math.max(...ys));
+    fill.addColorStop(0, light); fill.addColorStop(0.4, light); fill.addColorStop(1, dark);
+    c.fillStyle = fill; c.fill();
+    c.lineWidth = width || 0.16; c.strokeStyle = edge; c.stroke();
+  }
+
+  function ensembleStud(c, x, y, metal, radius) {
+    ellipsePath(c, x, y, radius || 0.13, radius || 0.13);
+    c.fillStyle = metal; c.fill();
+  }
+
+  function ensembleGem(c, x, y, size, A) {
+    ensemblePlate(c, [[x, y-size], [x+size*0.75, y], [x, y+size], [x-size*0.75, y]],
+      A.altLite('#f0bb53'), A.altDark('#b46b18'), A.fixed('#38291a'));
+    c.beginPath(); c.moveTo(x-size*0.4, y); c.lineTo(x, y-size*0.6); c.lineTo(x+size*0.3, y);
+    c.lineWidth = 0.1; c.strokeStyle = A.fixed('#fff3cc'); c.stroke();
+  }
+
+  function ensembleLeaf(c, x, y, angle, size, A) {
+    c.save(); c.translate(x, y); c.rotate(angle);
+    c.beginPath(); c.moveTo(0, 0);
+    c.bezierCurveTo(-size*0.9, -size*0.35, -size*0.55, -size*1.1, 0, -size*1.5);
+    c.bezierCurveTo(size*0.7, -size*0.9, size*0.65, -size*0.35, 0, 0);
+    const g = c.createLinearGradient(-size*0.5, 0, size*0.5, -size);
+    g.addColorStop(0, A.dark); g.addColorStop(0.55, A.lite); g.addColorStop(1, A.mat);
+    c.fillStyle = g; c.fill(); c.lineWidth = 0.1; c.strokeStyle = adjustL(A.dark, -15); c.stroke();
+    c.beginPath(); c.moveTo(0, 0); c.lineTo(0, -size*1.2);
+    for (const dy of [0.4, 0.7]) { c.moveTo(0, -size*dy); c.lineTo(-size*0.28, -size*(dy+0.2)); }
+    c.lineWidth = 0.07; c.strokeStyle = A.alt('#b3c47b'); c.stroke();
+    c.restore();
+  }
+
+  function ropaTorso(c, light, dark, edge) {
+    ensemblePlate(c, [[1.5,11.4],[8,11.9],[14.5,11.4],[14.5,15.6],[1.5,15.6]], light, dark, edge);
+  }
+
+  function estrella4(c, x, y, r, color) {
+    c.beginPath();
+    for (let i = 0; i < 8; i++) {
+      const a = i * Math.PI / 4, d = i % 2 ? r * 0.32 : r;
+      c.lineTo(x + Math.sin(a) * d, y - Math.cos(a) * d);
+    }
+    c.closePath(); c.fillStyle = color; c.fill();
+  }
+
+  /**
+   * La ropa de los accesorios que eran sólo un tocado.
+   *
+   * Un gorro de Papá Noel sobre un Boberto desnudo se lee como un sombrero
+   * suelto; con el saco, el cinturón y la bolsa se lee como el personaje. Es
+   * el nivel que fijaron los conjuntos completos (caballero, faraón...).
+   *
+   * Va en un mapa aparte y no adentro de cada HATS porque se pinta SIEMPRE en
+   * la capa de la cabeza, aunque el tocado vaya en la de la cara (el pirata:
+   * su parche tiene que tapar el ojo, su camisa no). Sigue a la pose: se
+   * corre con `bodyDY` y se recorta contra el cuerpo, así no se despega en
+   * un salto. La prenda arranca debajo de la boca (y ≈ 11.4).
+   */
+  const ROPA = {
+    astronauta(c, A) {
+      const edge = adjustL(A.dark, -30);
+      ropaTorso(c, A.lite, A.dark, edge);
+      roundRect(c, 6.45, 12.05, 3.1, 1.3, 0.2); c.fillStyle = A.fixed('#2b303b'); c.fill();
+      c.lineWidth = 0.1; c.strokeStyle = A.dark; c.stroke();
+      for (const [x, col] of [[7.15, A.alt('#3fd17a')], [8, A.fixed('#f5c542')], [8.85, A.fixed('#e0533d')]]) {
+        ellipsePath(c, x, 12.55, 0.2, 0.2); c.fillStyle = col; c.fill();
+      }
+      roundRect(c, 7, 12.95, 2, 0.2, 0.05); c.fillStyle = A.fixed('#7dc8ff'); c.fill();
+      ellipsePath(c, 3.9, 12.6, 0.6, 0.6); c.fillStyle = A.fixed('#2f63c8'); c.fill();
+      estrella4(c, 3.9, 12.6, 0.38, A.fixed('#ffffff'));
+      roundRect(c, 11.2, 12.15, 1.3, 0.85, 0.08); c.fillStyle = A.fixed('#f3f1ea'); c.fill();
+      for (const y of [12.3, 12.62]) { roundRect(c, 11.2, y, 1.3, 0.16, 0.02); c.fillStyle = A.fixed('#d13a3a'); c.fill(); }
+      roundRect(c, 11.2, 12.15, 0.55, 0.42, 0.04); c.fillStyle = A.fixed('#2f63c8'); c.fill();
+      c.beginPath(); c.moveTo(1.5, 14.4); c.quadraticCurveTo(8, 15.2, 14.5, 14.4);
+      c.lineWidth = 0.45; c.strokeStyle = A.dark; c.stroke();
+    },
+
+    buzo(c, A) {
+      const lona = A.alt('#c9b48d'), bronce = A.mat, edge = adjustL(A.dark, -30);
+      ropaTorso(c, adjustL(lona, 6), adjustL(lona, -14), edge);
+      c.beginPath();
+      for (let x = 2; x < 14.6; x += 0.7) { c.moveTo(x, 13); c.lineTo(x + 0.15, 15.6); }
+      c.lineWidth = 0.05; c.strokeStyle = lona; c.stroke();
+      // Peto: la placa de bronce que asienta el casco, abulonada.
+      c.beginPath(); c.moveTo(1.8, 12.0); c.quadraticCurveTo(8, 12.9, 14.2, 12.0);
+      c.lineTo(13.8, 13.6); c.quadraticCurveTo(8, 14.7, 2.2, 13.6); c.closePath();
+      const g = c.createLinearGradient(0, 12, 0, 14.4);
+      g.addColorStop(0, mixHex(bronce, '#ffffff', 0.35)); g.addColorStop(1, adjustL(bronce, -25));
+      c.fillStyle = g; c.fill(); c.lineWidth = 0.12; c.strokeStyle = edge; c.stroke();
+      for (let x = 3; x < 13.5; x += 1.25) {
+        ellipsePath(c, x, 13.3 + 0.62 * (1 - ((x - 8) / 6.3) ** 2), 0.15, 0.15); c.fillStyle = A.lite; c.fill();
+      }
+      for (const x of [4.2, 11.8]) {
+        c.beginPath(); c.ellipse(x, 12.75, 0.55, 0.22, 0, 0, Math.PI * 2); c.fillStyle = adjustL(bronce, -15); c.fill();
+        ellipsePath(c, x, 12.75, 0.18, 0.18); c.fillStyle = bronce; c.fill();
+      }
+    },
+
+    santa(c, A) {
+      const tela=A.alt('#dc2626'), felpa=A.fixed('#f4f6fb'), edge=adjustL(tela,-40);
+      ropaTorso(c,adjustL(tela,8),adjustL(tela,-18),edge);
+      roundRect(c,7.45,11.9,1.1,3.8,0.3);c.fillStyle=felpa;c.fill();
+      roundRect(c,1.5,13.5,13,0.85,0.1);c.fillStyle=A.fixed('#1d1b1f');c.fill();
+      roundRect(c,7.05,13.3,1.9,1.25,0.15);c.lineWidth=0.24;c.strokeStyle=A.fixed('#e2b84e');c.stroke();
+      c.beginPath();c.moveTo(1.6,11.55);c.quadraticCurveTo(8,12.45,14.4,11.55);
+      c.lineWidth=0.95;c.strokeStyle=felpa;c.stroke();
+      for(let x=2.4;x<14;x+=1.15) ensembleStud(c,x,11.62+0.75*(1-((x-8)/6.4)**2),felpa,0.42);
+    },
+
+    copa(c, A) {
+      const edge=adjustL(A.dark,-25), shirt=A.fixed('#f3f1ea'), bow=A.alt('#9b1c2e');
+      ropaTorso(c,A.lite,A.dark,edge);
+      ensemblePlate(c,[[5.5,11.7],[10.5,11.7],[8,15.3]],shirt,A.fixed('#cfcac0'),edge,0.1);
+      for(const y of [13,13.9]) ensembleStud(c,8,y,A.dark,0.13);
+      for(const side of [-1,1]) {
+        const x=dx=>8+side*dx;
+        ensemblePlate(c,[[x(2.6),11.6],[x(3.5),11.65],[x(0.35),15.2],[x(0),15.6]],adjustL(A.lite,10),A.mat,edge,0.08);
+      }
+      for(let i=0;i<5;i++) {const a=i*Math.PI*0.4;ensembleStud(c,4.4+Math.cos(a)*0.28,12.7+Math.sin(a)*0.28,bow,0.2);}
+      ensembleStud(c,4.4,12.7,A.fixed('#e2b84e'),0.12);
+      ensemblePlate(c,[[10.6,12.5],[11.9,12.5],[11.5,12.1]],shirt,shirt,edge,0.06);
+      for(const side of [-1,1]) ensemblePlate(c,[[8,11.95],[8+side*1.35,11.3],[8+side*1.35,12.6]],adjustL(bow,10),adjustL(bow,-15),edge,0.08);
+      ellipsePath(c,8,11.95,0.35,0.3);c.fillStyle=bow;c.fill();
+    },
+
+    chef(c, A) {
+      const tela=A.alt('#f4f6fb'), edge=adjustL(tela,-45), red=A.fixed('#c23a33');
+      ropaTorso(c,tela,adjustL(tela,-18),edge);
+      c.beginPath();c.moveTo(9.6,11.85);c.quadraticCurveTo(10.1,13.8,9.8,15.6);
+      c.lineWidth=0.12;c.strokeStyle=adjustL(tela,-32);c.stroke();
+      for(const x of [6.4,11.2]) for(const y of [12.9,14,15.05]) ensembleStud(c,x,y,A.mat,0.2);
+      c.beginPath();c.moveTo(5.8,11.6);c.quadraticCurveTo(8,12.2,10.2,11.6);c.lineWidth=0.5;c.strokeStyle=red;c.stroke();
+      ensemblePlate(c,[[7.5,11.85],[8.5,11.85],[8.9,13.1],[8,12.6],[7.2,13.1]],red,A.fixed('#8f2a25'),edge,0.08);
+    },
+
+    corona(c, A) {
+      const terciopelo=A.fixed('#a3172f',0.6), oro=A.alt('#f0b429'), armino=A.fixed('#f6f3ea'), edge=adjustL(terciopelo,-35);
+      ropaTorso(c,adjustL(terciopelo,10),adjustL(terciopelo,-15),edge);
+      c.beginPath();c.moveTo(1.5,11.2);c.quadraticCurveTo(8,12.1,14.5,11.2);c.lineTo(14.5,12.6);
+      c.quadraticCurveTo(8,13.5,1.5,12.6);c.closePath();
+      c.fillStyle=armino;c.fill();c.lineWidth=0.1;c.strokeStyle=A.fixed('#bdb6a6');c.stroke();
+      for(const x of [2.9,5.2,10.8,13.1]) {
+        const y=11.8+0.55*(1-((x-8)/6.5)**2);
+        ellipsePath(c,x,y,0.16,0.26);c.fillStyle=A.fixed('#1c1a1f');c.fill();
+      }
+      c.beginPath();c.moveTo(4.4,12.9);c.quadraticCurveTo(8,15,11.6,12.9);
+      c.setLineDash([0.22,0.12]);c.lineWidth=0.2;c.strokeStyle=oro;c.stroke();c.setLineDash([]);
+      ellipsePath(c,8,14.2,0.55,0.55);c.fillStyle=oro;c.fill();c.lineWidth=0.1;c.strokeStyle=adjustL(oro,-30);c.stroke();
+      ensembleStud(c,8,14.2,terciopelo,0.25);
+    },
+
+    pirata(c, A) {
+      const edge=A.fixed('#1d1714'), vest=A.fixed('#2b221c'), brass=A.alt('#c9a24a');
+      ropaTorso(c,A.fixed('#f2ece0'),A.fixed('#cfc6b4'),edge);
+      c.beginPath();
+      for(let y=12.2;y<15.6;y+=0.8){c.moveTo(1.5,y);c.quadraticCurveTo(8,y+0.6,14.5,y);}
+      c.lineWidth=0.32;c.strokeStyle=A.fixed('#b3202a');c.stroke();
+      for(const side of [-1,1]) {
+        const x=dx=>8+side*dx;
+        ensemblePlate(c,[[x(6.5),11.1],[x(2.4),11.6],[x(1.5),15.6],[x(6.5),15.6]],adjustL(vest,12),vest,edge,0.1);
+        for(const y of [12.6,13.6]) ensembleStud(c,x(2.2),y,brass,0.14);
+      }
+      c.beginPath();c.moveTo(1.5,14.1);c.quadraticCurveTo(8,15,14.5,14.1);c.lineWidth=0.9;c.strokeStyle=A.mat;c.stroke();
+      ensemblePlate(c,[[11,14.2],[12.2,14.3],[12.6,15.6],[11.6,15.4]],A.lite,A.dark,edge,0.08);
+    },
+
+    vikingo(c, A) {
+      const edge=A.fixed('#241a14'), fur=A.fixed('#8a6a48'), furD=A.fixed('#5e4630');
+      ropaTorso(c,A.fixed('#8a4434'),A.fixed('#5e2a20'),edge);
+      c.beginPath();c.moveTo(1.5,14);c.quadraticCurveTo(8,14.8,14.5,14);c.lineWidth=0.7;c.strokeStyle=A.fixed('#3b2a1e');c.stroke();
+      roundRect(c,7.3,13.9,1.4,0.95,0.15);c.fillStyle=A.mat;c.fill();c.lineWidth=0.08;c.strokeStyle=edge;c.stroke();
+      for(let i=0;i<10;i++) {
+        const x=2+i*1.33, y=11.55+0.7*(1-((x-8)/6.2)**2);
+        ellipsePath(c,x,y+0.15,0.95,0.7);c.fillStyle=i%2?furD:fur;c.fill();
+      }
+      for(let i=0;i<10;i++) {
+        const x=2.6+i*1.2, y=11.4+0.7*(1-((x-8)/6.2)**2);
+        c.beginPath();c.moveTo(x-0.3,y);c.lineTo(x,y+0.8);c.lineTo(x+0.3,y);
+        c.lineWidth=0.08;c.strokeStyle=A.fixed('#b39065');c.stroke();
+      }
+      ellipsePath(c,11.2,12.5,0.48,0.48);c.fillStyle=A.lite;c.fill();
+      ensembleStud(c,11.2,12.5,A.alt('#e8e2d2'),0.2);
+    },
+
+    gladiador(c, A) {
+      const edge=adjustL(A.dark,-28), leather=A.fixed('#7b4f2c');
+      ropaTorso(c,A.fixed('#c9b48d'),A.fixed('#9a8562'),edge);
+      for(let i=0;i<9;i++) {
+        roundRect(c,1.7+i*1.42,14.05,1.25,1.9,0.3);c.fillStyle=i%2?adjustL(leather,-8):leather;c.fill();
+        c.lineWidth=0.06;c.strokeStyle=edge;c.stroke();
+        ensembleStud(c,2.33+i*1.42,15.4,A.lite,0.12);
+      }
+      roundRect(c,1.5,13.35,13,0.8,0.12);c.fillStyle=A.mat;c.fill();c.lineWidth=0.08;c.strokeStyle=edge;c.stroke();
+      c.beginPath();c.moveTo(3,11.4);c.lineTo(12.8,13.4);c.lineWidth=0.7;c.strokeStyle=leather;c.stroke();
+      for(let t=0.15;t<1;t+=0.23) ensembleStud(c,3+9.8*t,11.4+2*t,A.lite,0.13);
+      ensembleStud(c,8,13.75,A.alt('#c0392b'),0.22);
+    },
+
+    mago(c, A) {
+      const edge=adjustL(A.dark,-28), gold=A.fixed('#e8c25a'), rope=A.alt('#d8b25a');
+      ropaTorso(c,A.lite,A.dark,edge);
+      c.beginPath();c.moveTo(6,11.7);c.lineTo(8,13.4);c.lineTo(10,11.7);c.lineWidth=0.35;c.strokeStyle=A.mat;c.stroke();
+      for(const [x,y,r] of [[3.4,12.6,0.4],[5.4,14.8,0.32],[11.6,12.4,0.36],[12.5,14.6,0.42],[9.6,15.1,0.28]]) estrella4(c,x,y,r,gold);
+      c.beginPath();c.moveTo(1.5,13.9);c.quadraticCurveTo(8,14.75,14.5,13.9);c.lineWidth=0.35;c.strokeStyle=rope;c.stroke();
+      c.beginPath();c.moveTo(10.4,14.25);c.lineTo(10.2,15.4);c.moveTo(10.8,14.2);c.lineTo(10.9,15.3);
+      c.lineWidth=0.18;c.stroke();
+      ellipsePath(c,10.55,14.25,0.3,0.25);c.fillStyle=rope;c.fill();
+    },
+
+    arquero(c, A) {
+      const edge=A.fixed('#1f2a17'), green=A.fixed('#4c7a3d'), leather=A.fixed('#6b4a2b');
+      ropaTorso(c,adjustL(green,8),adjustL(green,-12),edge);
+      ensemblePlate(c,[[6.6,11.7],[9.4,11.7],[8,14]],A.fixed('#d9c9a3'),A.fixed('#b7a47a'),edge,0.08);
+      c.beginPath();
+      for(const y of [12.3,12.9,13.5]){c.moveTo(7.3,y-0.3);c.lineTo(8.7,y);c.moveTo(8.7,y-0.3);c.lineTo(7.3,y);}
+      c.lineWidth=0.08;c.strokeStyle=leather;c.stroke();
+      c.beginPath();c.moveTo(1.5,14.2);c.quadraticCurveTo(8,15,14.5,14.2);c.lineWidth=0.65;c.strokeStyle=leather;c.stroke();
+      roundRect(c,9.7,14.2,1.6,1.3,0.3);c.fillStyle=adjustL(leather,8);c.fill();c.lineWidth=0.08;c.strokeStyle=edge;c.stroke();
+      ensembleStud(c,10.5,14.55,A.mat,0.16);
+    },
+
+    /* ── La ropa de los cinco conjuntos de tercera tanda. ── */
+
+    pintor(c, A) {
+      const edge=A.fixed('#4a443c'), smock=A.fixed('#f1ede4');
+      ropaTorso(c,smock,A.fixed('#cfc8ba'),edge);
+      for(const [x,y,r,col] of [[3.6,13.1,0.42,A.alt('#2f7fd1')],[5.2,14.9,0.3,A.fixed('#e8b92f')],[11.3,13.9,0.36,A.fixed('#3f9a52')],
+        [12.6,12.4,0.26,A.mat],[9.4,15.1,0.24,A.alt('#2f7fd1')],[4.4,12.2,0.2,A.mat]]) {
+        ellipsePath(c,x,y,r,r*0.85);c.fillStyle=col;c.fill();
+        ellipsePath(c,x+r*0.9,y+r*0.6,r*0.35,r*0.35);c.fill();
+      }
+      roundRect(c,9.6,13,2.2,1.6,0.2);c.fillStyle=A.fixed('#e4ddcf');c.fill();c.lineWidth=0.08;c.strokeStyle=edge;c.stroke();
+      for(const [x,col] of [[10.1,A.mat],[10.7,A.alt('#2f7fd1')],[11.3,A.fixed('#e8b92f')]]) {
+        c.beginPath();c.moveTo(x,13.1);c.lineTo(x+0.1,11.9);c.lineWidth=0.14;c.strokeStyle=A.fixed('#7a5232');c.stroke();
+        ellipsePath(c,x+0.1,11.75,0.13,0.25);c.fillStyle=col;c.fill();
+      }
+    },
+
+    mariachi(c, A) {
+      const edge=adjustL(A.dark,-20), gold=A.alt('#d9b25a'), shirt=A.fixed('#f3f1ea');
+      ropaTorso(c,A.lite,A.dark,edge);
+      ensemblePlate(c,[[6.3,11.75],[9.7,11.75],[8,14.6]],shirt,A.fixed('#cfcac0'),edge,0.08);
+      for(const side of [-1,1]) {
+        const x=dx=>8+side*dx;
+        for(const y of [12.5,13.3,14.1,14.9]) ensembleStud(c,x(2.2),y,gold,0.15);
+        c.beginPath();c.moveTo(x(3),15.4);c.bezierCurveTo(x(4.2),14.6,x(5.4),15,x(5),13.6);
+        c.bezierCurveTo(x(4.7),12.6,x(3.9),13.1,x(4.1),13.6);
+        c.lineWidth=0.14;c.strokeStyle=gold;c.stroke();
+      }
+      const red=A.fixed('#b3202a');
+      for(const side of [-1,1]) ensemblePlate(c,[[8,12.1],[8+side*1.9,11.3],[8+side*1.6,12.4],[8+side*1.9,13.3]],adjustL(red,10),adjustL(red,-15),edge,0.08);
+      ellipsePath(c,8,12.15,0.4,0.36);c.fillStyle=red;c.fill();
+    },
+
+    ninja(c, A) {
+      const edge=adjustL(A.dark,-20), red=A.alt('#b3202a');
+      ropaTorso(c,A.lite,A.dark,edge);
+      ensemblePlate(c,[[4.2,11.5],[6.3,11.75],[10.2,14.2],[9.4,14.6]],adjustL(A.lite,8),A.mat,edge,0.08);
+      c.beginPath();c.moveTo(11.8,11.5);c.lineTo(8.6,13.5);c.lineWidth=0.14;c.strokeStyle=edge;c.stroke();
+      c.beginPath();c.moveTo(1.5,14.15);c.quadraticCurveTo(8,15,14.5,14.15);c.lineWidth=0.95;c.strokeStyle=red;c.stroke();
+      ensemblePlate(c,[[4.6,14.4],[5.4,14.6],[5,15.9],[4.3,15.7]],adjustL(red,8),adjustL(red,-18),edge,0.08);
+      const steel=A.fixed('#c9d0d6');
+      c.save();c.translate(11.4,14.45);c.rotate(0.3);estrella4(c,0,0,0.75,steel);
+      ellipsePath(c,0,0,0.16,0.16);c.fillStyle=edge;c.fill();c.restore();
+    },
+
+    gaitero(c, A) {
+      const edge=A.fixed('#141824'), red=A.alt('#b3202a'), silver=A.fixed('#d9dee2');
+      ropaTorso(c,A.fixed('#2a3147'),A.fixed('#161b2a'),edge);
+      for(const y of [12.2,12.95]) for(const x of [6.9,9.1]) ensembleStud(c,x,y,silver,0.14);
+      // Kilt: tartan from the belt down, a thick and a thin stripe each way.
+      c.save();c.beginPath();c.rect(1.4,13.55,13.2,2.2);c.clip();
+      c.fillStyle=A.mat;c.fillRect(1.4,13.55,13.2,2.2);
+      c.beginPath();
+      for(let x=1.8;x<14.6;x+=1.6){c.moveTo(x,13.5);c.lineTo(x,15.8);}
+      for(let y=14.1;y<15.8;y+=1.0){c.moveTo(1.4,y);c.lineTo(14.6,y);}
+      c.lineWidth=0.3;c.strokeStyle=A.dark;c.stroke();
+      c.beginPath();
+      for(let x=2.3;x<14.6;x+=1.6){c.moveTo(x,13.5);c.lineTo(x,15.8);}
+      c.lineWidth=0.08;c.strokeStyle=red;c.stroke();
+      c.restore();
+      roundRect(c,1.5,13.25,13,0.55,0.1);c.fillStyle=A.fixed('#141414');c.fill();
+      roundRect(c,7.45,13.15,1.1,0.75,0.12);c.fillStyle=silver;c.fill();
+      ensemblePlate(c,[[6.9,13.85],[9.1,13.85],[9,15],[8,15.5],[7,15]],A.fixed('#efe9dc'),A.fixed('#c7bfae'),edge,0.08);
+      for(const x of [7.5,8,8.5]) {c.beginPath();c.moveTo(x,14.3);c.lineTo(x,15.1);c.lineWidth=0.14;c.strokeStyle=A.fixed('#2b2522');c.stroke();}
+    },
+
+    polar(c, A) {
+      const edge=adjustL(A.dark,-24), fur=A.alt('#e9e4d6');
+      ropaTorso(c,A.lite,A.dark,edge);
+      c.beginPath();
+      for(let y=12.6;y<15.6;y+=1){c.moveTo(1.5,y);c.quadraticCurveTo(8,y+0.65,14.5,y);}
+      c.setLineDash([0.2,0.15]);c.lineWidth=0.08;c.strokeStyle=adjustL(A.dark,-10);c.stroke();c.setLineDash([]);
+      c.beginPath();c.moveTo(8,11.9);c.lineTo(8,15.6);c.lineWidth=0.26;c.strokeStyle=A.fixed('#c9d0d6');c.stroke();
+      roundRect(c,7.8,12.1,0.4,0.7,0.1);c.fillStyle=A.fixed('#8e979e');c.fill();
+      roundRect(c,10,12.4,1.7,1.1,0.15);c.fillStyle=A.fixed('#f4f6fb');c.fill();c.lineWidth=0.08;c.strokeStyle=edge;c.stroke();
+      estrella4(c,10.85,12.95,0.42,A.fixed('#2f63c8'));
+      c.beginPath();c.moveTo(1.5,15.3);c.quadraticCurveTo(8,16.1,14.5,15.3);c.lineWidth=0.7;c.strokeStyle=fur;c.stroke();
+    },
+  };
+
+  /** La ropa, recortada contra el cuerpo de la pose del cuadro. */
+  function pintarRopa(c, A) {
+    const ropa = ROPA[hat];
+    if (!ropa) return;
+    const p = _poseActual || {};
+    c.save();
+    c.translate(0, p.bodyDY || 0);
+    blobPath(c, BODY.cx, BODY.top, BODY.bot, BODY.rx * (p.bodyRX || 1)); c.clip();
+    ropa(c, A);
+    c.restore();
+  }
+
   const HATS = {
     limpio() {},
+
+    caballero(c, A) {
+      const edge = adjustL(A.dark, -25), gold = A.alt('#d6b56d');
+      // Articulated breastplate, with the central ridge following the sphere.
+      c.save(); blobPath(c, BODY.cx, BODY.top, BODY.bot, BODY.rx); c.clip();
+      ensemblePlate(c, [[2,11.6],[8,11.95],[14,11.6],[13,15.2],[8,15.6],[3,15.2]], A.lite, A.dark, edge);
+      ensemblePlate(c, [[8,11.95],[12.9,11.75],[12.2,14.3],[8,14.85]], A.mat, adjustL(A.dark,-10), edge, 0.09);
+      for (const y of [13.9,14.5]) {
+        c.beginPath(); c.moveTo(2,y); c.quadraticCurveTo(8,y+0.85,14,y);
+        c.lineWidth=0.19; c.strokeStyle=edge; c.stroke();
+        c.lineWidth=0.07; c.strokeStyle=A.lite; c.stroke();
+      }
+      c.restore();
+      for (const side of [-1,1]) {
+        const x=8+side*5.1;
+        ensemblePlate(c, [[x-side*1.15,10.9],[x+side*0.5,10.6],[x+side*1.45,11.8],[x+side*1.05,12.9],[x-side*0.9,12.45]], A.lite,A.dark,edge);
+        ensembleStud(c,x,11.45,gold,0.19);
+      }
+      // Raised visor sits on the helmet crown, leaving both eyes visible.
+      c.beginPath(); c.moveTo(2.7,4.9); c.bezierCurveTo(2.4,0.3,13.6,0.3,13.3,4.9);
+      c.quadraticCurveTo(8,4.5,2.7,4.9);
+      const steel=c.createLinearGradient(3,1,13,5);
+      steel.addColorStop(0,A.lite); steel.addColorStop(0.32,A.fixed('#e4eef4')); steel.addColorStop(0.46,A.mat); steel.addColorStop(1,A.dark);
+      c.fillStyle=steel; c.fill(); c.lineWidth=0.18; c.strokeStyle=edge; c.stroke();
+      ensemblePlate(c,[[3,3.2],[4.1,2.4],[11.9,2.4],[13,3.2],[12.1,4.45],[3.9,4.45]],A.lite,A.dark,edge);
+      for(let x=4.5;x<12;x+=0.85){
+        c.beginPath();c.moveTo(x,3.05);c.lineTo(x-0.18,3.85);c.lineWidth=0.18;c.strokeStyle=edge;c.stroke();
+      }
+      for(const x of [3.1,12.9]) ensembleStud(c,x,4.45,gold,0.25);
+      ensemblePlate(c,[[7.65,1.8],[7.4,0.6],[8,-0.65],[8.7,0.5],[8.35,1.8]],gold,A.altDark('#d6b56d'),edge);
+      ensembleGem(c,8,12.8,0.48,A);
+    },
+
+    steampunk(c, A) {
+      const copper=A.alt('#ca8c50'), shadow=A.altDark('#ca8c50'), edge=adjustL(A.dark,-25);
+      // Leather panels, turned lapels and a pocket-watch chain.
+      c.save(); blobPath(c,8,BODY.top,BODY.bot,BODY.rx); c.clip();
+      for(const side of [-1,1]) {
+        const x=dx=>8+side*dx;
+        ensemblePlate(c,[[x(1.1),11.6],[x(5.5),10.9],[x(5.9),15.2],[x(0.45),15.5]],A.lite,A.dark,edge);
+        ensemblePlate(c,[[x(1.1),11.6],[x(3.4),11.25],[x(2.5),13.5],[x(0.8),12.6]],A.lite,A.mat,copper,0.1);
+        c.setLineDash([0.17,0.2]); c.beginPath();c.moveTo(x(4.8),11.6);c.lineTo(x(5.1),14.5);
+        c.lineWidth=0.08;c.strokeStyle=A.fixed('#d7ba89');c.stroke();c.setLineDash([]);
+      }
+      c.beginPath();c.moveTo(8.8,13);c.bezierCurveTo(9.1,15.1,11.2,15.1,11.6,13.5);
+      c.lineWidth=0.13;c.strokeStyle=copper;c.stroke();
+      roundRect(c,10.3,13.2,2,1.2,0.15);c.fillStyle=A.dark;c.fill();c.strokeStyle=copper;c.lineWidth=0.08;c.stroke();
+      for(const y of [12.8,13.7,14.6]) ensembleStud(c,7.65,y,copper,0.15);
+      c.restore();
+      // Aviator cap and goggles rest on the forehead, not over Boberto's eyes.
+      c.beginPath();c.moveTo(2.7,4.8);c.bezierCurveTo(2.2,0.2,13.8,0.2,13.3,4.8);c.closePath();
+      c.fillStyle=A.mat;c.fill();c.lineWidth=0.18;c.strokeStyle=edge;c.stroke();
+      c.beginPath();c.moveTo(8,1.3);c.quadraticCurveTo(7.3,2.6,8,4.6);c.setLineDash([0.2,0.18]);
+      c.lineWidth=0.1;c.strokeStyle=A.lite;c.stroke();c.setLineDash([]);
+      roundRect(c,2.5,3.4,11,0.65,0.2);c.fillStyle=edge;c.fill();
+      for(const x of [5.3,10.7]) {
+        ellipsePath(c,x,3.65,1.85,1.35);c.fillStyle=shadow;c.fill();c.strokeStyle=edge;c.lineWidth=0.16;c.stroke();
+        ellipsePath(c,x,3.5,1.55,1.12);c.fillStyle=copper;c.fill();
+        const glass=c.createLinearGradient(x-1,2.5,x+1,4.5);
+        glass.addColorStop(0,A.fixed('#b8eff1'));glass.addColorStop(0.35,A.fixed('#3b8995'));glass.addColorStop(1,A.fixed('#173b46'));
+        ellipsePath(c,x,3.5,1.18,0.8);c.fillStyle=glass;c.fill();
+        c.beginPath();c.moveTo(x-0.65,3.55);c.lineTo(x+0.05,2.95);c.lineWidth=0.18;c.strokeStyle=A.fixed('#e1ffff');c.stroke();
+        for(const dx of [-1.5,1.5]) ensembleStud(c,x+dx,3.5,A.altLite('#ca8c50'),0.11);
+      }
+      c.beginPath();c.moveTo(7.15,3.5);c.quadraticCurveTo(8,2.9,8.85,3.5);c.lineWidth=0.32;c.strokeStyle=copper;c.stroke();
+    },
+
+    faraon(c, A) {
+      const gold=A.alt('#e2b84e'), goldD=A.altDark('#e2b84e'), edge=adjustL(A.dark,-24);
+      // The striped nemes frames the face with two heavy folded lappets.
+      for(const side of [-1,1]) {
+        const x=dx=>8+side*dx;
+        const panel=[[x(3.7),2.6],[x(5.5),3.5],[x(6.4),12.7],[x(4.5),13.25],[x(4.25),5.1]];
+        ensemblePlate(c,panel,A.lite,A.dark,edge);
+        c.save();c.clip();
+        for(let y=3.7;y<13.5;y+=0.85){c.beginPath();c.moveTo(x(3.7),y);c.lineTo(x(6.5),y+0.35);c.lineWidth=0.36;c.strokeStyle=gold;c.stroke();}
+        c.restore();
+        c.beginPath();c.moveTo(x(5.5),3.8);c.lineTo(x(6.2),12.6);c.lineWidth=0.12;c.strokeStyle=goldD;c.stroke();
+      }
+      c.beginPath();c.moveTo(3.1,4.6);c.bezierCurveTo(3,-0.1,13,-0.1,12.9,4.6);c.closePath();
+      c.fillStyle=A.mat;c.fill();c.lineWidth=0.16;c.strokeStyle=edge;c.stroke();
+      c.save();c.clip();
+      for(let x=3;x<14;x+=1.0){c.beginPath();c.moveTo(x,0);c.lineTo(x+0.4,4.8);c.lineWidth=0.43;c.strokeStyle=gold;c.stroke();}
+      c.restore();
+      roundRect(c,3,4.15,10,0.62,0.18);c.fillStyle=gold;c.fill();
+      // Broad beaded collar starts beneath the mouth; concentric arcs suggest weight.
+      c.save();blobPath(c,8,BODY.top,BODY.bot,BODY.rx);c.clip();
+      for(let i=0;i<4;i++) {
+        c.beginPath();c.ellipse(8,10.5,5.5-i*0.48,4.6-i*0.65,0,0.11*Math.PI,0.89*Math.PI);
+        c.lineWidth=0.45;c.strokeStyle=i%2?A.mat:gold;c.stroke();
+      }
+      for(let i=0;i<9;i++) {
+        const angle=0.18*Math.PI+i*0.08*Math.PI;
+        ensembleStud(c,8+Math.cos(angle)*5.15,10.5+Math.sin(angle)*4.3,A.fixed(i%2?'#a4442b':'#4dafb0'),0.19);
+      }
+      c.restore();
+      // Uraeus: flared cobra hood, curved neck and a tiny gemstone eye.
+      ensemblePlate(c,[[7.8,4.4],[7.2,2.5],[7.35,1.3],[8,0.85],[8.65,1.3],[8.8,2.5],[8.2,4.4]],A.altLite('#e2b84e'),goldD,edge);
+      c.beginPath();c.moveTo(8,4.1);c.bezierCurveTo(8.6,3.1,7.4,2.9,8,1.75);c.lineWidth=0.17;c.strokeStyle=goldD;c.stroke();
+      ensembleStud(c,8.1,1.6,A.fixed('#a73522'),0.14);
+      ensembleGem(c,8,13.5,0.65,A);
+      for(const x of [2.05,13.95]) {
+        roundRect(c,x-0.4,11.9,0.8,0.6,0.18);c.fillStyle=gold;c.fill();c.strokeStyle=goldD;c.lineWidth=0.1;c.stroke();
+      }
+    },
+
+    vaquero(c, A) {
+      const edge=adjustL(A.dark,-22), brass=A.alt('#d8af64'), red=A.fixed('#a6382e');
+      c.save();blobPath(c,8,BODY.top,BODY.bot,BODY.rx);c.clip();
+      for(const side of [-1,1]) {
+        const x=dx=>8+side*dx;
+        ensemblePlate(c,[[x(2),11.5],[x(5.4),10.8],[x(5.9),14.9],[x(1),15.1],[x(1.6),12.3]],A.lite,A.dark,edge);
+        c.beginPath();c.moveTo(x(4.8),11.5);c.lineTo(x(5.1),14.5);c.lineTo(x(1.8),14.5);
+        c.setLineDash([0.2,0.18]);c.strokeStyle=A.fixed('#ebc691');c.lineWidth=0.08;c.stroke();c.setLineDash([]);
+        for(const y of [12.6,13.4]) ensembleStud(c,x(2.1),y,brass,0.12);
+      }
+      roundRect(c,2,14.1,12,0.7,0.2);c.fillStyle=edge;c.fill();
+      roundRect(c,7.1,14.0,1.8,0.95,0.15);c.fillStyle=brass;c.fill();
+      roundRect(c,7.45,14.25,1.1,0.43,0.06);c.fillStyle=A.dark;c.fill();
+      c.restore();
+      ensemblePlate(c,[[4.3,11.4],[8,11.8],[11.7,11.4],[9,12.6],[8,13.55],[6.9,12.6]],red,A.fixed('#69271f'),edge,0.1);
+      for(const [x,y] of [[6.2,11.9],[8.2,12.3],[9.6,11.9]]) ensembleStud(c,x,y,A.fixed('#efd4ad'),0.09);
+      // Curled brim: dark underside first, then the crown's pinched felt.
+      c.beginPath();c.moveTo(0.5,3.45);c.bezierCurveTo(2,5.3,13.7,5.3,15.5,3.45);
+      c.bezierCurveTo(14.7,6,1.3,6,0.5,3.45);c.closePath();c.fillStyle=edge;c.fill();
+      c.beginPath();c.moveTo(0.5,3.45);c.bezierCurveTo(2,4.4,3,3.8,3.3,3.5);
+      c.lineTo(12.7,3.5);c.bezierCurveTo(13.3,3.9,14.6,4.3,15.5,3.45);
+      c.bezierCurveTo(14.8,5.45,1.2,5.45,0.5,3.45);c.closePath();
+      c.fillStyle=A.lite;c.fill();c.lineWidth=0.15;c.strokeStyle=edge;c.stroke();
+      c.beginPath();c.moveTo(3.4,4.1);c.lineTo(4.1,1.1);c.quadraticCurveTo(5.1,0.2,6.8,0.9);
+      c.quadraticCurveTo(8,1.45,9.2,0.9);c.quadraticCurveTo(10.9,0.2,11.9,1.1);c.lineTo(12.6,4.1);
+      c.quadraticCurveTo(8,4.7,3.4,4.1);c.closePath();
+      const felt=c.createLinearGradient(4,1,12,4);felt.addColorStop(0,A.lite);felt.addColorStop(0.6,A.mat);felt.addColorStop(1,A.dark);
+      c.fillStyle=felt;c.fill();c.strokeStyle=edge;c.stroke();
+      c.beginPath();c.moveTo(3.6,3.6);c.quadraticCurveTo(8,4.35,12.4,3.6);c.lineWidth=0.48;c.strokeStyle=edge;c.stroke();
+      for(const x of [4.4,5.2,10.8,11.6]) ensembleStud(c,x,3.9,brass,0.12);
+      ensembleGem(c,8,3.95,0.32,A);
+    },
+
+    guardian(c, A) {
+      const bark=A.fixed('#725039'), barkD=A.fixed('#352d23'), edge=adjustL(A.dark,-24);
+      // Overlapping bark plates curve around the belly, with irregular grain.
+      c.save();blobPath(c,8,BODY.top,BODY.bot,BODY.rx);c.clip();
+      for(let i=0;i<5;i++) {
+        const x=2.7+i*2.15;
+        ensemblePlate(c,[[x,11.6],[x+1,11.25],[x+2,11.7],[x+1.8,15.3],[x+0.2,15.5]],bark,barkD,edge);
+        c.beginPath();c.moveTo(x+0.55,12);c.bezierCurveTo(x+1.15,12.7,x+0.4,13.6,x+0.8,14.8);
+        c.lineWidth=0.1;c.strokeStyle=A.fixed('#b69263');c.stroke();
+      }
+      c.restore();
+      // Leaves overlap from the sides toward the apex of an open hood.
+      for(const side of [-1,1]) {
+        ensembleLeaf(c,8+side*5.05,9.8,side*0.85,1.55,A);
+        ensembleLeaf(c,8+side*5.2,7.6,side*0.7,1.8,A);
+        ensembleLeaf(c,8+side*4.6,5.2,side*0.5,1.9,A);
+        ensembleLeaf(c,8+side*3.2,3.9,side*0.65,1.8,A);
+        ensembleLeaf(c,8+side*1.8,3.5,side*0.45,1.9,A);
+      }
+      ensembleLeaf(c,8,3.6,0,2.4,A);
+      for(const side of [-1,1]) {
+        ensembleLeaf(c,8+side*3.9,12.55,side*1.3,1.6,A);
+        ensembleLeaf(c,8+side*2.5,12.3,side*1.1,1.3,A);
+        ensembleGem(c,8+side*4.7,5.05,0.28,A);
+      }
+      ensembleGem(c,8,12.65,0.65,A);
+      c.beginPath();c.moveTo(4,14.1);c.quadraticCurveTo(8,15.5,12,14.1);
+      c.lineWidth=0.18;c.strokeStyle=A.mat;c.stroke();
+    },
+
+    bombero(c, A) {
+      const edge=adjustL(A.dark,-25), reflect=A.alt('#e4cf45'), silver=A.fixed('#dfe5ea'), coat=A.fixed('#4a3d2e');
+      // Turnout coat: the reflective band is what makes the role readable at dock size.
+      c.save();blobPath(c,8,BODY.top,BODY.bot,BODY.rx);c.clip();
+      ensemblePlate(c,[[1.5,11.4],[8,11.9],[14.5,11.4],[14.5,15.6],[1.5,15.6]],adjustL(coat,10),adjustL(coat,-12),edge);
+      c.beginPath();c.moveTo(1.5,13.2);c.quadraticCurveTo(8,14,14.5,13.2);
+      c.lineWidth=0.95;c.strokeStyle=reflect;c.stroke();c.lineWidth=0.36;c.strokeStyle=silver;c.stroke();
+      c.beginPath();c.moveTo(8,11.9);c.lineTo(8,15.6);c.lineWidth=0.14;c.strokeStyle=edge;c.stroke();
+      for(const y of [12.45,14.75]) {roundRect(c,7.6,y,0.8,0.32,0.08);c.fillStyle=silver;c.fill();}
+      for(const side of [-1,1]) {
+        const x=dx=>8+side*dx;
+        ensemblePlate(c,[[x(0.6),11.9],[x(3.6),11.15],[x(4.7),12.25],[x(1.2),13]],adjustL(coat,14),coat,edge,0.1);
+      }
+      c.restore();
+      // The long brim goes first so the dome and its comb read as one helmet.
+      c.beginPath();c.ellipse(8,4.55,7.3,1.1,0,0,Math.PI*2);
+      c.fillStyle=A.dark;c.fill();c.lineWidth=0.16;c.strokeStyle=edge;c.stroke();
+      c.beginPath();c.moveTo(3,4.7);c.bezierCurveTo(2.7,-0.2,13.3,-0.2,13,4.7);c.quadraticCurveTo(8,5.1,3,4.7);
+      const shell=c.createLinearGradient(3,0.6,13,4.8);
+      shell.addColorStop(0,A.lite);shell.addColorStop(0.45,A.mat);shell.addColorStop(1,A.dark);
+      c.fillStyle=shell;c.fill();c.lineWidth=0.17;c.strokeStyle=edge;c.stroke();
+      for(const side of [-1,1]) {
+        c.beginPath();c.moveTo(8+side*2.9,4.75);c.quadraticCurveTo(8+side*2.8,1.7,8+side*0.6,1.05);
+        c.lineWidth=0.12;c.strokeStyle=edge;c.stroke();
+      }
+      ensemblePlate(c,[[7.55,4.6],[7.6,0.8],[8,0.35],[8.4,0.8],[8.45,4.6]],A.lite,A.dark,edge,0.1);
+      // Leather frontispiece with a cross badge, centered above the eyes.
+      ensemblePlate(c,[[6.35,1.75],[8,1.35],[9.65,1.75],[9.45,3.5],[8,4.45],[6.55,3.5]],A.fixed('#f3efe4'),A.fixed('#c9c1ad'),edge,0.12);
+      c.save();c.translate(8,2.85);
+      for(let i=0;i<4;i++) {
+        c.save();c.rotate(i*Math.PI/2);
+        c.beginPath();c.moveTo(0,0);c.lineTo(-0.38,-0.85);c.lineTo(0.38,-0.85);c.closePath();
+        c.fillStyle=reflect;c.fill();c.restore();
+      }
+      ellipsePath(c,0,0,0.22,0.22);c.fillStyle=A.mat;c.fill();
+      c.restore();
+    },
+
+    detective(c, A) {
+      const edge=adjustL(A.dark,-24), check=A.alt('#c9a86a');
+      const tweed=(x0,y0,x1,y1) => {
+        c.beginPath();
+        for(let x=x0;x<=x1;x+=0.9){c.moveTo(x,y0);c.lineTo(x,y1);}
+        for(let y=y0;y<=y1;y+=0.9){c.moveTo(x0,y);c.lineTo(x1,y);}
+        c.lineWidth=0.08;c.strokeStyle=check;c.stroke();
+      };
+      // Inverness cape: a short shoulder cape with a scalloped hem over the coat.
+      c.save();blobPath(c,8,BODY.top,BODY.bot,BODY.rx);c.clip();
+      ensemblePlate(c,[[1.5,11.6],[8,12],[14.5,11.6],[14.5,15.6],[1.5,15.6]],adjustL(A.dark,6),adjustL(A.dark,-14),edge);
+      for(const y of [14.4,15.15]) ensembleStud(c,8,y,check,0.15);
+      c.beginPath();c.moveTo(1.2,11.1);c.quadraticCurveTo(8,11.9,14.8,11.1);c.lineTo(14.8,13.4);
+      for(let x=14.8;x>1.3;x-=2.25) c.quadraticCurveTo(x-1.12,14.5,x-2.25,13.4);
+      c.closePath();
+      const cape=c.createLinearGradient(3,11,12,14.5);
+      cape.addColorStop(0,A.lite);cape.addColorStop(0.5,A.mat);cape.addColorStop(1,A.dark);
+      c.fillStyle=cape;c.fill();c.lineWidth=0.15;c.strokeStyle=edge;c.stroke();
+      c.save();c.clip();tweed(1.2,11,14.8,14.6);c.restore();
+      c.restore();
+      // Deerstalker: front peak plus ear flaps tied up over the crown.
+      c.beginPath();c.moveTo(2.8,4.8);c.bezierCurveTo(2.6,0,13.4,0,13.2,4.8);c.quadraticCurveTo(8,5.2,2.8,4.8);
+      const crown=c.createLinearGradient(3,0.6,13,4.8);
+      crown.addColorStop(0,A.lite);crown.addColorStop(0.5,A.mat);crown.addColorStop(1,A.dark);
+      c.fillStyle=crown;c.fill();c.lineWidth=0.17;c.strokeStyle=edge;c.stroke();
+      c.save();c.clip();tweed(2.6,0.4,13.4,5.2);c.restore();
+      c.beginPath();
+      for(const x of [4.3,8,11.7]){c.moveTo(8,1.05);c.quadraticCurveTo((8+x)/2+(x-8)*0.15,2.2,x,4.9);}
+      c.lineWidth=0.11;c.strokeStyle=edge;c.stroke();
+      c.beginPath();c.moveTo(4.6,4.65);c.quadraticCurveTo(8,6.1,11.4,4.65);c.quadraticCurveTo(8,5.15,4.6,4.65);
+      c.fillStyle=A.dark;c.fill();c.lineWidth=0.12;c.strokeStyle=edge;c.stroke();
+      for(const side of [-1,1]) {
+        const x=dx=>8+side*dx;
+        ensemblePlate(c,[[x(4.5),1.9],[x(5.7),3.3],[x(5.15),4.4],[x(3.85),3.6]],A.lite,A.dark,edge,0.12);
+        c.beginPath();c.moveTo(x(4.4),2.1);c.quadraticCurveTo(x(2.2),0.6,x(0.3),0.55);
+        c.lineWidth=0.12;c.strokeStyle=check;c.stroke();
+        ellipsePath(c,x(0.6),0.45,0.55,0.3);c.fillStyle=check;c.fill();c.lineWidth=0.08;c.strokeStyle=edge;c.stroke();
+      }
+      ensembleStud(c,8,0.5,A.altDark('#c9a86a'),0.2);
+    },
+
+    mosquetero(c, A) {
+      const edge=adjustL(A.dark,-24), silver=A.alt('#e9e4d6'), lace=A.fixed('#f2eee4');
+      // Tabard with the cross, then the falling lace collar over its top.
+      c.save();blobPath(c,8,BODY.top,BODY.bot,BODY.rx);c.clip();
+      ensemblePlate(c,[[1.5,11.6],[8,12],[14.5,11.6],[14.5,15.6],[1.5,15.6]],A.fixed('#3a3530'),A.fixed('#1f1c1a'),edge);
+      ensemblePlate(c,[[3,11.5],[8,11.9],[13,11.5],[12.8,15.6],[3.2,15.6]],A.lite,A.dark,edge);
+      roundRect(c,7.55,12.4,0.9,3.1,0.12);c.fillStyle=silver;c.fill();
+      roundRect(c,5.5,13.1,5,0.85,0.12);c.fillStyle=silver;c.fill();
+      for(const [x,y] of [[5.5,13.52],[10.5,13.52],[8,15.4]]) ensembleStud(c,x,y,silver,0.32);
+      c.restore();
+      for(const side of [-1,1]) {
+        const x=dx=>8+side*dx;
+        ensemblePlate(c,[[x(0),11.55],[x(3.9),11.05],[x(4.8),12.15],[x(2.9),12.95],[x(0.35),12.6]],lace,A.fixed('#cfc9bb'),edge,0.1);
+        for(const [dx,dy] of [[4.6,12.2],[3.8,12.65],[2.85,12.95],[1.8,12.85]]) ensembleStud(c,x(dx),dy,A.fixed('#fffdf7'),0.14);
+      }
+      // Wide cavalier brim, crown and a sweeping plume that leans over the right.
+      c.beginPath();c.moveTo(0.3,4.3);c.bezierCurveTo(2,2.6,14,2.6,15.7,4.3);c.bezierCurveTo(13.5,5.7,2.5,5.7,0.3,4.3);
+      c.fillStyle=A.dark;c.fill();c.lineWidth=0.16;c.strokeStyle=edge;c.stroke();
+      c.beginPath();c.moveTo(4,3.95);c.bezierCurveTo(3.8,0.3,12.2,0.3,12,3.95);c.quadraticCurveTo(8,4.4,4,3.95);
+      const felt=c.createLinearGradient(4,1,12,4);
+      felt.addColorStop(0,A.lite);felt.addColorStop(0.55,A.mat);felt.addColorStop(1,A.dark);
+      c.fillStyle=felt;c.fill();c.strokeStyle=edge;c.stroke();
+      c.beginPath();c.moveTo(4.05,3.5);c.quadraticCurveTo(8,4.1,11.95,3.5);c.lineWidth=0.45;c.strokeStyle=silver;c.stroke();
+      c.beginPath();c.moveTo(10.2,3.4);c.bezierCurveTo(10.5,0.2,14.2,-1.8,16.6,-0.6);
+      c.bezierCurveTo(17,1.2,16.1,3.2,15.3,4.2);c.bezierCurveTo(14.4,2.6,12.6,2.4,10.2,3.4);
+      const plume=c.createLinearGradient(10,3,16.6,-1);
+      plume.addColorStop(0,A.altDark('#e9e4d6'));plume.addColorStop(0.5,silver);plume.addColorStop(1,A.altLite('#e9e4d6'));
+      c.fillStyle=plume;c.fill();c.lineWidth=0.1;c.strokeStyle=edge;c.stroke();
+      c.beginPath();c.moveTo(10.4,3.3);c.quadraticCurveTo(14,0.3,16.4,-0.3);
+      for(let t=0.2;t<0.95;t+=0.15) {
+        const px=10.4+(16.4-10.4)*t, py=3.3-3.6*t+Math.sin(t*Math.PI)*-0.4;
+        c.moveTo(px,py);c.lineTo(px+0.35,py+0.9);
+      }
+      c.lineWidth=0.07;c.strokeStyle=A.altDark('#e9e4d6');c.stroke();
+      ensembleStud(c,10.5,3.45,A.fixed('#c9a24a'),0.3);
+    },
+
+    bufon(c, A) {
+      const edge=adjustL(A.dark,-24), motley=A.alt('#e3b23c'), motleyD=A.altDark('#e3b23c');
+      const bell=(x,y,r) => {
+        const g=c.createRadialGradient(x-r*0.35,y-r*0.35,r*0.1,x,y,r);
+        g.addColorStop(0,A.fixed('#fff1b8'));g.addColorStop(0.5,A.fixed('#e7c04c'));g.addColorStop(1,A.fixed('#9a7420'));
+        ellipsePath(c,x,y,r,r);c.fillStyle=g;c.fill();c.lineWidth=0.08;c.strokeStyle=A.fixed('#5c4313');c.stroke();
+        c.beginPath();c.moveTo(x-r*0.5,y+r*0.3);c.lineTo(x+r*0.5,y+r*0.3);c.lineWidth=0.08;c.stroke();
+      };
+      // Ruff: alternating motley points, each tipped with a small bell.
+      // Wide points and a solid band: narrow ones over the belly read as teeth.
+      for(let i=0;i<5;i++) {
+        const x=2.3+i*2.28, tip=14.5-Math.abs(i-2)*0.45;
+        ensemblePlate(c,[[x-0.1,11.5],[x+2.38,11.5],[x+1.14,tip]],i%2?A.lite:motley,i%2?A.dark:motleyD,edge,0.1);
+        bell(x+1.14,tip+0.15,0.32);
+      }
+      c.beginPath();c.moveTo(2.2,11.2);c.quadraticCurveTo(8,12.1,13.8,11.2);
+      c.lineWidth=0.85;c.strokeStyle=edge;c.stroke();c.lineWidth=0.55;c.strokeStyle=A.mat;c.stroke();
+      // Three floppy points: the outer two droop, the middle one curls up.
+      const point=(pts,light,dark) => {
+        c.beginPath();c.moveTo(pts[0],pts[1]);
+        c.bezierCurveTo(pts[2],pts[3],pts[4],pts[5],pts[6],pts[7]);
+        c.bezierCurveTo(pts[8],pts[9],pts[10],pts[11],pts[12],pts[13]);c.closePath();
+        const g=c.createLinearGradient(Math.min(pts[0],pts[6]),pts[7],Math.max(pts[0],pts[6]),4.2);
+        g.addColorStop(0,light);g.addColorStop(1,dark);
+        c.fillStyle=g;c.fill();c.lineWidth=0.15;c.strokeStyle=edge;c.stroke();
+      };
+      point([2.9,4.2, 1.4,2.2, 0,2.4, -0.6,4.7, 0.9,3,  3.8,1.4, 6.2,4],A.lite,A.dark);
+      point([13.1,4.2,14.6,2.2,16,2.4, 16.6,4.7,15.1,3,12.2,1.4, 9.8,4],A.lite,A.dark);
+      point([5.4,4,   5.4,1.2,7,-0.2,  9.2,-0.8,8.9,0.6, 11,1.7,  10.6,4],A.altLite('#e3b23c'),motleyD);
+      bell(-0.6,5.15,0.5);bell(16.6,5.15,0.5);bell(9.35,-0.85,0.45);
+      roundRect(c,2.6,3.85,10.8,1,0.35);c.fillStyle=A.dark;c.fill();c.lineWidth=0.14;c.strokeStyle=motleyD;c.stroke();
+      for(let i=0;i<5;i++) {
+        const x=3.9+i*2.05;
+        ensemblePlate(c,[[x,3.95],[x+0.45,4.35],[x,4.75],[x-0.45,4.35]],motley,motleyD,edge,0.06);
+      }
+    },
+
+    marinero(c, A) {
+      const edge=adjustL(A.dark,-30), navy=A.alt('#1f3a6b'), navyD=A.altDark('#1f3a6b');
+      const stripe=A.fixed('#f3f1ea'), red=A.fixed('#c23a33');
+      // White middy shirt under a square sailor collar that closes in a V.
+      c.save();blobPath(c,8,BODY.top,BODY.bot,BODY.rx);c.clip();
+      ensemblePlate(c,[[1.5,11.4],[8,11.9],[14.5,11.4],[14.5,15.6],[1.5,15.6]],A.lite,A.dark,edge);
+      for(const side of [-1,1]) {
+        const x=dx=>8+side*dx;
+        ensemblePlate(c,[[x(6.6),10.9],[x(1.8),11.5],[x(0),14.3],[x(1.4),14.6],[x(6.6),13.6]],navy,navyD,edge,0.12);
+        c.beginPath();c.moveTo(x(2.25),11.85);c.lineTo(x(0.65),14.25);
+        c.moveTo(x(2.75),12.05);c.lineTo(x(1.25),14.35);
+        c.lineWidth=0.1;c.strokeStyle=stripe;c.stroke();
+      }
+      c.restore();
+      // Neckerchief knot with two tails.
+      for(const side of [-1,1]) ensemblePlate(c,[[8,13.6],[8+side*0.5,13.7],[8+side*1.1,15.3],[8+side*0.4,15.1]],red,A.fixed('#7f2420'),edge,0.08);
+      ensemblePlate(c,[[7.45,13.1],[8.55,13.1],[8.45,14],[7.55,14]],adjustL(red,8),A.fixed('#8f2a25'),edge,0.08);
+      // Dixie cup: rounded crown and a rolled, stitched brim with an anchor.
+      c.beginPath();c.moveTo(3.3,4.2);c.bezierCurveTo(3,0.6,13,0.6,12.7,4.2);c.closePath();
+      const cap=c.createLinearGradient(3.5,1,12.5,4.2);
+      cap.addColorStop(0,A.lite);cap.addColorStop(0.55,A.mat);cap.addColorStop(1,A.dark);
+      c.fillStyle=cap;c.fill();c.lineWidth=0.15;c.strokeStyle=edge;c.stroke();
+      roundRect(c,2.6,3.5,10.8,1.45,0.65);
+      const brim=c.createLinearGradient(0,3.5,0,4.95);
+      brim.addColorStop(0,A.lite);brim.addColorStop(1,A.dark);
+      c.fillStyle=brim;c.fill();c.stroke();
+      c.beginPath();
+      for(const y of [3.95,4.5]){c.moveTo(3.1,y);c.lineTo(12.9,y);}
+      c.setLineDash([0.18,0.16]);c.lineWidth=0.07;c.strokeStyle=edge;c.stroke();c.setLineDash([]);
+      c.beginPath();c.moveTo(8,3.35);c.lineTo(8,4.75);c.moveTo(7.55,3.7);c.lineTo(8.45,3.7);
+      c.moveTo(7.35,4.35);c.quadraticCurveTo(8,5.05,8.65,4.35);
+      c.lineWidth=0.17;c.strokeStyle=navy;c.stroke();
+      ellipsePath(c,8,3.15,0.2,0.2);c.lineWidth=0.11;c.stroke();
+    },
+
+    pintor(c, A) {
+      const edge=adjustL(A.dark,-26);
+      // Tilted beret: the rim stays above the eyes, the crown leans left.
+      c.beginPath();c.ellipse(7.5,3.05,5.4,1.75,-0.12,0,Math.PI*2);
+      const g=c.createRadialGradient(6.2,2.3,0.4,7.5,3.05,5.6);
+      g.addColorStop(0,A.lite);g.addColorStop(0.6,A.mat);g.addColorStop(1,A.dark);
+      c.fillStyle=g;c.fill();c.lineWidth=0.16;c.strokeStyle=edge;c.stroke();
+      c.beginPath();c.ellipse(8,4.35,4.5,0.62,0,0,Math.PI*2);c.fillStyle=A.dark;c.fill();c.stroke();
+      c.beginPath();c.moveTo(6.6,1.5);c.quadraticCurveTo(6.3,0.7,6.9,0.55);c.lineWidth=0.3;c.strokeStyle=A.mat;c.stroke();
+      // A painted dab on the crown, in the detail color.
+      ellipsePath(c,9.6,2.6,0.5,0.32);c.fillStyle=A.alt('#2f7fd1');c.fill();
+      ellipsePath(c,10.3,2.9,0.18,0.14);c.fill();
+    },
+
+    mariachi(c, A) {
+      const edge=adjustL(A.dark,-20), gold=A.alt('#d9b25a');
+      // Charro sombrero: very wide brim with a raised, embroidered edge.
+      c.beginPath();c.ellipse(8,4.15,8.6,1.25,0,0,Math.PI*2);
+      const brim=c.createLinearGradient(0,2.9,0,5.4);
+      brim.addColorStop(0,A.lite);brim.addColorStop(1,A.dark);
+      c.fillStyle=brim;c.fill();c.lineWidth=0.45;c.strokeStyle=gold;c.stroke();
+      c.beginPath();c.ellipse(8,4.15,7.2,0.95,0,0,Math.PI*2);c.setLineDash([0.3,0.25]);
+      c.lineWidth=0.12;c.strokeStyle=gold;c.stroke();c.setLineDash([]);
+      c.beginPath();c.moveTo(4.6,4.1);c.bezierCurveTo(4.4,-1.4,11.6,-1.4,11.4,4.1);c.quadraticCurveTo(8,4.7,4.6,4.1);
+      const crown=c.createLinearGradient(4.6,0,11.4,4);
+      crown.addColorStop(0,A.lite);crown.addColorStop(0.55,A.mat);crown.addColorStop(1,A.dark);
+      c.fillStyle=crown;c.fill();c.lineWidth=0.15;c.strokeStyle=edge;c.stroke();
+      c.beginPath();c.moveTo(4.75,3.2);c.quadraticCurveTo(8,3.8,11.25,3.2);c.lineWidth=0.5;c.strokeStyle=gold;c.stroke();
+      c.beginPath();
+      for(let x=5.2;x<11;x+=0.75){c.moveTo(x,3.1);c.lineTo(x+0.37,3.65);c.lineTo(x+0.75,3.1);}
+      c.lineWidth=0.08;c.strokeStyle=edge;c.stroke();
+      for(const x of [6.2,8,9.8]) estrella4(c,x,1.6,0.32,gold);
+    },
+
+    ninja(c, A) {
+      const edge=adjustL(A.dark,-20), red=A.alt('#b3202a');
+      // Wrapped hood over the crown and a hachimaki whose tails fly back.
+      c.beginPath();c.moveTo(2.9,5.1);c.bezierCurveTo(2.6,0.4,13.4,0.4,13.1,5.1);c.quadraticCurveTo(8,5.5,2.9,5.1);
+      const g=c.createLinearGradient(3,1,13,5);
+      g.addColorStop(0,A.lite);g.addColorStop(0.5,A.mat);g.addColorStop(1,A.dark);
+      c.fillStyle=g;c.fill();c.lineWidth=0.16;c.strokeStyle=edge;c.stroke();
+      c.beginPath();c.moveTo(4.2,1.9);c.quadraticCurveTo(8,1.2,11.8,1.9);c.lineWidth=0.09;c.strokeStyle=A.lite;c.stroke();
+      c.beginPath();c.moveTo(2.95,4.2);c.quadraticCurveTo(8,4.85,13.05,4.2);c.lineWidth=0.75;c.strokeStyle=red;c.stroke();
+      c.beginPath();c.moveTo(13,4.1);c.bezierCurveTo(14.6,3.6,15.6,4.6,17.3,3.8);c.lineTo(17.1,4.45);
+      c.bezierCurveTo(15.6,5.3,14.4,4.8,13,4.8);c.closePath();c.fillStyle=red;c.fill();
+      c.beginPath();c.moveTo(13,4.5);c.bezierCurveTo(14.3,5,15.2,6.2,16.6,6);c.lineTo(16.2,6.5);
+      c.bezierCurveTo(14.8,6.6,14,5.6,13,5);c.closePath();c.fill();
+      roundRect(c,12.5,3.85,1.1,1.05,0.2);c.fillStyle=adjustL(red,-15);c.fill();
+      ellipsePath(c,8,4.35,0.42,0.3);c.fillStyle=A.fixed('#e9e4d6');c.fill();
+    },
+
+    gaitero(c, A) {
+      const edge=A.fixed('#141824'), red=A.alt('#b3202a');
+      // Tam o'shanter: a flat wool bonnet over a diced band, pompom on top.
+      c.beginPath();c.ellipse(8,2.85,6,1.7,0.05,0,Math.PI*2);
+      const g=c.createRadialGradient(7,2.2,0.3,8,2.85,6);
+      g.addColorStop(0,A.lite);g.addColorStop(0.6,A.mat);g.addColorStop(1,A.dark);
+      c.fillStyle=g;c.fill();c.lineWidth=0.16;c.strokeStyle=edge;c.stroke();
+      roundRect(c,3.3,3.75,9.4,0.95,0.3);c.fillStyle=A.fixed('#f3f1ea');c.fill();c.lineWidth=0.1;c.stroke();
+      for(let i=0;i<9;i++) {roundRect(c,3.4+i*1.04,3.85+(i%2)*0.38,0.52,0.38,0.04);c.fillStyle=red;c.fill();}
+      for(let i=0;i<8;i++) {
+        const a=i*Math.PI/4;
+        ellipsePath(c,8.3+Math.cos(a)*0.5,1.05+Math.sin(a)*0.42,0.36,0.32);c.fillStyle=adjustL(red,i%2?-10:8);c.fill();
+      }
+      ellipsePath(c,8.3,1.05,0.42,0.38);c.fillStyle=red;c.fill();
+    },
+
+    polar(c, A) {
+      const edge=adjustL(A.dark,-24), fur=A.alt('#e9e4d6');
+      // Parka hood: the shell wraps the head and leaves the face open.
+      blobPath(c,8,2.25,12.6,BODY.rx+0.85);
+      c.moveTo(13.05,8.45);c.ellipse(8,8.45,5.05,4.2,0,0,Math.PI*2);
+      const g=c.createLinearGradient(2,2,14,12);
+      g.addColorStop(0,A.lite);g.addColorStop(0.5,A.mat);g.addColorStop(1,A.dark);
+      c.fillStyle=g;c.fill('evenodd');c.lineWidth=0.16;c.strokeStyle=edge;c.stroke();
+      c.beginPath();c.moveTo(8,2.3);c.quadraticCurveTo(7.6,3.3,8,4.25);c.setLineDash([0.18,0.15]);
+      c.lineWidth=0.08;c.strokeStyle=adjustL(A.dark,-10);c.stroke();c.setLineDash([]);
+      // Fur ruff: a soft ring of tufts around the opening.
+      c.beginPath();c.ellipse(8,8.45,5.15,4.3,0,0,Math.PI*2);c.lineWidth=0.75;c.strokeStyle=fur;c.stroke();
+      for(let i=0;i<22;i++) {
+        const a=i/22*Math.PI*2, x=8+Math.cos(a)*5.3, y=8.45+Math.sin(a)*4.45;
+        ellipsePath(c,x,y,0.42,0.36);c.fillStyle=i%2?fur:A.altLite('#e9e4d6');c.fill();
+      }
+    },
 
     /**
      * Disfraz Brasita: una salamandra de fuego.
@@ -1897,7 +2702,7 @@
       }
       // Vara: sale del resorte y se inclina hacia la derecha.
       const vx = cx + 0.3, vy = base - alto;
-      const bx = cx + 1.05, by = -0.95;
+      const bx = cx + 1.05, by = -0.35;
       c.beginPath();
       c.moveTo(vx, vy);
       c.quadraticCurveTo(vx + 0.05, vy - 1.0, bx, by + 0.6);
@@ -3275,144 +4080,75 @@
     },
 
     /**
-     * Casco de astronauta.
+     * Astronauta: la mitad de atrás del casco burbuja.
      *
-     * Boberto no tiene cuello, así que el casco no puede ser una burbuja
-     * apoyada en la cabeza: tiene que ENVOLVER todo el torso superior, como
-     * una pecera, y cerrar abajo con un collar. Con la esfera chica y baja le
-     * cortaba la cabeza a la altura del mentón y le cruzaba la panza.
+     * El casco es una pecera TRANSPARENTE que envuelve la parte de arriba (no
+     * hay cuello donde apoyarla) y cierra abajo con un collar. La versión
+     * anterior le ponía un visor dorado que degradaba sobre toda la cara y un
+     * collar oscuro justo debajo de la boca: los ojos quedaban teñidos y la
+     * banda negra se leía como una boca abierta. Ahora el vidrio sólo tiñe el
+     * canto y los reflejos van contra el borde, lejos de los ojos.
      *
-     * La otra regla, aprendida a los golpes: nada de lo que pinta el casco
-     * puede caer encima de los ojos. El visor dorado va sólo por arriba de
-     * ellos y los reflejos, contra los bordes. Si el dorado o el reflejo les
-     * pasan por encima, los ojos se lavan y el personaje pierde la mirada, que
-     * es lo único que realmente lo hace un personaje.
+     * Acá va sólo el borde de atrás del vidrio, que se ve por arriba de la
+     * cabeza; el frente, el collar y la antena son de HATS_OVER.
      */
-    astronauta(c, A, st) {
-      const cx = HELMET.cx, cy = HELMET.cy, r = HELMET.r;
-
-      // Sombra proyectada del casco sobre el cuerpo
-      c.save();
-      c.beginPath();
-      c.ellipse(cx, cy + r - 0.2, 4.8, 1.2, 0, 0, Math.PI * 2);
-      c.fillStyle = 'rgba(0,0,0,0.35)'; c.fill();
-      c.restore();
-
-      // Collar: la base sobre la que se apoya el casco (volumétrico 2.5D)
-      c.beginPath();
-      c.ellipse(cx, cy + r - 0.9, 4.6, 1.1, 0, 0, Math.PI * 2);
-      const cg = c.createLinearGradient(0, cy + r - 2.0, 0, cy + r + 0.2);
-      cg.addColorStop(0, mixHex(A.mat, '#ffffff', 0.6));
-      cg.addColorStop(0.4, A.mat);
-      cg.addColorStop(1, adjustL(A.mat, -35));
-      c.fillStyle = cg; c.fill();
-      
-      // Hueco del collar
-      c.beginPath();
-      c.ellipse(cx, cy + r - 1.1, 4.2, 0.9, 0, 0, Math.PI * 2);
-      c.fillStyle = adjustL(A.mat, -45); c.fill();
-
-      // Casquete: un aro grueso, no un disco. El centro queda libre para la cara.
-      c.save();
-      c.beginPath();
-      c.arc(cx, cy, r, 0, Math.PI * 2);
-      c.arc(cx, cy, r - 0.92, 0, Math.PI * 2, true);
-      c.closePath();
-      
-      const sg = c.createRadialGradient(cx - r * 0.4, cy - r * 0.4, r * 0.2, cx, cy, r * 1.1);
-      sg.addColorStop(0.00, mixHex(A.mat, '#ffffff', 0.8));
-      sg.addColorStop(0.35, A.mat);
-      sg.addColorStop(1.00, adjustL(A.mat, -40));
-      c.fillStyle = sg;
-      c.fill('evenodd');
-      
-      // Sombra interior del marco
-      c.beginPath();
-      c.arc(cx, cy, r - 0.92, 0, Math.PI * 2);
-      c.lineWidth = 0.3;
-      c.strokeStyle = withA(adjustL(A.mat, -50), 0.6);
-      c.stroke();
-      c.restore();
-
-      // Antena, naciendo del aro
-      const ax = cx + r * Math.cos(-0.72), ay = cy + r * Math.sin(-0.72);
-      c.beginPath();
-      c.lineWidth = 0.4; c.lineCap = 'round';
-      c.strokeStyle = adjustL(A.mat, -20);
-      c.moveTo(ax, ay);
-      c.quadraticCurveTo(ax + 1.4, ay - 1.1, ax + 0.5, ay - 1.7);
-      c.stroke();
-      
-      // Highlight antena
-      c.beginPath();
-      c.lineWidth = 0.15;
-      c.strokeStyle = mixHex(A.mat, '#ffffff', 0.6);
-      c.moveTo(ax, ay);
-      c.quadraticCurveTo(ax + 1.4, ay - 1.1, ax + 0.5, ay - 1.7);
-      c.stroke();
-
-      glowing(c, st, 2.0, () => {
-        c.beginPath();
-        c.arc(ax + 0.5, ay - 1.95, 0.45, 0, Math.PI * 2);
-        const lg = c.createRadialGradient(ax + 0.3, ay - 2.1, 0.05, ax + 0.5, ay - 1.95, 0.45);
-        lg.addColorStop(0, '#ffffff');
-        lg.addColorStop(0.3, A.alt(A.bulb, 1));
-        lg.addColorStop(1, adjustL(A.alt(A.bulb, 1), -20));
-        c.fillStyle = lg; c.fill();
-      }, ay - 1.95 - 0.45);
+    astronauta(c, A) {
+      const K = CASCO;
+      c.beginPath(); c.arc(K.cx, K.cy, K.r - 0.25, Math.PI * 1.08, Math.PI * 1.92);
+      c.lineWidth = 0.16; c.strokeStyle = withA('#ffffff', 0.2); c.stroke();
+      c.beginPath(); c.arc(K.cx, K.cy, K.r - 0.25, Math.PI * 1.25, Math.PI * 1.75);
+      c.lineWidth = 0.08; c.strokeStyle = withA(A.dark, 0.5); c.stroke();
     },
 
     /**
      * Escafandra de buzo.
      *
-     * Misma geometría que el casco de astronauta, pero al revés: el bronce es
-     * OPACO y la cara se ve por la portilla. Por eso el disco de la portilla se
-     * pinta acá, antes de los ojos: los ojos caen encima y quedan detrás del
-     * vidrio sin que haya que dibujarlos dos veces.
+     * El casco de bronce es opaco y la cara se ve por la portilla grande, que
+     * tiene que ser CLARA: la versión anterior la oscurecía y los ojos
+     * quedaban hundidos en un pozo. La portilla mide más que los dos ojos
+     * juntos (radio 4,45 contra 4,1 del punto más lejano de un ojo), así que
+     * su marco nunca los pisa. Lo de acá va antes de los ojos; el vidrio y
+     * sus reflejos, en HATS_OVER.
      *
-     * Antes el casquete se trazaba con arc(…, PI*0.06, PI*0.94), que es la
-     * mitad de ABAJO: la escafandra terminaba siendo una faja de bronce
-     * cruzándole la panza.
+     * Las portillas chicas (costados y arriba) llevan rejilla, el detalle que
+     * distingue una escafandra de una pecera de bronce. El peto y el traje de
+     * lona son ROPA.buzo.
      */
-    buzo(c, A, st) {
-      const cx = HELMET.cx, cy = HELMET.cy, r = HELMET.r;
-      const bronce = A.alt('#b9863c');
-
-      // Gorguera.
-      roundRect(c, cx - 4.6, cy + r - 1.6, 9.2, 1.7, 0.75);
-      c.fillStyle = adjustL(bronce, -24); c.fill();
-
-      // Casquete opaco.
-      ellipsePath(c, cx, cy, r, r);
-      const g = c.createRadialGradient(cx - r * 0.42, cy - r * 0.48, r * 0.08, cx, cy, r * 1.05);
-      g.addColorStop(0.00, mixHex(bronce, '#ffffff', 0.52));
-      g.addColorStop(0.50, bronce);
-      g.addColorStop(1.00, adjustL(bronce, -30));
-      c.fillStyle = g; c.fill();
-
-      // Válvula de aire.
-      roundRect(c, cx - 0.72, cy - r - 0.72, 1.44, 1.0, 0.32);
-      c.fillStyle = adjustL(bronce, -14); c.fill();
-      glowing(c, st, 1.4, () => {
-        ellipsePath(c, cx, cy - r - 0.76, 0.28, 0.28);
-        c.fillStyle = A.bulb; c.fill();
-      }, cy - r - 0.76 - 0.28);
-
-      // Portillas laterales, contra el borde y no flotando en el medio.
-      [-1, 1].forEach(sd => {
-        const px = cx + sd * (r - 1.15), py = cy + 0.9;
-        ellipsePath(c, px, py, 0.80, 0.90);
-        c.fillStyle = adjustL(bronce, -26); c.fill();
-        ellipsePath(c, px, py, 0.48, 0.56);
-        c.fillStyle = withA('#0d1a24', 0.92); c.fill();
-      });
-
-      // Vidrio de la portilla: va ACÁ para que los ojos se dibujen encima.
-      ellipsePath(c, cx, HELMET.faceY, HELMET.faceR, HELMET.faceR);
-      const vg = c.createRadialGradient(cx - 1.4, HELMET.faceY - 1.6, 0.3, cx, HELMET.faceY, HELMET.faceR);
-      vg.addColorStop(0, '#16323f');
-      vg.addColorStop(1, '#0a1a24');
-      c.fillStyle = vg; c.fill();
+    buzo(c, A) {
+      const K = CASCO, bronce = A.mat, edge = adjustL(A.dark, -30);
+      const vx = K.cx, vy = K.cara, vr = 4.45;
+      c.save();
+      // Hasta y 12.75, donde lo toma el peto (ROPA.buzo).
+      c.beginPath(); c.rect(-2, -2, 20, 14.75); c.clip();
+      c.beginPath(); c.arc(K.cx, K.cy, K.r, 0, Math.PI * 2);
+      c.moveTo(vx + vr, vy); c.arc(vx, vy, vr, 0, Math.PI * 2, true);
+      const g = c.createRadialGradient(K.cx - 2.6, K.cy - 3.2, 0.4, K.cx, K.cy, K.r * 1.05);
+      g.addColorStop(0, mixHex(bronce, '#ffffff', 0.55)); g.addColorStop(0.45, bronce); g.addColorStop(1, adjustL(bronce, -30));
+      c.fillStyle = g; c.fill('evenodd');
+      c.beginPath(); c.arc(K.cx, K.cy, K.r, 0, Math.PI * 2);
+      c.lineWidth = 0.18; c.strokeStyle = edge; c.stroke();
+      c.restore();
+      // Marco de la portilla grande, con sus tornillos.
+      c.beginPath(); c.arc(vx, vy, vr + 0.55, 0, Math.PI * 2); c.arc(vx, vy, vr, 0, Math.PI * 2, true);
+      const gm = c.createLinearGradient(vx - vr, vy - vr, vx + vr, vy + vr);
+      gm.addColorStop(0, mixHex(bronce, '#ffffff', 0.45)); gm.addColorStop(1, adjustL(bronce, -25));
+      c.fillStyle = gm; c.fill('evenodd');
+      c.lineWidth = 0.1; c.strokeStyle = edge; c.stroke();
+      for (let i = 0; i < 10; i++) {
+        const a = i / 10 * Math.PI * 2 + 0.3;
+        ellipsePath(c, vx + Math.cos(a) * (vr + 0.28), vy + Math.sin(a) * (vr + 0.28), 0.13, 0.13);
+        c.fillStyle = A.lite; c.fill();
+      }
+      // Portillas chicas con rejilla: a los costados y arriba.
+      for (const [x, y, r] of [[2.55, 7.4, 0.8], [13.45, 7.4, 0.8], [8, 2.3, 0.55]]) {
+        ellipsePath(c, x, y, r + 0.22, r + 0.22); c.fillStyle = adjustL(bronce, 8); c.fill();
+        c.lineWidth = 0.08; c.strokeStyle = edge; c.stroke();
+        ellipsePath(c, x, y, r, r); c.fillStyle = A.fixed('#1d3a4a'); c.fill();
+        c.beginPath();
+        for (const d of [-0.35, 0, 0.35]) { c.moveTo(x + d * r * 2, y - r * 0.9); c.lineTo(x + d * r * 2, y + r * 0.9); }
+        c.lineWidth = 0.1; c.strokeStyle = adjustL(bronce, -20); c.stroke();
+        ellipsePath(c, x - r * 0.35, y - r * 0.35, r * 0.25, r * 0.18); c.fillStyle = withA('#ffffff', 0.6); c.fill();
+      }
     },
 
     /** Cuernos de demonio. La cola va en la capa de atrás. */
@@ -3599,115 +4335,47 @@
     /**
      * Bufanda tejida.
      *
-     * Va sobre la panza y no bajo la cabeza: Boberto no tiene cuello, y a la
-     * altura de los ojos se los tapa.
-     *
-     * El punto es HORIZONTAL. La primera versión lo tejía con rayas verticales
-     * finitas y a este tamaño la bufanda se leía como una dentadura.
-     *
-     * La punta CUELGA del nudo, por delante. Antes salía por detrás y subía
-     * hasta la oreja, como una bandera, y el nudo era una pelota lisa; ahora
-     * el nudo tiene la vuelta de la tela y la punta cae con su fleco.
+     * Una vuelta prolija alrededor del cuello, debajo de la boca, con el
+     * punto tejido siguiendo la curva del cuerpo; el nudo a la izquierda y la
+     * punta que cuelga por delante con dos franjas y flecos. La de antes era
+     * un manojo de bultos sin forma: la tela iba en tramos sueltos que no
+     * cerraban, y a escala de dock se leía como una mancha.
      */
     bufanda(c, A) {
-      const y = BODY.top + 8.5;
-      const lana = A.mat, franja = A.alt(adjustL(A.mat, 26));
-      const hondo = adjustL(lana, -34);
-      // Punto: hileras de "v" cortas, como se ve un tejido de cerca.
-      const puntos = (x0, x1, y0, filas, curva) => {
-        c.lineWidth = 0.09;
-        c.strokeStyle = withA(hondo, 0.45);
-        for (let f = 0; f < filas; f++) {
-          for (let x = x0; x <= x1; x += 0.5) {
-            const yb = y0 + f * 0.62 + (curva ? curva(x) : 0);
-            c.beginPath();
-            c.moveTo(x - 0.2, yb); c.lineTo(x, yb + 0.28); c.lineTo(x + 0.2, yb);
-            c.stroke();
-          }
-        }
-      };
-
-      // Banda: gruesa y curvada siguiendo la panza.
-      c.save();
+      const lana = A.mat, franja = A.alt(adjustL(A.mat, 32)), hondo = adjustL(lana, -32), edge = adjustL(lana, -45);
+      // La vuelta: arriba sigue la curva del cuerpo, abajo un poco más.
+      c.beginPath(); c.moveTo(1.6, 11.25); c.quadraticCurveTo(8, 12.15, 14.4, 11.25);
+      c.quadraticCurveTo(15.1, 12.05, 14.3, 12.85); c.quadraticCurveTo(8, 13.95, 1.7, 12.85);
+      c.quadraticCurveTo(0.9, 12.05, 1.6, 11.25); c.closePath();
+      const g = c.createLinearGradient(0, 11.3, 0, 13.6);
+      g.addColorStop(0, adjustL(lana, 14)); g.addColorStop(1, adjustL(lana, -16));
+      c.fillStyle = g; c.fill(); c.lineWidth = 0.12; c.strokeStyle = edge; c.stroke();
+      // Punto: dos hileras de "v" que siguen la curva.
       c.beginPath();
-      c.moveTo(BODY.cx - 5.5, y - 1.35);
-      c.quadraticCurveTo(BODY.cx, y + 0.35, BODY.cx + 5.5, y - 1.35);
-      c.lineTo(BODY.cx + 5.5, y + 0.95);
-      c.quadraticCurveTo(BODY.cx, y + 2.65, BODY.cx - 5.5, y + 0.95);
-      c.closePath();
-      const g = c.createLinearGradient(0, y - 1.4, 0, y + 2.6);
-      g.addColorStop(0, adjustL(lana, 12));
-      g.addColorStop(1, adjustL(lana, -18));
-      c.fillStyle = g; c.fill();
-      c.clip();
-      c.fillStyle = withA(franja, 0.85);
-      c.beginPath();
-      c.moveTo(BODY.cx - 6, y - 0.55);
-      c.quadraticCurveTo(BODY.cx, y + 1.15, BODY.cx + 6, y - 0.55);
-      c.lineTo(BODY.cx + 6, y + 0.25);
-      c.quadraticCurveTo(BODY.cx, y + 1.95, BODY.cx - 6, y + 0.25);
-      c.closePath();
-      c.fill();
-      puntos(BODY.cx - 5.6, BODY.cx + 5.6, y - 1.15, 4, (x) => 0.85 * (1 - ((x - BODY.cx) / 5.5) ** 2));
-      c.restore();
-
-      // La punta que cuelga: arranca en el nudo y cae hasta abajo de la panza.
-      const kx = BODY.cx - 3.9, ky = y + 0.55;
-      const punta = () => {
-        c.beginPath();
-        c.moveTo(kx - 0.9, ky + 0.2);
-        c.quadraticCurveTo(kx - 1.35, ky + 2.6, kx - 0.85, ky + 5.1);
-        c.lineTo(kx + 1.0, ky + 4.85);
-        c.quadraticCurveTo(kx + 0.5, ky + 2.5, kx + 0.8, ky + 0.3);
-        c.closePath();
-      };
-      punta();
-      const pg = c.createLinearGradient(kx - 1, 0, kx + 1, 0);
-      pg.addColorStop(0, adjustL(lana, -14)); pg.addColorStop(0.5, lana); pg.addColorStop(1, adjustL(lana, -22));
-      c.fillStyle = pg; c.fill();
-      c.save();
-      punta(); c.clip();
-      c.fillStyle = withA(franja, 0.85);
-      [1.6, 3.3].forEach(dy => {
-        c.beginPath();
-        c.moveTo(kx - 2, ky + dy); c.lineTo(kx + 2, ky + dy - 0.2);
-        c.lineTo(kx + 2, ky + dy + 0.55); c.lineTo(kx - 2, ky + dy + 0.75);
-        c.closePath(); c.fill();
-      });
-      puntos(kx - 1.3, kx + 1.3, ky + 0.5, 7, null);
-      c.restore();
-      // Fleco.
-      c.lineWidth = 0.17; c.lineCap = 'round';
-      c.strokeStyle = adjustL(lana, -8);
-      for (let i = 0; i < 5; i++) {
-        const t = i / 4;
-        const x0 = kx - 0.8 + t * 1.75, y0 = ky + 5.08 - t * 0.25;
-        c.beginPath();
-        c.moveTo(x0, y0);
-        c.lineTo(x0 - 0.1 + (i % 2) * 0.12, y0 + 0.75 + (i % 2) * 0.15);
-        c.stroke();
+      for (const fila of [0.45, 1.05]) for (let x = 2.4; x < 13.8; x += 0.55) {
+        const y = 11.25 + fila + 0.9 * (1 - ((x - 8) / 6.4) ** 2);
+        c.moveTo(x - 0.2, y - 0.12); c.lineTo(x, y + 0.12); c.lineTo(x + 0.2, y - 0.12);
       }
-
-      // Nudo: la vuelta de la tela, con su pliegue.
+      c.lineWidth = 0.07; c.strokeStyle = withA(hondo, 0.55); c.stroke();
+      // La punta que cuelga, con sus franjas y el fleco.
+      c.beginPath(); c.moveTo(4.2, 12.7); c.lineTo(5.85, 12.7); c.quadraticCurveTo(5.95, 14.4, 5.65, 16.05);
+      c.lineTo(3.95, 16.1); c.quadraticCurveTo(4.15, 14.4, 4.2, 12.7); c.closePath();
+      const gp = c.createLinearGradient(4, 0, 6, 0);
+      gp.addColorStop(0, adjustL(lana, 10)); gp.addColorStop(1, adjustL(lana, -18));
+      c.fillStyle = gp; c.fill(); c.lineWidth = 0.12; c.strokeStyle = edge; c.stroke();
+      for (const y of [14.1, 14.75]) {
+        c.beginPath(); c.moveTo(4.15, y); c.lineTo(5.85, y - 0.03); c.lineTo(5.83, y + 0.32); c.lineTo(4.13, y + 0.35); c.closePath();
+        c.fillStyle = franja; c.fill();
+      }
       c.beginPath();
-      c.moveTo(kx - 1.15, ky - 0.75);
-      c.quadraticCurveTo(kx, ky - 1.25, kx + 1.15, ky - 0.6);
-      c.quadraticCurveTo(kx + 1.35, ky + 0.35, kx + 0.85, ky + 0.85);
-      c.quadraticCurveTo(kx, ky + 1.2, kx - 0.95, ky + 0.8);
-      c.quadraticCurveTo(kx - 1.45, ky + 0.0, kx - 1.15, ky - 0.75);
-      c.closePath();
-      const kg = c.createRadialGradient(kx - 0.4, ky - 0.5, 0.1, kx, ky, 1.5);
-      kg.addColorStop(0, adjustL(lana, 16));
-      kg.addColorStop(1, adjustL(lana, -24));
-      c.fillStyle = kg; c.fill();
-      c.lineWidth = 0.1;
-      c.strokeStyle = withA(hondo, 0.7);
-      // Un solo pliegue en diagonal: con dos curvas paralelas el nudo
-      // parecía una carita.
-      c.beginPath();
-      c.moveTo(kx - 0.95, ky - 0.55);
-      c.quadraticCurveTo(kx - 0.1, ky - 0.1, kx + 0.55, ky + 0.85);
-      c.stroke();
+      for (let x = 4.15; x <= 5.6; x += 0.36) { c.moveTo(x, 16.1); c.lineTo(x - 0.05, 16.75); }
+      c.lineWidth = 0.14; c.lineCap = 'round'; c.strokeStyle = hondo; c.stroke();
+      // El nudo, encima del arranque de la punta.
+      c.beginPath(); c.ellipse(5.05, 12.55, 1.0, 0.72, -0.15, 0, Math.PI * 2);
+      c.fillStyle = lana; c.fill(); c.lineWidth = 0.12; c.strokeStyle = edge; c.stroke();
+      c.beginPath(); c.moveTo(4.4, 12.2); c.quadraticCurveTo(5.1, 12.8, 5.75, 12.3);
+      c.lineWidth = 0.1; c.strokeStyle = withA(hondo, 0.8); c.stroke();
+      ellipsePath(c, 4.75, 12.3, 0.3, 0.14); c.fillStyle = withA('#ffffff', 0.25); c.fill();
     },
 
     /**
@@ -3727,12 +4395,14 @@
       const crin = A.alt('#c0392b');
 
       // Cresta de crin: un abanico de cerdas que sube desde el soporte.
-      // Alto acotado: la punta queda en y -1.5 y el lienzo arranca en -2.
+      // Alto acotado: la punta queda en y -1.05 y el lienzo arranca en -2.
+      // Con 2.6 de largo llegaba a -1.8, y a la escala del dock colapsado eso
+      // es menos de un píxel: el alfa tocaba el borde.
       const base = 1.15;
       for (let i = 0; i < 30; i++) {
         const t = i / 29;
         const a = -Math.PI / 2 + (t - 0.5) * 1.5;
-        const largo = 2.6 - Math.abs(t - 0.5) * 1.4 + ((i * 7) % 5) * 0.05;
+        const largo = 2.05 - Math.abs(t - 0.5) * 1.1 + ((i * 7) % 5) * 0.05;
         const x1 = cx + Math.cos(a) * largo * 0.9, y1 = base + Math.sin(a) * largo;
         c.beginPath();
         c.moveTo(cx + (t - 0.5) * 0.9, base + 0.2);
@@ -3812,98 +4482,52 @@
       }
     },
 
-    /** Gorro con hélice. Gajos de colores y tres palas. */
-    helice(c, A, st) {
-      const y = HEAD.top + 0.85;
-      const gajo = A.alt('#e0483c');
-      const cx = BODY.cx;
-
-      // Sombra proyectada en la cabeza
-      c.save();
-      c.beginPath();
-      c.ellipse(cx, y + 0.5, 3.6, 0.7, 0, 0, Math.PI * 2);
-      c.fillStyle = 'rgba(0,0,0,0.3)';
-      c.fill();
-      c.restore();
-
-      // Gorro por gajos (Volumétrico)
-      c.save();
-      c.beginPath();
-      c.arc(cx, y + 0.6, 3.5, Math.PI, 0);
-      c.clip();
-
+    /**
+     * Gorro con hélice.
+     *
+     * Era un casquete chato con una hélice que a escala de dock no se veía.
+     * Ahora es la gorra de cuatro gajos de color, con visera y botón, y la
+     * hélice de dos palas vista en perspectiva (por eso son elipses finas) con
+     * la estela del giro: lo que la hace leer como hélice y no como moño.
+     * Todo queda arriba de los ojos; la visera baja sólo entre los dos.
+     */
+    helice(c, A) {
+      const edge = adjustL(A.dark, -30);
+      const gajos = [A.mat, A.alt('#f5c542'), A.fixed('#2f7fd1'), A.fixed('#3fae5a')];
+      const domo = () => {
+        c.beginPath(); c.moveTo(3, 4.7); c.bezierCurveTo(2.8, 0.6, 13.2, 0.6, 13, 4.7); c.quadraticCurveTo(8, 5.15, 3, 4.7);
+      };
+      domo();
+      c.save(); c.clip();
+      const xs = [1.5, 5.2, 8, 10.8, 14.5];
       for (let i = 0; i < 4; i++) {
-        const a0 = Math.PI + (i / 4) * Math.PI, a1 = Math.PI + ((i + 1) / 4) * Math.PI;
-        c.beginPath();
-        c.moveTo(cx, y + 0.6);
-        c.arc(cx, y + 0.6, 4.0, a0, a1);
-        c.closePath();
-        
-        const col = i % 2 ? gajo : A.mat;
-        // Gradiente radial descentrado para darle volumen esférico al gajo
-        const gg = c.createRadialGradient(cx - 1.0, y - 1.5, 0.5, cx, y + 0.6, 4.5);
-        gg.addColorStop(0, mixHex(col, '#ffffff', 0.4));
-        gg.addColorStop(0.4, col);
-        gg.addColorStop(1, adjustL(col, -30));
-        
-        c.fillStyle = gg;
-        c.fill();
+        c.beginPath(); c.moveTo(8, 1.35);
+        c.quadraticCurveTo((xs[i] + 8) / 2, 2.4, xs[i], 5.4); c.lineTo(xs[i + 1], 5.4);
+        c.quadraticCurveTo((xs[i + 1] + 8) / 2, 2.4, 8, 1.35);
+        c.fillStyle = gajos[i]; c.fill();
       }
+      const luz = c.createRadialGradient(5.6, 1.9, 0.2, 7, 3, 6);
+      luz.addColorStop(0, withA('#ffffff', 0.45)); luz.addColorStop(0.5, withA('#ffffff', 0.08)); luz.addColorStop(1, withA('#000000', 0.25));
+      c.fillStyle = luz; c.fillRect(2, 0, 12, 6);
+      c.beginPath();
+      for (let i = 1; i < 4; i++) { c.moveTo(8, 1.35); c.quadraticCurveTo((xs[i] + 8) / 2, 2.4, xs[i], 5.4); }
+      c.lineWidth = 0.08; c.strokeStyle = withA(edge, 0.6); c.stroke();
       c.restore();
-
-      // Ribete 2.5D
-      c.beginPath();
-      c.roundRect(cx - 3.6, y + 0.35, 7.2, 0.8, 0.4);
-      const bg = c.createLinearGradient(cx - 3.6, y + 0.35, cx - 3.6, y + 1.15);
-      bg.addColorStop(0, mixHex(A.mat, '#ffffff', 0.3));
-      bg.addColorStop(0.5, adjustL(A.mat, -15));
-      bg.addColorStop(1, adjustL(A.mat, -40));
-      c.fillStyle = bg; c.fill();
-
-      // Eje metálico
-      c.beginPath();
-      c.roundRect(cx - 0.25, y - 3.15, 0.5, 1.4, 0.25);
-      const eg = c.createLinearGradient(cx - 0.25, 0, cx + 0.25, 0);
-      eg.addColorStop(0, '#8892a0');
-      eg.addColorStop(0.5, '#ffffff');
-      eg.addColorStop(1, '#56606d');
-      c.fillStyle = eg; c.fill();
-
-      // Hélice: tres palas con paso y gradientes de luz
-      const palas = [[-2.35, 0.45], [0.4, -0.85], [2.15, 0.62]];
-      palas.forEach((pl, i) => {
-        c.beginPath();
-        c.moveTo(cx, y - 3.0);
-        c.quadraticCurveTo(cx + pl[0] * 0.65, y - 3.0 - pl[1] * 0.9, cx + pl[0], y - 3.0 - pl[1]);
-        c.quadraticCurveTo(cx + pl[0] * 0.6, y - 2.6 - pl[1] * 0.5, cx, y - 2.6);
-        c.closePath();
-        
-        const isBack = i === 1;
-        const pcol = isBack ? adjustL(gajo, -25) : gajo;
-        const pg = c.createLinearGradient(cx, y - 3.0, cx + pl[0], y - 3.0 - pl[1]);
-        pg.addColorStop(0, adjustL(pcol, -15));
-        pg.addColorStop(0.8, mixHex(pcol, '#ffffff', isBack ? 0 : 0.3));
-        pg.addColorStop(1, pcol);
-        
-        c.fillStyle = pg;
-        c.fill();
-        
-        // Borde fino
-        c.lineWidth = 0.15;
-        c.strokeStyle = adjustL(pcol, -30);
-        c.stroke();
-      });
-
-      // Tuerca superior brillante
-      glowing(c, st, 2.0, () => {
-        c.beginPath();
-        c.ellipse(cx, y - 3.07, 0.45, 0.45, 0, 0, Math.PI * 2);
-        const tg = c.createRadialGradient(cx - 0.1, y - 3.15, 0.05, cx, y - 3.07, 0.45);
-        tg.addColorStop(0, '#ffffff');
-        tg.addColorStop(0.3, A.bulb);
-        tg.addColorStop(1, adjustL(A.bulb, -20));
-        c.fillStyle = tg; c.fill();
-      }, y - 3.07 - 0.45);
+      domo(); c.lineWidth = 0.16; c.strokeStyle = edge; c.stroke();
+      // Visera: corta, baja apenas entre los ojos.
+      c.beginPath(); c.moveTo(5.2, 4.75); c.quadraticCurveTo(8, 6.0, 10.8, 4.75); c.quadraticCurveTo(8, 5.15, 5.2, 4.75);
+      c.fillStyle = A.dark; c.fill(); c.lineWidth = 0.12; c.strokeStyle = edge; c.stroke();
+      // Botón, eje y la hélice.
+      ellipsePath(c, 8, 1.3, 0.4, 0.28); c.fillStyle = A.alt('#f5c542'); c.fill(); c.lineWidth = 0.08; c.stroke();
+      roundRect(c, 7.88, -0.25, 0.24, 1.5, 0.08); c.fillStyle = A.fixed('#9aa3ab'); c.fill();
+      c.beginPath(); c.ellipse(8, -0.3, 3.75, 0.55, -0.05, 0, Math.PI * 2);
+      c.setLineDash([0.5, 0.35]); c.lineWidth = 0.1; c.strokeStyle = withA('#ffffff', 0.45); c.stroke(); c.setLineDash([]);
+      for (const [x, y, col] of [[6.25, -0.38, A.mat], [9.75, -0.22, A.alt('#f5c542')]]) {
+        c.beginPath(); c.ellipse(x, y, 1.75, 0.36, -0.05, 0, Math.PI * 2);
+        c.fillStyle = col; c.fill(); c.lineWidth = 0.1; c.strokeStyle = edge; c.stroke();
+        c.beginPath(); c.ellipse(x, y - 0.1, 1.3, 0.1, -0.05, 0, Math.PI * 2); c.fillStyle = withA('#ffffff', 0.4); c.fill();
+      }
+      ellipsePath(c, 8, -0.3, 0.32, 0.26); c.fillStyle = A.fixed('#d9dee2'); c.fill(); c.lineWidth = 0.08; c.strokeStyle = edge; c.stroke();
     },
     /**
      * Yukata: kimono masculino de verano.
@@ -4301,6 +4925,202 @@
    * apoyada encima.
    */
   const HATS_BACK = {
+    caballero(c, A) {
+      const gold=A.alt('#d6b56d'), edge=adjustL(A.dark,-25);
+      // A slung kite shield stays behind the moving arm and its props.
+      ensemblePlate(c,[[-0.6,8.2],[2,7.5],[4.1,8.6],[3.7,13.1],[1.7,15.2],[-0.2,12.5]],A.lite,A.dark,edge,0.22);
+      ensemblePlate(c,[[-0.1,8.7],[2,8.1],[3.55,9],[3.2,12.8],[1.7,14.45],[0.35,12.3]],A.alt('#425e89'),A.altDark('#425e89'),gold,0.13);
+      c.beginPath();c.moveTo(1.75,8.6);c.lineTo(1.75,13.6);c.moveTo(0.45,10.2);c.lineTo(3.1,10.2);
+      c.lineWidth=0.4;c.strokeStyle=gold;c.stroke();
+      for(const [x,y] of [[0,8.6],[3.5,9],[0.4,12.1],[1.7,14.5]]) ensembleStud(c,x,y,A.altLite('#d6b56d'),0.12);
+    },
+
+    steampunk(c, A) {
+      const copper=A.alt('#ca8c50'), edge=adjustL(A.dark,-25);
+      roundRect(c,11.7,6.3,3.7,7.5,0.8);c.fillStyle=A.dark;c.fill();c.lineWidth=0.2;c.strokeStyle=edge;c.stroke();
+      for(const y of [7.2,12.5]) {roundRect(c,11.5,y,4,0.55,0.15);c.fillStyle=copper;c.fill();}
+      // Pressure cylinder, gauge and toothed winding wheel.
+      roundRect(c,14.3,5.1,1.2,6.6,0.5);
+      const g=c.createLinearGradient(14.3,0,15.5,0);g.addColorStop(0,A.altDark('#ca8c50'));g.addColorStop(0.45,A.altLite('#ca8c50'));g.addColorStop(1,copper);
+      c.fillStyle=g;c.fill();c.strokeStyle=edge;c.lineWidth=0.12;c.stroke();
+      ellipsePath(c,14.5,8.2,0.85,0.85);c.fillStyle=copper;c.fill();
+      ellipsePath(c,14.5,8.2,0.62,0.62);c.fillStyle=A.fixed('#e9dec1');c.fill();
+      c.beginPath();c.moveTo(14.5,8.2);c.lineTo(14.8,7.85);c.lineWidth=0.12;c.strokeStyle=edge;c.stroke();
+      c.save();c.translate(14.5,11.5);
+      for(let i=0;i<10;i++){c.save();c.rotate(i*Math.PI/5);roundRect(c,-0.18,-1.2,0.36,0.5,0.05);c.fillStyle=copper;c.fill();c.restore();}
+      ellipsePath(c,0,0,1,1);c.fillStyle=copper;c.fill();c.lineWidth=0.16;c.strokeStyle=edge;c.stroke();
+      ellipsePath(c,0,0,0.55,0.55);c.fillStyle=A.dark;c.fill();ensembleStud(c,0,0,A.altLite('#ca8c50'),0.22);c.restore();
+    },
+
+    bombero(c, A) {
+      const edge=adjustL(A.dark,-25);
+      // Air cylinder on the left, opposite the arm that holds props.
+      roundRect(c,-0.6,6.8,2.7,7.6,1.1);
+      const g=c.createLinearGradient(-0.6,0,2.1,0);
+      g.addColorStop(0,A.fixed('#8e979e'));g.addColorStop(0.4,A.fixed('#eef2f4'));g.addColorStop(1,A.fixed('#a9b2b8'));
+      c.fillStyle=g;c.fill();c.lineWidth=0.16;c.strokeStyle=edge;c.stroke();
+      roundRect(c,0.15,5.9,1.2,1,0.2);c.fillStyle=A.fixed('#3a3d42');c.fill();
+      for(const y of [8.2,12.4]) {roundRect(c,-0.8,y,3.1,0.55,0.15);c.fillStyle=A.dark;c.fill();}
+      ellipsePath(c,0.75,5.75,0.5,0.5);c.fillStyle=A.alt('#e4cf45');c.fill();c.lineWidth=0.1;c.stroke();
+    },
+
+    detective(c, A) {
+      const edge=adjustL(A.dark,-24), brass=A.alt('#c9a86a');
+      // Magnifying glass held off to the right, handle tucked behind the arm.
+      c.beginPath();c.moveTo(14.8,10.6);c.lineTo(13.4,13.4);c.lineWidth=0.55;c.strokeStyle=A.fixed('#4a3426');c.stroke();
+      ellipsePath(c,15.7,8.6,1.45,1.45);c.fillStyle=brass;c.fill();c.lineWidth=0.14;c.strokeStyle=edge;c.stroke();
+      const lens=c.createLinearGradient(14.6,7.5,16.6,9.7);
+      lens.addColorStop(0,A.fixed('#e8fbff'));lens.addColorStop(0.5,A.fixed('#9fd3df'));lens.addColorStop(1,A.fixed('#5b93a3'));
+      ellipsePath(c,15.7,8.6,1.1,1.1);c.fillStyle=lens;c.fill();
+      c.beginPath();c.moveTo(15.1,8.4);c.quadraticCurveTo(15.2,7.8,15.8,7.7);c.lineWidth=0.16;c.strokeStyle=A.fixed('#ffffff');c.stroke();
+    },
+
+    mosquetero(c, A) {
+      const edge=adjustL(A.dark,-24), steel=A.fixed('#d9dee2'), gold=A.fixed('#c9a24a');
+      // Rapier slung at the hip: blade below, cup hilt just behind the shoulder.
+      c.beginPath();c.moveTo(0.9,10.4);c.lineTo(-0.9,17.4);
+      c.lineWidth=0.34;c.strokeStyle=edge;c.stroke();c.lineWidth=0.2;c.strokeStyle=steel;c.stroke();
+      c.beginPath();c.moveTo(0.9,10.4);c.lineTo(1.5,8.6);c.lineWidth=0.42;c.strokeStyle=A.fixed('#3c2a1e');c.stroke();
+      c.beginPath();c.ellipse(0.85,10.5,1,0.42,-0.3,0,Math.PI*2);c.fillStyle=gold;c.fill();c.lineWidth=0.1;c.strokeStyle=edge;c.stroke();
+      ensembleStud(c,1.6,8.45,gold,0.26);
+      c.beginPath();c.moveTo(-0.1,10.8);c.quadraticCurveTo(0.3,9.1,1.5,8.7);c.lineWidth=0.12;c.strokeStyle=gold;c.stroke();
+    },
+
+    /* Lo que cuelga detrás de la ropa nueva (ver ROPA). Lo que va al costado
+       del brazo se declara en JUNTO_A_LA_MANO, que lo guarda durante los
+       gestos con prop. */
+
+    santa(c, A) {
+      const edge=A.fixed('#4b3620');
+      // The sack over the left shoulder, with a present peeking out.
+      roundRect(c,0.15,4.9,1.7,1.35,0.15);c.fillStyle=A.fixed('#3f8f4f');c.fill();
+      c.beginPath();c.moveTo(1,4.9);c.lineTo(1,6.25);c.lineWidth=0.25;c.strokeStyle=A.alt('#dc2626');c.stroke();
+      c.beginPath();c.moveTo(1.9,6.4);c.bezierCurveTo(-1.6,6.6,-1.9,13.8,0.6,14.6);c.bezierCurveTo(2.2,15,3,12,2.7,7.2);c.closePath();
+      const g=c.createLinearGradient(-1.5,7,2.7,14);
+      g.addColorStop(0,A.fixed('#c8a06a'));g.addColorStop(1,A.fixed('#7a5a35'));
+      c.fillStyle=g;c.fill();c.lineWidth=0.16;c.strokeStyle=edge;c.stroke();
+      c.beginPath();c.moveTo(0.1,8.6);c.quadraticCurveTo(0.6,10.6,0.2,12.6);c.lineWidth=0.1;c.stroke();
+      ellipsePath(c,1.75,6.55,0.42,0.3);c.fillStyle=A.fixed('#7a5a35');c.fill();c.stroke();
+    },
+
+    corona(c, A) {
+      const terciopelo=A.fixed('#a3172f',0.6), armino=A.fixed('#f6f3ea');
+      // Royal mantle falling behind, ermine hem at the floor.
+      c.beginPath();c.moveTo(2.2,8.6);c.bezierCurveTo(-1.2,10.8,-1.4,15.4,-0.6,16.5);c.lineTo(16.6,16.5);
+      c.bezierCurveTo(17.4,15.4,17.2,10.8,13.8,8.6);c.closePath();
+      const g=c.createLinearGradient(0,9,16,16);
+      g.addColorStop(0,adjustL(terciopelo,12));g.addColorStop(0.5,terciopelo);g.addColorStop(1,adjustL(terciopelo,-18));
+      c.fillStyle=g;c.fill();c.lineWidth=0.16;c.strokeStyle=adjustL(terciopelo,-35);c.stroke();
+      roundRect(c,-0.8,15.85,17.6,0.95,0.4);c.fillStyle=armino;c.fill();
+      for(const x of [0.2,2,14,15.8]) {ellipsePath(c,x,16.3,0.15,0.26);c.fillStyle=A.fixed('#1c1a1f');c.fill();}
+      c.beginPath();c.moveTo(-0.6,15.85);c.lineTo(16.6,15.85);c.lineWidth=0.14;c.strokeStyle=A.alt('#f0b429');c.stroke();
+    },
+
+    pirata(c, A) {
+      const steel=A.fixed('#d9dee2'), gold=A.alt('#c9a24a'), edge=A.fixed('#1d1714');
+      // Cutlass at the left hip: curved blade below, bowl guard and grip above.
+      c.beginPath();c.moveTo(1.1,11.8);c.quadraticCurveTo(-1.6,14,-0.9,17.4);c.lineTo(-0.3,17.1);
+      c.quadraticCurveTo(-0.9,14.2,1.5,12.1);c.closePath();c.fillStyle=steel;c.fill();c.lineWidth=0.1;c.strokeStyle=edge;c.stroke();
+      c.beginPath();c.moveTo(1.3,11.95);c.lineTo(1.9,10.1);c.lineWidth=0.42;c.strokeStyle=A.fixed('#3c2a1e');c.stroke();
+      c.beginPath();c.ellipse(1.15,11.9,0.95,0.45,-0.4,0,Math.PI*2);c.fillStyle=gold;c.fill();c.lineWidth=0.08;c.stroke();
+      ensembleStud(c,1.95,9.95,gold,0.24);
+    },
+
+    vikingo(c, A) {
+      const edge=A.fixed('#241a14');
+      // Round shield on the back, peeking out on the left.
+      ellipsePath(c,2.1,10.9,3.0,3.0);c.fillStyle=A.mat;c.fill();c.lineWidth=0.18;c.strokeStyle=edge;c.stroke();
+      ellipsePath(c,2.1,10.9,2.6,2.6);c.fillStyle=A.fixed('#a8463a');c.fill();
+      c.save();c.clip();
+      c.fillStyle=A.fixed('#e8dcc0');
+      for(const a of [0,Math.PI/2,Math.PI,Math.PI*1.5]) {
+        c.beginPath();c.moveTo(2.1,10.9);c.arc(2.1,10.9,2.7,a,a+Math.PI/4);c.closePath();c.fill();
+      }
+      c.beginPath();for(let x=-0.7;x<5;x+=0.9){c.moveTo(x,8.1);c.lineTo(x,13.7);}
+      c.lineWidth=0.06;c.strokeStyle=A.fixed('#5e3a24');c.stroke();
+      c.restore();
+      ellipsePath(c,2.1,10.9,0.8,0.8);c.fillStyle=A.lite;c.fill();c.lineWidth=0.1;c.strokeStyle=edge;c.stroke();
+      ensembleStud(c,1.9,10.7,A.alt('#e8e2d2'),0.22);
+    },
+
+    gladiador(c, A) {
+      const edge=adjustL(A.dark,-28), red=A.alt('#c0392b');
+      // Curved scutum on the left: red field, metal rim, boss and gold bolts.
+      roundRect(c,-0.85,6.2,4.2,9.8,0.9);
+      const g=c.createLinearGradient(-0.85,0,3.35,0);
+      g.addColorStop(0,adjustL(red,-18));g.addColorStop(0.5,adjustL(red,6));g.addColorStop(1,adjustL(red,-10));
+      c.fillStyle=g;c.fill();c.lineWidth=0.3;c.strokeStyle=A.mat;c.stroke();
+      c.beginPath();c.moveTo(0.15,7.6);c.lineTo(0.95,9.3);c.lineTo(0.35,9.3);c.lineTo(1.15,11);
+      c.moveTo(0.25,14.6);c.lineTo(1.05,12.9);c.lineTo(0.45,12.9);c.lineTo(1.25,11.3);
+      c.lineWidth=0.18;c.strokeStyle=A.fixed('#e8c25a');c.stroke();
+      ellipsePath(c,1.3,11.1,0.95,0.95);c.fillStyle=A.lite;c.fill();c.lineWidth=0.1;c.strokeStyle=edge;c.stroke();
+    },
+
+    mago(c, A) {
+      // Gnarled staff slung on the back, a glowing crystal at the top.
+      c.beginPath();c.moveTo(1.4,2.6);c.quadraticCurveTo(0.6,9,0.3,16.8);
+      c.lineWidth=0.5;c.strokeStyle=A.fixed('#6b4a2b');c.stroke();
+      c.beginPath();c.moveTo(1.4,2.6);c.bezierCurveTo(2.4,2,2.2,0.6,1.3,0.7);c.lineWidth=0.32;c.stroke();
+      c.save();c.shadowColor=A.alt('#9fe7ff');c.shadowBlur=_k*1.2;
+      ensemblePlate(c,[[1.35,0.1],[1.95,1.25],[1.35,2.35],[0.75,1.25]],A.fixed('#e8fbff'),A.alt('#9fe7ff'),A.fixed('#3d6d80'),0.08);
+      c.restore();
+    },
+
+    pintor(c, A) {
+      const edge=A.fixed('#5b3d22');
+      // Palette held low on the left, thumb hole and fresh dabs.
+      c.beginPath();c.ellipse(1.1,12,2.1,1.45,-0.3,0,Math.PI*2);
+      c.fillStyle=A.fixed('#c99a62');c.fill();c.lineWidth=0.14;c.strokeStyle=edge;c.stroke();
+      ellipsePath(c,2.05,12.55,0.35,0.28);c.fillStyle=A.fixed('#101a20');c.fill();
+      for(const [x,y,col] of [[-0.25,11.6,A.mat],[0.5,10.95,A.alt('#2f7fd1')],[1.45,11.15,A.fixed('#e8b92f')],[-0.1,12.55,A.fixed('#3f9a52')],[0.8,13,A.fixed('#f3f1ea')]]) {
+        ellipsePath(c,x,y,0.3,0.24);c.fillStyle=col;c.fill();
+      }
+    },
+
+    mariachi(c, A) {
+      const edge=A.fixed('#3a2414'), gold=A.alt('#d9b25a');
+      // Guitar slung across the back: only the body shows on the left.
+      c.beginPath();c.moveTo(1.6,10.2);c.lineTo(4.2,2.6);c.lineWidth=0.6;c.strokeStyle=A.fixed('#3a2414');c.stroke();
+      const wood=c.createLinearGradient(-1,10,3.5,15.5);
+      wood.addColorStop(0,A.fixed('#d48a45'));wood.addColorStop(1,A.fixed('#8a4f22'));
+      ellipsePath(c,1.5,11.3,1.55,1.4);c.fillStyle=wood;c.fill();c.lineWidth=0.14;c.strokeStyle=edge;c.stroke();
+      ellipsePath(c,1.15,13.6,2.1,1.85);c.fill();c.stroke();
+      ellipsePath(c,1.5,11.3,1.45,1.3);c.fill();
+      ellipsePath(c,1.3,12.3,0.55,0.55);c.fillStyle=A.fixed('#1d120a');c.fill();
+      c.beginPath();c.ellipse(1.3,12.3,0.75,0.75,0,0,Math.PI*2);c.lineWidth=0.1;c.strokeStyle=gold;c.stroke();
+      roundRect(c,0.3,14.3,1.6,0.35,0.1);c.fillStyle=A.fixed('#2a1a0e');c.fill();
+    },
+
+    ninja(c, A) {
+      const edge=A.fixed('#101114');
+      // Ninjato across the back: hilt over the left shoulder, tip at the right hip.
+      c.beginPath();c.moveTo(2.6,5.2);c.lineTo(15.1,16.2);c.lineWidth=0.55;c.strokeStyle=A.dark;c.stroke();
+      c.beginPath();c.moveTo(0.6,3.3);c.lineTo(2.4,5);c.lineWidth=0.55;c.strokeStyle=edge;c.stroke();
+      c.beginPath();for(let t=0.15;t<1;t+=0.28){const x=0.6+1.8*t,y=3.3+1.7*t;c.moveTo(x-0.25,y+0.25);c.lineTo(x+0.25,y-0.25);}
+      c.lineWidth=0.12;c.strokeStyle=A.alt('#b3202a');c.stroke();
+      c.save();c.translate(2.55,5.15);c.rotate(0.75);
+      roundRect(c,-0.75,-0.25,1.5,0.5,0.12);c.fillStyle=A.fixed('#8d6a2f');c.fill();c.restore();
+      ensembleStud(c,0.5,3.2,A.fixed('#c9d0d6'),0.2);
+    },
+
+    gaitero(c, A) {
+      const edge=A.fixed('#141824'), ivory=A.fixed('#efe6cf'), red=A.alt('#b3202a');
+      // Bagpipe under the left arm: tartan bag and three drones with ribbons.
+      for(const [x0,y0,x1,y1] of [[0.5,10.4,-0.5,4.1],[0.9,10.2,0.5,3.2],[1.4,10.2,1.6,3.8]]) {
+        c.beginPath();c.moveTo(x0,y0);c.lineTo(x1,y1);c.lineWidth=0.38;c.strokeStyle=A.fixed('#2b1d14');c.stroke();
+        roundRect(c,x1-0.3,y1-0.3,0.6,0.55,0.12);c.fillStyle=ivory;c.fill();
+      }
+      c.beginPath();c.moveTo(0.4,6.3);c.bezierCurveTo(-0.1,6.9,0.1,7.6,-0.5,8.1);c.lineWidth=0.18;c.strokeStyle=red;c.stroke();
+      c.beginPath();c.ellipse(0.9,11.5,2.1,1.45,-0.35,0,Math.PI*2);c.fillStyle=A.mat;c.fill();
+      c.save();c.clip();
+      c.beginPath();for(let x=-1.5;x<3.5;x+=0.9){c.moveTo(x,9.5);c.lineTo(x,13.5);}
+      for(let y=10;y<13.5;y+=0.9){c.moveTo(-1.5,y);c.lineTo(3.5,y);}
+      c.lineWidth=0.22;c.strokeStyle=A.dark;c.stroke();
+      c.beginPath();for(let x=-1.1;x<3.5;x+=0.9){c.moveTo(x,9.5);c.lineTo(x,13.5);}
+      c.lineWidth=0.07;c.strokeStyle=red;c.stroke();
+      c.restore();
+      c.beginPath();c.ellipse(0.9,11.5,2.1,1.45,-0.35,0,Math.PI*2);c.lineWidth=0.14;c.strokeStyle=edge;c.stroke();
+    },
     /* ── Lo de atrás de los disfraces (ver DISFRACES) ── */
 
     /** Brasita: la cola de salamandra con la llama encendida en la punta. */
@@ -4386,11 +5206,11 @@
       // Tallo.
       c.beginPath();
       c.moveTo(nace[0], nace[1]);
-      c.quadraticCurveTo(nace[0] - 0.25, nace[1] - 0.8, nace[0] + 0.05, nace[1] - 1.35);
+      c.quadraticCurveTo(nace[0] - 0.25, nace[1] - 0.7, nace[0] + 0.05, nace[1] - 1.15);
       c.lineWidth = 0.42; c.lineCap = 'round'; c.strokeStyle = adjustL(hoja, -28); c.stroke();
       // Dos hojas, una más grande.
-      const tope = [nace[0] + 0.05, nace[1] - 1.35];
-      [[-1, 2.45, 3.0], [1, 2.25, 2.6]].forEach(([sd, ang, L]) => {
+      const tope = [nace[0] + 0.05, nace[1] - 1.15];
+      [[-1, 2.45, 2.65], [1, 2.25, 2.35]].forEach(([sd, ang, L]) => {
         c.save();
         c.translate(tope[0], tope[1]); c.rotate(-Math.PI / 2 + sd * (0.62 + (ang - 2.25) * 0.5));
         c.beginPath();
@@ -4957,33 +5777,30 @@
       c.restore();
     },
 
-    /** Manguera de aire del buzo. Nace del casco y se pierde hacia arriba. */
+    /** Manguera de aire del buzo: sale de atrás del casco y se pierde arriba. */
     buzo(c, A) {
-      const bronce = A.alt('#b9863c');
-      // Punto de anclaje sobre la propia esfera: si se elige a ojo, la manguera
-      // queda despegada y parece un garabato al lado de la cabeza.
-      const x0 = HELMET.cx + HELMET.r * Math.cos(-0.62), y0 = HELMET.cy + HELMET.r * Math.sin(-0.62);
-      c.beginPath();
-      c.lineWidth = 0.62; c.lineCap = 'round';
-      c.strokeStyle = adjustL(bronce, -26);
-      // Termina DENTRO del lienzo, con la punta redondeada. Llevada hasta el
-      // canto se leía como una manguera cortada, no como una que se va.
-      c.moveTo(x0, y0);
-      c.bezierCurveTo(x0 + 2.7, y0 - 0.5, x0 + 2.0, y0 - 2.7, x0 + 0.3, y0 - 3.4);
-      c.stroke();
-      // Anillado de la manguera.
-      c.lineWidth = 0.16;
-      c.strokeStyle = withA(mixHex(bronce, '#ffffff', 0.4), 0.75);
-      for (let i = 0; i <= 5; i++) {
-        const t = i / 5;
-        const px = x0 + (2.5 - 1.9 * t * t) * t * 1.15;
-        const py = y0 - 3.4 * t * t - 0.35 * t;
-        c.beginPath();
-        c.moveTo(px - 0.30, py - 0.22);
-        c.lineTo(px + 0.30, py + 0.22);
-        c.stroke();
-      }
+      c.save(); c.lineCap = 'round';
+      const trazo = () => { c.beginPath(); c.moveTo(12.4, 3.6); c.bezierCurveTo(14.6, 1.6, 15.4, 3.6, 16.4, 0.9); };
+      trazo(); c.lineWidth = 0.75; c.strokeStyle = A.fixed('#1f2023'); c.stroke();
+      trazo(); c.setLineDash([0.15, 0.3]); c.lineWidth = 0.55; c.strokeStyle = A.fixed('#3a3c42'); c.stroke(); c.setLineDash([]);
+      roundRect(c, 15.95, 0.2, 0.9, 0.7, 0.15); c.fillStyle = A.lite; c.fill();
+      c.restore();
     },
+
+    /** Mochila de soporte vital del astronauta: asoma a los dos costados. */
+    astronauta(c, A) {
+      const edge = adjustL(A.dark, -30);
+      roundRect(c, 0.9, 5.6, 14.2, 7.4, 0.9);
+      const g = c.createLinearGradient(0, 5.6, 0, 13);
+      g.addColorStop(0, A.lite); g.addColorStop(1, A.dark);
+      c.fillStyle = g; c.fill(); c.lineWidth = 0.16; c.strokeStyle = edge; c.stroke();
+      c.beginPath();
+      for (const y of [7.2, 7.8, 8.4]) { c.moveTo(1.15, y); c.lineTo(1.75, y); c.moveTo(14.25, y); c.lineTo(14.85, y); }
+      c.lineWidth = 0.14; c.strokeStyle = A.dark; c.stroke();
+      ellipsePath(c, 14.55, 10.6, 0.3, 0.3); c.fillStyle = A.alt('#3fd17a'); c.fill();
+      ellipsePath(c, 1.45, 10.6, 0.3, 0.3); c.fillStyle = A.fixed('#e0533d'); c.fill();
+    },
+
 
     /**
      * REGLA de la capa de atrás, aprendida con estos tres accesorios:
@@ -5121,10 +5938,11 @@
    * coincidir al milímetro. Con las medidas repetidas en las dos funciones,
    * mover el casco significaba acordarse de tocar los dos lados.
    *
-   * `faceY`/`faceR` acotan la zona donde están los ojos: es la que ningún
-   * reflejo puede pisar.
+   * `cx`/`cy`/`r`: la esfera, que tiene que contener el cuerpo hasta el
+   * ecuador (rx 6,1); `collar`: donde el vidrio apoya en el traje; `cara`: el
+   * centro de la portilla del buzo, que con radio 4,45 contiene los dos ojos.
    */
-  const HELMET = { cx: 8, cy: 7.80, r: 6.15, faceY: 7.95, faceR: 4.05 };
+  const CASCO = { cx: 8, cy: 7.6, r: 6.35, collar: 13.35, cara: 7.9 };
 
   /**
    * Accesorios que dibujan POR DELANTE de la cara.
@@ -5134,60 +5952,50 @@
    * de los ojos y el vidrio por delante, y con un solo booleano no se puede.
    */
   const HATS_OVER = {
-    astronauta(c, A) {
-      const cx = HELMET.cx, cy = HELMET.cy, r = HELMET.r;
+    /**
+     * El frente del casco burbuja: vidrio claro, reflejos contra el borde,
+     * el collar donde apoya y la antena con su luz. El vidrio sólo tiñe el
+     * canto (degradé radial que en el centro vale cero), así que la cara y
+     * los ojos se ven tal cual.
+     */
+    astronauta(c, A, st) {
+      const K = CASCO, edge = adjustL(A.dark, -30);
       c.save();
-      
-      // Vidrio base, recortado
-      c.beginPath();
-      c.arc(cx, cy, r - 0.9, 0, Math.PI * 2);
-      c.clip();
-
-      // Fondo del vidrio: esférico profundo
-      const g = c.createRadialGradient(cx - r * 0.4, cy - r * 0.4, r * 0.1, cx, cy, r);
-      g.addColorStop(0.00, withA('#dff0ff', 0.1));
-      g.addColorStop(0.70, withA('#4a7fb5', 0.15));
-      g.addColorStop(1.00, withA('#0b1d3a', 0.6));
-      c.fillStyle = g;
-      c.fillRect(cx - r, cy - r, r * 2, r * 2);
-
-      // Visor dorado: envolvente
-      const topeVisor = HELMET.faceY - HELMET.faceR * 0.72;
-      const vg = c.createLinearGradient(0, cy - r, 0, topeVisor + 0.5);
-      vg.addColorStop(0, withA(A.alt('#f0b429'), 0.85));
-      vg.addColorStop(1, withA(A.alt('#f0b429'), 0));
-      c.fillStyle = vg;
-      c.beginPath();
-      c.moveTo(cx - r, cy - r);
-      c.lineTo(cx + r, cy - r);
-      c.lineTo(cx + r, topeVisor);
-      c.quadraticCurveTo(cx, topeVisor + 1.5, cx - r, topeVisor);
-      c.closePath();
-      c.fill();
-
-      // Reflejos curvos sobre el cristal
-      c.beginPath();
-      c.arc(cx, cy, r - 1.2, Math.PI * 0.75, Math.PI * 1.15);
-      c.lineWidth = 0.8;
+      c.beginPath(); c.rect(-2, -2, 20, K.collar + 2); c.clip();
+      c.beginPath(); c.arc(K.cx, K.cy, K.r, 0, Math.PI * 2);
+      const g = c.createRadialGradient(K.cx, K.cy, K.r * 0.55, K.cx, K.cy, K.r);
+      g.addColorStop(0, withA('#cfe8ff', 0)); g.addColorStop(1, withA('#cfe8ff', 0.28));
+      c.fillStyle = g; c.fill();
+      c.lineWidth = 0.22; c.strokeStyle = withA('#0b1d3a', 0.35); c.stroke();
+      c.lineWidth = 0.12; c.strokeStyle = withA('#ffffff', 0.7); c.stroke();
       c.lineCap = 'round';
-      c.strokeStyle = withA('#ffffff', 0.4);
+      c.beginPath(); c.arc(K.cx, K.cy, K.r - 0.7, Math.PI * 1.12, Math.PI * 1.42);
+      c.lineWidth = 0.45; c.strokeStyle = withA('#ffffff', 0.55); c.stroke();
+      c.beginPath(); c.arc(K.cx, K.cy, K.r - 0.7, Math.PI * 1.46, Math.PI * 1.52);
       c.stroke();
-      
-      c.beginPath();
-      c.arc(cx, cy, r - 1.2, Math.PI * 1.18, Math.PI * 1.25);
-      c.lineWidth = 0.8;
-      c.lineCap = 'round';
-      c.strokeStyle = withA('#ffffff', 0.4);
-      c.stroke();
-
+      c.beginPath(); c.arc(K.cx, K.cy, K.r - 0.55, Math.PI * 0.12, Math.PI * 0.26);
+      c.lineWidth = 0.3; c.strokeStyle = withA('#ffffff', 0.3); c.stroke();
       c.restore();
-
-      // Brillo del canto del aro: cierra la silueta contra el fondo oscuro.
-      c.beginPath();
-      c.lineWidth = 0.26;
-      c.strokeStyle = withA(mixHex(A.mat, '#ffffff', 0.8), 0.85);
-      c.arc(cx, cy, r - 0.10, Math.PI * 1.08, Math.PI * 1.75);
-      c.stroke();
+      // Collar: aro de metal con tornillos, donde el vidrio apoya en el traje.
+      c.beginPath(); c.ellipse(K.cx, K.collar, 5.0, 0.85, 0, 0, Math.PI * 2);
+      const gc = c.createLinearGradient(0, K.collar - 0.85, 0, K.collar + 0.85);
+      gc.addColorStop(0, A.fixed('#e4e9ee')); gc.addColorStop(1, A.fixed('#7c848c'));
+      c.fillStyle = gc; c.fill(); c.lineWidth = 0.12; c.strokeStyle = edge; c.stroke();
+      c.beginPath(); c.ellipse(K.cx, K.collar - 0.1, 4.6, 0.5, 0, 0, Math.PI);
+      c.lineWidth = 0.08; c.strokeStyle = withA(edge, 0.6); c.stroke();
+      for (const dx of [-3.6, -1.2, 1.2, 3.6]) {
+        ellipsePath(c, K.cx + dx, K.collar + 0.38 * (1 - (dx / 5) ** 2), 0.13, 0.11); c.fillStyle = A.fixed('#4a5160'); c.fill();
+      }
+      // Antena con la luz del accesorio.
+      const ax = K.cx + K.r * Math.cos(-0.72), ay = K.cy + K.r * Math.sin(-0.72);
+      c.beginPath(); c.moveTo(ax, ay); c.quadraticCurveTo(ax + 1.0, ay - 0.8, ax + 0.55, ay - 1.75);
+      c.lineWidth = 0.22; c.lineCap = 'round'; c.strokeStyle = A.fixed('#9aa3ab'); c.stroke();
+      glowing(c, st, 2.0, () => {
+        ellipsePath(c, ax + 0.55, ay - 2.05, 0.38, 0.38);
+        const lg = c.createRadialGradient(ax + 0.42, ay - 2.18, 0.05, ax + 0.55, ay - 2.05, 0.38);
+        lg.addColorStop(0, '#ffffff'); lg.addColorStop(0.35, A.alt(A.bulb, 1)); lg.addColorStop(1, adjustL(A.alt(A.bulb, 1), -20));
+        c.fillStyle = lg; c.fill();
+      }, ay - 2.45);
     },
 
     arquero(c, A, st) {
@@ -5266,46 +6074,20 @@
       c.restore();
     },
 
-    buzo(c, A) {
-      const cx = HELMET.cx, fy = HELMET.faceY, fr = HELMET.faceR;
-      const bronce = A.alt('#b9863c');
-
-      // Reflejo del vidrio: una franja arriba de los ojos, nunca encima.
+    /** El vidrio de la portilla del buzo: casi incoloro, reflejos en el borde. */
+    buzo(c) {
+      const K = CASCO, vx = K.cx, vy = K.cara, vr = 4.45;
       c.save();
-      ellipsePath(c, cx, fy, fr - 0.2, fr - 0.2);
-      c.clip();
-      c.globalAlpha = 0.20;
-      c.fillStyle = '#dff2ff';
-      c.beginPath();
-      c.moveTo(cx - fr, fy - fr * 0.95);
-      c.lineTo(cx + fr, fy - fr * 1.15);
-      c.lineTo(cx + fr, fy - fr * 0.55);
-      c.lineTo(cx - fr, fy - fr * 0.35);
-      c.closePath();
-      c.fill();
+      c.beginPath(); c.arc(vx, vy, vr, 0, Math.PI * 2); c.clip();
+      const g = c.createRadialGradient(vx, vy, vr * 0.6, vx, vy, vr);
+      g.addColorStop(0, withA('#bfe6ff', 0)); g.addColorStop(1, withA('#bfe6ff', 0.25));
+      c.fillStyle = g; c.fillRect(vx - vr, vy - vr, vr * 2, vr * 2);
+      c.lineCap = 'round';
+      c.beginPath(); c.arc(vx, vy, vr - 0.4, Math.PI * 1.15, Math.PI * 1.32);
+      c.lineWidth = 0.35; c.strokeStyle = withA('#ffffff', 0.55); c.stroke();
+      c.beginPath(); c.arc(vx, vy, vr - 0.4, Math.PI * 0.1, Math.PI * 0.2);
+      c.lineWidth = 0.25; c.strokeStyle = withA('#ffffff', 0.3); c.stroke();
       c.restore();
-
-      // Marco de la portilla.
-      c.beginPath();
-      c.lineWidth = 0.80;
-      c.strokeStyle = adjustL(bronce, -20);
-      c.arc(cx, fy, fr, 0, Math.PI * 2);
-      c.stroke();
-      c.beginPath();
-      c.lineWidth = 0.22;
-      c.strokeStyle = withA(mixHex(bronce, '#ffffff', 0.6), 0.85);
-      c.arc(cx, fy, fr - 0.34, 0, Math.PI * 2);
-      c.stroke();
-
-      // Tornillos sobre el marco.
-      for (let i = 0; i < 12; i++) {
-        const a = (i / 12) * Math.PI * 2 - Math.PI / 2;
-        const bx = cx + Math.cos(a) * fr, by = fy + Math.sin(a) * fr;
-        ellipsePath(c, bx, by, 0.22, 0.22);
-        c.fillStyle = mixHex(bronce, '#ffffff', 0.45); c.fill();
-        ellipsePath(c, bx + 0.06, by + 0.06, 0.10, 0.10);
-        c.fillStyle = withA(adjustL(bronce, -34), 0.8); c.fill();
-      }
     },
   };
 
@@ -6869,6 +7651,204 @@
     });
   }
 
+  /* ── Los cinco materiales de octubre 2026 ──────────────────────────────
+     Mismo contrato que los de arriba: la textura se recorta contra la
+     silueta de la pose, pinta en coordenadas relativas (u de -1 a 1, v de 0
+     a 1) y los ojos van encima, así que nada de lo que pasa por ahí tapa la
+     mirada. */
+
+  // ── Bronce y pátina: metal pulido con la costura remachada y verdín ──
+  const BRONCE = { luz: '#ffe2b0', remache: '#c48a4c', patina: '#4fb39a', patinaHonda: '#2f7d6a' };
+  const OJO_BRONCE = {
+    fondo: '#0d1a17', cuenca: '#3a2a14', borde: '#1c1208',
+    anillo: '#e0b07a', iris: '#2f7d6a', linea: '#8fe3cc', pupila: '#06100d',
+    ranura: '#2b1b0b', filo: '#e0b07a',
+  };
+  function texturaBronce(c, P, pose) {
+    const m = marcoMaterial(pose), fina = texturaFina();
+    c.save(); blobPath(c, m.cx, m.top, m.bot, m.rx); c.clip();
+    // El verdín se junta donde no se toca: en la costura y abajo.
+    motasFijas(41, fina ? 26 : 12, { u0: -1, u1: 1, v0: 0.6, v1: 1, r0: 0.25, r1: 0.7 }).forEach(([u, v, r, t]) => {
+      const g = c.createRadialGradient(m.X(u), m.Y(v), 0, m.X(u), m.Y(v), r);
+      g.addColorStop(0, withA(t > 0.5 ? BRONCE.patina : BRONCE.patinaHonda, 0.55));
+      g.addColorStop(1, withA(BRONCE.patina, 0));
+      c.fillStyle = g; c.fillRect(m.X(u) - r, m.Y(v) - r, r * 2, r * 2);
+    });
+    // Costura de dos chapas, con su fila de remaches.
+    trazarTramos(c, m, [[-1, 0.66], [-0.4, 0.73], [0.4, 0.73], [1, 0.66]]);
+    c.strokeStyle = withA('#2b1b0b', 0.7); c.lineWidth = 0.14; c.stroke();
+    for (let u = -0.85; u <= 0.86; u += 0.24) {
+      const v = 0.66 + 0.055 * (1 - u * u) + 0.035;
+      llenarElipse(c, m.X(u), m.Y(v), 0.2, 0.2, BRONCE.remache);
+      llenarElipse(c, m.X(u) - 0.06, m.Y(v) - 0.06, 0.08, 0.08, BRONCE.luz);
+    }
+    volumenMaterial(c, m, 0.32);
+    // El brillo del metal es una franja vertical dura, no una mancha.
+    const f = c.createLinearGradient(m.X(-0.62), 0, m.X(-0.3), 0);
+    f.addColorStop(0, withA(BRONCE.luz, 0)); f.addColorStop(0.5, withA(BRONCE.luz, 0.55)); f.addColorStop(1, withA(BRONCE.luz, 0));
+    c.fillStyle = f; c.fillRect(m.X(-0.62), m.top, m.X(-0.3) - m.X(-0.62), m.h * 0.62);
+    c.restore();
+  }
+
+  // ── Mármol: blanco de Carrara con vetas grises y una de oro ──
+  const MARMOL = { veta: '#8d867a', vetaSuave: '#c4bdb1', oro: '#c9a64a' };
+  const OJO_MARMOL = {
+    fondo: '#2a2620', cuenca: '#8d867a', borde: '#5a544b',
+    anillo: '#f6f3ee', iris: '#7b8a96', linea: '#c9a64a', pupila: '#121110',
+    ranura: '#5a544b', filo: '#ffffff',
+  };
+  const VETAS_MARMOL = [
+    [[-1, 0.2], [-0.5, 0.42], [-0.1, 0.62], [0.35, 0.95]],
+    [[-0.2, 0], [0.15, 0.28], [0.55, 0.5], [1, 0.58]],
+    [[-1, 0.78], [-0.45, 0.85], [0.1, 0.8], [0.4, 1]],
+  ];
+  function texturaMarmol(c, P, pose) {
+    const m = marcoMaterial(pose), fina = texturaFina();
+    c.save(); blobPath(c, m.cx, m.top, m.bot, m.rx); c.clip();
+    // Nubes: el mármol no es blanco liso, tiene velos grises debajo.
+    motasFijas(7, 9, { u0: -1, u1: 1, v0: 0, v1: 1, r0: 1, r1: 2 }).forEach(([u, v, r]) => {
+      const g = c.createRadialGradient(m.X(u), m.Y(v), 0, m.X(u), m.Y(v), r);
+      g.addColorStop(0, withA(MARMOL.vetaSuave, 0.35)); g.addColorStop(1, withA(MARMOL.vetaSuave, 0));
+      c.fillStyle = g; c.fillRect(m.X(u) - r, m.Y(v) - r, r * 2, r * 2);
+    });
+    VETAS_MARMOL.forEach((pts, i) => {
+      trazarPolilinea(c, m, quebrar(pts, fina ? 5 : 3, 0.06, 13 + i));
+      c.strokeStyle = withA(MARMOL.veta, 0.55); c.lineWidth = i === 1 ? 0.16 : 0.1; c.stroke();
+      if (fina) { c.strokeStyle = withA(MARMOL.vetaSuave, 0.5); c.lineWidth = 0.32; c.stroke(); }
+    });
+    trazoBrillo(c, 0.1, () => trazarPolilinea(c, m, quebrar([[0.95, 0.3], [0.55, 0.62], [0.65, 1]], 4, 0.05, 29)),
+      MARMOL.oro, '#fff3cc', 0.3);
+    volumenMaterial(c, m, 0.45);
+    c.restore();
+  }
+
+  // ── Vitral: un rosetón de vidrio de color con plomo y luz que lo atraviesa ──
+  const VITRAL = {
+    plomo: '#141418',
+    vidrios: ['#2f6fd1', '#d13a3a', '#e8b92f', '#3f9a52', '#7b4fc4', '#1fa3a3'],
+  };
+  const OJO_VITRAL = {
+    fondo: '#0d0d10', cuenca: '#141418', borde: '#000000',
+    anillo: '#ffd34d', iris: '#2f6fd1', linea: '#9cc6ff', pupila: '#06060a',
+    ranura: '#141418', filo: '#ffd34d',
+  };
+  function texturaVitral(c, P, pose) {
+    const m = marcoMaterial(pose), fina = texturaFina();
+    const cx = m.cx, cy = m.Y(0.58), anillos = [0, 1.7, 3.9, 9];
+    c.save(); blobPath(c, m.cx, m.top, m.bot, m.rx); c.clip();
+    const n = 12, paneles = [];
+    for (let j = 0; j < 3; j++) for (let i = 0; i < (j ? n : 1); i++) {
+      const a0 = (i / n) * Math.PI * 2 + (j % 2 ? Math.PI / n : 0), a1 = a0 + Math.PI * 2 / n;
+      const trazar = () => {
+        c.beginPath();
+        if (!j) { c.arc(cx, cy, anillos[1], 0, Math.PI * 2); return; }
+        c.arc(cx, cy, anillos[j + 1], a0, a1); c.arc(cx, cy, anillos[j], a1, a0, true); c.closePath();
+      };
+      paneles.push(trazar);
+      trazar();
+      const col = j ? VITRAL.vidrios[(i + j * 2) % 6] : VITRAL.vidrios[2];
+      const g = c.createRadialGradient(cx - 1, cy - 1.5, 0.2, cx, cy, anillos[j + 1] + 0.5);
+      g.addColorStop(0, adjustL(col, 22)); g.addColorStop(1, adjustL(col, -12));
+      c.fillStyle = g; c.fill();
+    }
+    // La luz del otro lado: se SUMA al vidrio, no lo pinta encima.
+    c.save(); c.globalCompositeOperation = 'lighter';
+    const luz = c.createRadialGradient(m.X(-0.35), m.Y(0.2), 0.3, m.X(-0.35), m.Y(0.2), m.rx * 1.2);
+    luz.addColorStop(0, withA('#fff4cc', 0.45)); luz.addColorStop(1, withA('#fff4cc', 0));
+    c.fillStyle = luz; c.fillRect(m.cx - m.rx, m.top, m.rx * 2, m.h);
+    c.restore();
+    paneles.forEach(t => { t(); c.strokeStyle = VITRAL.plomo; c.lineWidth = fina ? 0.24 : 0.3; c.stroke(); });
+    volumenMaterial(c, m, 0.2);
+    c.restore();
+  }
+
+  // ── Circuito: placa verde con pistas de oro, un chip y LEDs ──
+  const CIRCUITO = { pista: '#e2b84e', pad: '#f3d27a', chip: '#16181c', serigrafia: '#e9f5ec', led: '#7dffb5', ledAzul: '#7dc8ff' };
+  const OJO_CIRCUITO = {
+    fondo: '#03120a', cuenca: '#0b3320', borde: '#020a05',
+    anillo: '#e2b84e', iris: '#0f8f5a', linea: '#7dffb5', pupila: '#020604',
+    ranura: '#020a05', filo: '#4fbf7d',
+  };
+  // Pistas en ángulos de 45°, como las rutea una placa de verdad.
+  const PISTAS_CIRCUITO = [
+    [[-1, 0.18], [-0.75, 0.18], [-0.62, 0.3], [-0.62, 0.62], [-0.42, 0.74]],
+    [[1, 0.22], [0.72, 0.22], [0.6, 0.32], [0.6, 0.62], [0.42, 0.74]],
+    [[-0.2, 0], [-0.2, 0.12], [-0.08, 0.2]],
+    [[0.25, 0], [0.25, 0.1], [0.12, 0.2]],
+    [[-1, 0.9], [-0.55, 0.9], [-0.42, 0.84]],
+    [[1, 0.88], [0.55, 0.88], [0.42, 0.84]],
+    [[0, 0.95], [0, 1]],
+  ];
+  function texturaCircuito(c, P, pose) {
+    const m = marcoMaterial(pose), fina = texturaFina();
+    c.save(); blobPath(c, m.cx, m.top, m.bot, m.rx); c.clip();
+    PISTAS_CIRCUITO.forEach(p => {
+      trazarPolilinea(c, m, p); c.strokeStyle = CIRCUITO.pista; c.lineWidth = 0.2; c.lineJoin = 'round'; c.stroke();
+      const [u, v] = p[p.length - 1];
+      llenarElipse(c, m.X(u), m.Y(v), 0.26, 0.26, CIRCUITO.pad);
+      llenarElipse(c, m.X(u), m.Y(v), 0.1, 0.1, '#0b3320');
+    });
+    // El chip en la panza, con sus patas y la muesca de orientación.
+    const x = m.X(0), y = m.Y(0.8);
+    for (let i = -2; i <= 2; i++) {
+      roundRect(c, x - 2.15, y - 0.12 + i * 0.4, 0.4, 0.2, 0.04); c.fillStyle = CIRCUITO.pad; c.fill();
+      roundRect(c, x + 1.75, y - 0.12 + i * 0.4, 0.4, 0.2, 0.04); c.fill();
+    }
+    roundRect(c, x - 1.8, y - 1.05, 3.6, 2.1, 0.2); c.fillStyle = CIRCUITO.chip; c.fill();
+    ellipsePath(c, x - 1.35, y - 0.6, 0.18, 0.18); c.fillStyle = '#2c3036'; c.fill();
+    if (fina) {
+      for (const dx of [-0.6, -0.2, 0.2, 0.6]) { roundRect(c, x + dx - 0.12, y + 0.05, 0.24, 0.1, 0.02); c.fillStyle = withA(CIRCUITO.serigrafia, 0.7); c.fill(); }
+      // Componentes de montaje superficial, y su rótulo de serigrafía.
+      for (const [u, v] of [[-0.85, 0.5], [0.85, 0.48], [-0.3, 0.98]]) {
+        roundRect(c, m.X(u) - 0.3, m.Y(v) - 0.15, 0.6, 0.3, 0.05); c.fillStyle = '#c9b48d'; c.fill();
+        roundRect(c, m.X(u) - 0.3, m.Y(v) - 0.15, 0.14, 0.3, 0.03); c.fillStyle = CIRCUITO.pad; c.fill();
+        roundRect(c, m.X(u) + 0.16, m.Y(v) - 0.15, 0.14, 0.3, 0.03); c.fill();
+      }
+    }
+    for (const [u, v, col] of [[-0.78, 0.66, CIRCUITO.led], [0.78, 0.66, CIRCUITO.ledAzul]]) {
+      c.save(); c.shadowColor = col; c.shadowBlur = _k * 0.7;
+      llenarElipse(c, m.X(u), m.Y(v), 0.22, 0.22, col); c.restore();
+    }
+    volumenMaterial(c, m, 0.18);
+    c.restore();
+  }
+
+  // ── Ámbar: resina translúcida con burbujas y una hoja atrapada ──
+  const AMBAR = { luz: '#fff1c4', miel: '#ffb347', hondo: '#6a3305', hoja: '#5a3a12' };
+  const OJO_AMBAR = {
+    fondo: '#2a1404', cuenca: '#8a4708', borde: '#4a2304',
+    anillo: '#ffd27a', iris: '#b85f0c', linea: '#fff1c4', pupila: '#140802',
+    ranura: '#4a2304', filo: '#ffd27a',
+  };
+  function texturaAmbar(c, P, pose) {
+    const m = marcoMaterial(pose), fina = texturaFina();
+    c.save(); blobPath(c, m.cx, m.top, m.bot, m.rx); c.clip();
+    // La luz entra por arriba y se acumula adentro: el centro brilla más
+    // que el borde, al revés que un cuerpo opaco.
+    c.save(); c.globalCompositeOperation = 'lighter';
+    const g = c.createRadialGradient(m.X(0), m.Y(0.6), 0.3, m.X(0), m.Y(0.6), m.rx);
+    g.addColorStop(0, withA(AMBAR.miel, 0.5)); g.addColorStop(1, withA(AMBAR.miel, 0));
+    c.fillStyle = g; c.fillRect(m.cx - m.rx, m.top, m.rx * 2, m.h);
+    c.restore();
+    // Vetas de flujo: la resina chorreó antes de endurecerse.
+    for (const [v, a] of [[0.55, 0.06], [0.7, 0.08], [0.86, 0.05]]) {
+      trazarTramos(c, m, [[-1, v], [-0.4, v - a], [0.3, v + a], [1, v - a * 0.5]]);
+      c.strokeStyle = withA(AMBAR.hondo, 0.25); c.lineWidth = 0.22; c.stroke();
+    }
+    // La hoja fósil en la panza, en la sombra de la resina.
+    c.save(); c.globalAlpha = 0.55;
+    hojaMaterial(c, m.X(-0.32), m.Y(0.88), -0.5, 2.6, withA(AMBAR.hoja, 0.8), (forma) => {
+      forma(); c.strokeStyle = withA(AMBAR.hondo, 0.9); c.lineWidth = 0.06; c.stroke();
+    });
+    c.restore();
+    motasFijas(23, fina ? 14 : 6, { u0: -0.9, u1: 0.9, v0: 0.5, v1: 0.98, r0: 0.08, r1: 0.22 }).forEach(([u, v, r]) => {
+      ellipsePath(c, m.X(u), m.Y(v), r, r); c.strokeStyle = withA(AMBAR.luz, 0.6); c.lineWidth = 0.05; c.stroke();
+      llenarElipse(c, m.X(u) - r * 0.35, m.Y(v) - r * 0.35, r * 0.3, r * 0.3, withA('#ffffff', 0.8));
+    });
+    volumenMaterial(c, m, 0.4);
+    c.restore();
+  }
+
   const CHAR_DEF = {
     madera: {
       pal: {
@@ -7017,6 +7997,67 @@
         destello(c, 0.15 * b.side, 0.1, 0.32, '#ffffff', 0.5);
       },
     },
+    bronce: {
+      pal: {
+        base: '#9a6b3a', lift: '#e0b07a', deep: '#4f3418', edge: '#2b1b0b', shadow: '#0f0904',
+        tint: '#4fd1b0',
+        armA: '#a8743f', armB: '#5a3a1a',
+        feetA: '#9a6b3a', feetB: '#4f3418',
+      },
+      head: texturaBronce,
+      ojo: ojoAnillos(OJO_BRONCE),
+      brazo(c, P, b) {
+        if (!texturaFina()) return;
+        llenarElipse(c, 0.3 * b.side, 0.5, 0.16, 0.16, BRONCE.remache);
+      },
+    },
+    marmol: {
+      pal: {
+        base: '#ece9e3', lift: '#ffffff', deep: '#b8b2a8', edge: '#6b665e', shadow: '#1a1815',
+        tint: '#c9a64a',
+        armA: '#f1eee8', armB: '#b8b2a8',
+        feetA: '#ece9e3', feetB: '#a59f94',
+      },
+      head: texturaMarmol,
+      ojo: ojoAnillos(OJO_MARMOL),
+    },
+    vitral: {
+      pal: {
+        base: '#3c6fb0', lift: '#9cc6ff', deep: '#1b335c', edge: '#0d0d10', shadow: '#000000',
+        tint: '#ffd34d',
+        armA: '#3c6fb0', armB: '#1b335c',
+        feetA: '#d13a3a', feetB: '#7a1f1f',
+      },
+      halo: { color: '#ffe9a8', blur: 0.4 },
+      head: texturaVitral,
+      ojo: ojoAnillos(OJO_VITRAL),
+    },
+    circuito: {
+      pal: {
+        base: '#1f6b45', lift: '#4fbf7d', deep: '#0b3320', edge: '#06200f', shadow: '#020a05',
+        tint: '#ffd34d',
+        armA: '#227a4e', armB: '#0d3a24',
+        feetA: '#1f6b45', feetB: '#0b3320',
+      },
+      head: texturaCircuito,
+      ojo: ojoAnillos(OJO_CIRCUITO),
+      brazo(c, P, b) {
+        if (!texturaFina()) return;
+        c.beginPath(); c.moveTo(-0.5 * b.side, -0.3); c.lineTo(0, 0.2); c.lineTo(0, 0.8);
+        c.strokeStyle = CIRCUITO.pista; c.lineWidth = 0.12; c.stroke();
+      },
+    },
+    ambar: {
+      pal: {
+        base: '#d98a1c', lift: '#ffd27a', deep: '#8a4708', edge: '#4a2304', shadow: '#1a0c02',
+        tint: '#fff1c4',
+        armA: '#e0942a', armB: '#8a4708',
+        feetA: '#d98a1c', feetB: '#8a4708',
+      },
+      halo: { color: AMBAR.miel, blur: 0.5 },
+      head: texturaAmbar,
+      ojo: ojoAnillos(OJO_AMBAR),
+    },
   };
 
   /*
@@ -7037,7 +8078,26 @@
     return ch ? !!ch.bata : hat === 'bata';
   }
 
+  /**
+   * De qué lado está lo que cada accesorio lleva junto a la mano (-1
+   * izquierda, 1 derecha en el lienzo), y en qué capa. Escudos, la bolsa, la
+   * guitarra, el arco: al costado del brazo se leen como sostenidos, así que
+   * cuando un gesto le da ese brazo a un prop (el puntero, la laptop, la
+   * taza) quedarían flotando junto a una mano que ya no está. Mientras esa
+   * mano esté ocupada la capa no se pinta.
+   */
+  const JUNTO_A_LA_MANO = {
+    back: {
+      caballero: -1, bombero: -1, mosquetero: -1, pirata: -1, vikingo: -1,
+      gladiador: -1, santa: -1, mago: -1, mariachi: -1, gaitero: -1, pintor: -1,
+      detective: 1, steampunk: 1,
+    },
+    over: { arquero: -1 },
+  };
+
   function drawAcc(c, st, layer) {
+    const lado = JUNTO_A_LA_MANO[layer] && JUNTO_A_LA_MANO[layer][hat];
+    if (lado && !manoLibre(lado)) return;
     if (layer === 'back') {
       const back = HATS_BACK[hat];
       if (back) back(c, accPal(st), st);
@@ -7048,6 +8108,7 @@
       if (over) over(c, accPal(st), st);
       return;
     }
+    if (layer === 'head') pintarRopa(c, accPal(st));
     const fn = HATS[hat];
     if (!fn) return;
     if (!!HATS_FRONT[hat] !== (layer === 'front')) return;
@@ -11465,6 +12526,430 @@
   // puñado de parámetros que el pintor interpreta.
   //
   // Por eso una pose nueva ya no cuesta redibujar 288 celdas: cuesta una línea.
+  /* ══ Cinco gestos de octubre 2026: pesas, magia, jardín, guardia, barrilete ══
+   *
+   * Con la receta del Rubik y la guitarra: el prop dibuja los brazos que usa
+   * (muñón de brazoGuitarra detrás del objeto, la mano encima), la pose apaga
+   * esos brazos y cada cuadro clave es una fila de una tabla. Colores fijos en
+   * los objetos, porque se tienen que leer sobre cualquier cuerpo y tema; el
+   * contorno oscuro con filete claro los separa de un Boberto claro u oscuro.
+   *
+   * Todo queda a más de media unidad del borde del lienzo (de -2 a 18 en x, de
+   * -2 a 19 en y) y nada pasa por delante de los ojos ni de la boca, salvo el
+   * celular, que va a la oreja: del lado de afuera del ojo derecho.
+   */
+  const GESTO_HOMBRO_I = [2.9, 10.4], GESTO_HOMBRO_D = [13.1, 10.4];
+  // Hombros con el brazo en alto: el muñón sale más arriba y hacia adentro.
+  const GESTO_HOMBRO_I_ALTO = [3.3, 8.8], GESTO_HOMBRO_D_ALTO = [12.7, 8.8];
+
+  function brazosDelProp(c, P, pose, manos) {
+    const ch = charActual(), tela = llevaBata() ? _bataTela : null, dy = pose.bodyDY || 0;
+    manos.forEach(([lado, h, x, y]) => brazoGuitarra(c, P, tela, ch, lado, h[0], h[1] + dy, x, y));
+  }
+
+  // Un brazo estirado del hombro a la mano: el muñón de brazoGuitarra mide
+  // lo mismo siempre, y con la barra arriba de la cabeza la mano quedaba a
+  // seis unidades del hombro, flotando. Va detrás del objeto, como el muñón.
+  function brazoLargo(c, P, sx, sy, hx, hy) {
+    const L = Math.hypot(hx - sx, hy - sy) || 1;
+    c.save();
+    c.translate(sx, sy); c.rotate(Math.atan2(hy - sy, hx - sx));
+    roundRect(c, -0.4, -0.85, L + 0.4, 1.7, 0.85);
+    const g = c.createLinearGradient(0, -0.85, 0, 0.85);
+    g.addColorStop(0, P.armA); g.addColorStop(1, P.armB);
+    c.fillStyle = g; c.fill();
+    c.lineWidth = 0.16; c.strokeStyle = withA(P.edge, 0.7); c.stroke();
+    c.restore();
+  }
+
+  // ── Pesas: la barra con discos, levantada con las dos manos ──
+  //
+  // Se ve de frente, así que los discos están de canto: rectángulos altos con
+  // un aro de color, no círculos. El nudo es la barra trabada a la altura de
+  // la panza (tiembla de un lado al otro); nunca pasa por delante de la cara:
+  // de la panza salta a arriba de la cabeza, como un envión.
+  const PESAS_COL = {
+    contorno: '#0d0f14', barra: '#d5dbe0', barraSombra: '#7c848c',
+    disco: '#2b2f36', discoLuz: '#525a68', aro: '#e0533d', traba: '#9aa3ab',
+  };
+  // `barra`: [y del centro, giro]; `alto`: los brazos en alto; `suelta`: la
+  // barra en el piso y los brazos vuelven a ser los del motor.
+  const PESAS = [
+    { dy: 0.45, barra: [15.3, 0] },                // 0 se agacha y la agarra
+    { dy: 0.3,  barra: [14.9, 0.04] },             // 1 tira: apenas despega
+    { dy: 0.1,  barra: [12.6, 0] },                // 2 a la panza
+    { dy: 0.15, barra: [12.4, -0.1] },             // 3 se traba, tiembla
+    { dy: 0.15, barra: [12.7, 0.1] },              // 4 tiembla al otro lado
+    { dy: -0.2, barra: [2.5, -0.12], alto: 1 },    // 5 envión: arriba, torcida
+    { dy: -0.25, barra: [2.3, 0], alto: 1 },       // 6 la clava arriba
+    { dy: 0,    barra: [15.9, 0.05], suelta: 1 },  // 7 la suelta
+  ];
+  function posePesas(i, cara) {
+    const f = PESAS[i];
+    const pose = { prop: 'pesas', propPhase: i, bodyDY: f.dy };
+    if (!f.suelta) { pose.armL = false; pose.armR = false; }
+    return Object.assign(pose, cara);
+  }
+  function propPesas(c, P, pose) {
+    const f = PESAS[pose.propPhase || 0] || PESAS[0];
+    const C = PESAS_COL, [y, a] = f.barra, x = 8;
+    const ca = Math.cos(a), sa = Math.sin(a);
+    const en = (lx) => [x + lx * ca, y + lx * sa];
+    if (!f.suelta) {
+      const hi = en(-3.4), hd = en(3.4);
+      if (f.alto) {
+        const dy = pose.bodyDY || 0;
+        brazoLargo(c, P, GESTO_HOMBRO_I_ALTO[0], GESTO_HOMBRO_I_ALTO[1] + dy, hi[0], hi[1]);
+        brazoLargo(c, P, GESTO_HOMBRO_D_ALTO[0], GESTO_HOMBRO_D_ALTO[1] + dy, hd[0], hd[1]);
+      } else {
+        brazosDelProp(c, P, pose, [[-1, GESTO_HOMBRO_I, hi[0], hi[1]], [1, GESTO_HOMBRO_D, hd[0], hd[1]]]);
+      }
+    }
+    c.save();
+    c.translate(x, y); c.rotate(a);
+    roundRect(c, -6.6, -0.19, 13.2, 0.38, 0.16);
+    const g = c.createLinearGradient(0, -0.2, 0, 0.2);
+    g.addColorStop(0, C.barra); g.addColorStop(1, C.barraSombra);
+    c.fillStyle = g; c.fill();
+    c.lineWidth = 0.1; c.strokeStyle = C.contorno; c.stroke();
+    for (const s of [-1, 1]) {
+      // Disco grande, disco chico y la traba que los aprieta.
+      for (const [dx, w, h] of [[4.8, 0.85, 3.5], [5.7, 0.7, 2.7]]) {
+        roundRect(c, s * dx - w / 2, -h / 2, w, h, 0.16);
+        const gd = c.createLinearGradient(s * dx - w / 2, 0, s * dx + w / 2, 0);
+        gd.addColorStop(0, C.discoLuz); gd.addColorStop(1, C.disco);
+        c.fillStyle = gd; c.fill();
+        c.lineWidth = 0.12; c.strokeStyle = C.contorno; c.stroke();
+        roundRect(c, s * dx - w / 2 + 0.1, -h / 2 + 0.25, w - 0.2, 0.22, 0.05);
+        c.fillStyle = C.aro; c.fill();
+      }
+      roundRect(c, s * 4.15 - 0.17, -0.42, 0.34, 0.84, 0.08);
+      c.fillStyle = C.traba; c.fill(); c.lineWidth = 0.08; c.stroke();
+    }
+    c.restore();
+    if (!f.suelta) {
+      const hi = en(-3.4), hd = en(3.4);
+      manoGuitarra(c, P, hi[0], hi[1]); manoGuitarra(c, P, hd[0], hd[1]);
+    }
+  }
+
+  // ── Magia: la galera boca arriba, la varita y lo que sale de adentro ──
+  //
+  // La galera va en la mano izquierda, baja y afuera, para que lo que asome
+  // quede debajo del ojo y no encima. Lo que sale es un cilindro de base de
+  // datos, el ícono de siempre: es el chiste de un DBA haciendo magia. Mientras
+  // sube se recorta contra el ala, así se lee que sale DE ADENTRO.
+  const MAGIA_COL = {
+    contorno: '#0b0c10', galera: '#1d1f26', galeraLuz: '#3b3f4c', cinta: '#b3202a',
+    hondo: '#050507', varita: '#16171c', punta: '#f4f1e8', destello: '#ffe9a8',
+    cilindro: '#3f86c4', cilindroLuz: '#8cc3ee', cilindroSombra: '#234f7c', aroCil: '#dfe8f1',
+  };
+  const GALERA = { x: 4.2, y: 12.6 };
+  // `punta`: dónde queda la punta de la varita; `sube`: cuánto asomó el
+  // cilindro (0 a 1); `brilla`: el destello en la punta.
+  const MAGIA = [
+    { dy: 0,    punta: [14.4, 6.6], sube: 0 },               // 0 muestra la galera
+    { dy: 0.05, punta: [6.3, 12.4], sube: 0 },               // 1 golpe
+    { dy: -0.05, punta: [14.9, 5.6], sube: 0, brilla: 1 },   // 2 floreo
+    { dy: 0.15, punta: [6.4, 12.7], sube: 0 },               // 3 segundo golpe, con más ganas
+    { dy: 0.15, punta: [13.6, 13.4], sube: 0 },              // 4 espía: no salió nada
+    { dy: 0,    punta: [14.9, 5.6], sube: 0.45, brilla: 1 }, // 5 empieza a salir
+    { dy: -0.1, punta: [15.0, 5.2], sube: 1, brilla: 1 },    // 6 ¡ta-dá!
+  ];
+  function poseMagia(i, cara) {
+    return Object.assign({ prop: 'magia', propPhase: i, armL: false, armR: false, bodyDY: MAGIA[i].dy }, cara);
+  }
+  function propMagia(c, P, pose) {
+    const f = MAGIA[pose.propPhase || 0] || MAGIA[0];
+    const C = MAGIA_COL, dy = pose.bodyDY || 0;
+    const gx = GALERA.x, gy = GALERA.y + dy;
+    // La mano de la varita, a un cuerpo de distancia de la punta.
+    const [px, py] = f.punta, ang = Math.atan2(py - (10.6 + dy), px - 12.4);
+    const mano = [px - Math.cos(ang) * 2.3, py + dy - Math.sin(ang) * 2.3];
+    const manoG = [gx + 0.5, gy + 2.6];
+    brazosDelProp(c, P, pose, [[-1, GESTO_HOMBRO_I, manoG[0], manoG[1]], [1, GESTO_HOMBRO_D, mano[0], mano[1]]]);
+    // Galera: copa hacia abajo, boca negra arriba.
+    roundRect(c, gx - 1.75, gy, 3.5, 3.0, 0.35);
+    const g = c.createLinearGradient(gx - 1.75, 0, gx + 1.75, 0);
+    g.addColorStop(0, C.galeraLuz); g.addColorStop(0.6, C.galera); g.addColorStop(1, C.contorno);
+    c.fillStyle = g; c.fill(); c.lineWidth = 0.14; c.strokeStyle = C.contorno; c.stroke();
+    roundRect(c, gx - 1.75, gy + 0.4, 3.5, 0.6, 0.05); c.fillStyle = C.cinta; c.fill();
+    c.beginPath(); c.ellipse(gx, gy, 2.45, 0.6, 0, 0, Math.PI * 2);
+    c.fillStyle = C.galera; c.fill(); c.stroke();
+    c.beginPath(); c.ellipse(gx, gy, 1.7, 0.38, 0, 0, Math.PI * 2);
+    c.fillStyle = C.hondo; c.fill();
+    if (f.sube > 0) {
+      // El cilindro, recortado contra la boca de la galera.
+      const alto = 2.3, base = gy, top = base - alto * f.sube;
+      c.save();
+      c.beginPath(); c.rect(gx - 2, -2, 4, base + 0.05 + 2); c.clip();
+      roundRect(c, gx - 1.05, top, 2.1, alto, 0.05);
+      const gc = c.createLinearGradient(gx - 1.05, 0, gx + 1.05, 0);
+      gc.addColorStop(0, C.cilindroLuz); gc.addColorStop(0.45, C.cilindro); gc.addColorStop(1, C.cilindroSombra);
+      c.fillStyle = gc; c.fill();
+      for (const t of [0.33, 0.66]) {
+        c.beginPath(); c.ellipse(gx, top + alto * t, 1.05, 0.28, 0, 0, Math.PI);
+        c.lineWidth = 0.12; c.strokeStyle = C.aroCil; c.stroke();
+      }
+      c.beginPath(); c.ellipse(gx, top, 1.05, 0.3, 0, 0, Math.PI * 2);
+      c.fillStyle = C.cilindroLuz; c.fill(); c.lineWidth = 0.1; c.strokeStyle = C.cilindroSombra; c.stroke();
+      c.restore();
+      // El labio de adelante de la galera, por delante del cilindro.
+      c.beginPath(); c.ellipse(gx, gy, 2.45, 0.6, 0, 0, Math.PI);
+      c.lineWidth = 0.32; c.strokeStyle = C.galera; c.stroke();
+    }
+    manoGuitarra(c, P, manoG[0], manoG[1]);
+    // Varita: negra con las dos puntas blancas.
+    const pyy = py + dy;
+    c.save(); c.lineCap = 'round';
+    c.beginPath(); c.moveTo(mano[0], mano[1]); c.lineTo(px, pyy);
+    c.lineWidth = 0.42; c.strokeStyle = C.contorno; c.stroke();
+    c.lineWidth = 0.28; c.strokeStyle = C.varita; c.stroke();
+    const tx = px - Math.cos(ang) * 0.5, ty = pyy - Math.sin(ang) * 0.5;
+    c.beginPath(); c.moveTo(tx, ty); c.lineTo(px, pyy);
+    c.lineWidth = 0.3; c.strokeStyle = C.punta; c.stroke();
+    c.restore();
+    manoGuitarra(c, P, mano[0], mano[1]);
+    if (f.brilla) {
+      c.save(); c.shadowColor = C.destello; c.shadowBlur = _k * 0.9;
+      estrella4(c, px, pyy, 0.75, C.destello);
+      c.restore();
+    }
+  }
+
+  // ── Jardín: la regadera, la maceta y la planta que crece ──
+  //
+  // La maceta va en el piso a la derecha, debajo del pico; la planta crece en
+  // cinco etapas (tierra, brote, dos hojas, pimpollo, flor). El agua se ve en
+  // el lienzo (un chorro punteado) y además cae en gotas por la capa de
+  // partículas. Sin regadera, el brazo vuelve a ser el del motor.
+  const JARDIN_COL = {
+    contorno: '#1c120c', barro: '#c4673a', barroLuz: '#e08a5a', barroSombra: '#7e3a1d', tierra: '#4a2c18',
+    tallo: '#3f8f3f', hoja: '#57b04f', hojaSombra: '#2f6b31', petalo: '#f06292', petaloLuz: '#ffb3cd', centro: '#f5c542',
+    lata: '#9aa5ad', lataLuz: '#dfe6ea', lataSombra: '#5d666d', agua: '#9fd8ff',
+  };
+  const MACETA = { x: 15.3, y: 14.4 };
+  // `lata`: [x, y, inclinación] de la regadera (nada: guardada); `planta`: la
+  // etapa; `agua`: el chorro.
+  const JARDIN = [
+    { dy: 0,    lata: [13.2, 9.3, 0],   planta: 0 },            // 0 saca la regadera
+    { dy: 0.05, lata: [13.2, 9.3, 0.6], planta: 0, agua: 1 },   // 1 riega
+    { dy: 0.05, lata: [13.2, 9.3, 0.6], planta: 1, agua: 1 },   // 2 brota
+    { dy: 0,    lata: [13.2, 9.5, 0.05], planta: 1 },           // 3 lo mira
+    { dy: 0.05, lata: [13.2, 9.3, 0.6], planta: 2, agua: 1 },   // 4 dos hojas
+    { dy: 0.05, lata: [13.2, 9.3, 0.6], planta: 3, agua: 1 },   // 5 pimpollo
+    { dy: 0.1,  lata: [12.5, 11.6, 0],  planta: 3 },            // 6 espera: no abre
+    { dy: 0,    planta: 3 },                                    // 7 le canta
+    { dy: -0.1, planta: 4 },                                    // 8 ¡florece!
+  ];
+  function poseJardin(i, cara) {
+    const pose = { prop: 'jardin', propPhase: i, bodyDY: JARDIN[i].dy };
+    if (JARDIN[i].lata) pose.armR = false;
+    return Object.assign(pose, cara);
+  }
+  function pintarPlanta(c, etapa) {
+    const C = JARDIN_COL, x = MACETA.x, base = MACETA.y - 0.1;
+    if (!etapa) return;
+    const alto = [0, 0.9, 1.9, 2.9, 3.3][etapa], top = base - alto;
+    c.save(); c.lineCap = 'round';
+    c.beginPath(); c.moveTo(x, base); c.quadraticCurveTo(x - 0.35, base - alto * 0.5, x, top);
+    c.lineWidth = 0.22; c.strokeStyle = C.tallo; c.stroke();
+    const hoja = (hx, hy, s, largo) => {
+      c.beginPath(); c.moveTo(hx, hy);
+      c.quadraticCurveTo(hx + s * largo * 0.5, hy - largo * 0.55, hx + s * largo, hy - 0.1);
+      c.quadraticCurveTo(hx + s * largo * 0.5, hy + 0.25, hx, hy);
+      c.fillStyle = C.hoja; c.fill(); c.lineWidth = 0.07; c.strokeStyle = C.hojaSombra; c.stroke();
+    };
+    if (etapa === 1) { hoja(x, top + 0.1, -1, 0.6); hoja(x, top + 0.1, 1, 0.6); }
+    else {
+      hoja(x - 0.1, base - alto * 0.35, -1, 1.1); hoja(x - 0.05, base - alto * 0.55, 1, 1.0);
+      if (etapa >= 3) hoja(x, base - alto * 0.78, -1, 0.8);
+    }
+    if (etapa === 3) {
+      // El pimpollo cerrado: verde con la punta rosa asomando.
+      ellipsePath(c, x, top - 0.25, 0.32, 0.5); c.fillStyle = C.hoja; c.fill();
+      c.lineWidth = 0.07; c.strokeStyle = C.hojaSombra; c.stroke();
+      ellipsePath(c, x, top - 0.6, 0.16, 0.22); c.fillStyle = C.petalo; c.fill();
+    }
+    if (etapa === 4) {
+      for (let i = 0; i < 6; i++) {
+        const a = i * Math.PI / 3;
+        c.save(); c.translate(x + Math.cos(a) * 0.55, top - 0.4 + Math.sin(a) * 0.55); c.rotate(a);
+        ellipsePath(c, 0, 0, 0.5, 0.3);
+        const g = c.createRadialGradient(-0.2, 0, 0.05, 0, 0, 0.55);
+        g.addColorStop(0, C.petaloLuz); g.addColorStop(1, C.petalo);
+        c.fillStyle = g; c.fill(); c.lineWidth = 0.06; c.strokeStyle = adjustL(C.petalo, -30); c.stroke();
+        c.restore();
+      }
+      ellipsePath(c, x, top - 0.4, 0.32, 0.32); c.fillStyle = C.centro; c.fill();
+    }
+    c.restore();
+  }
+  function propJardin(c, P, pose) {
+    const f = JARDIN[pose.propPhase || 0] || JARDIN[0];
+    const C = JARDIN_COL, dy = pose.bodyDY || 0, mx = MACETA.x, my = MACETA.y;
+    // La maceta va en el piso: no acompaña al cuerpo.
+    c.save(); c.globalAlpha = 0.3;
+    c.beginPath(); c.ellipse(mx, my + 2.15, 1.4, 0.3, 0, 0, Math.PI * 2); c.fillStyle = '#000000'; c.fill();
+    c.restore();
+    c.beginPath(); c.moveTo(mx - 1.2, my + 0.3); c.lineTo(mx + 1.2, my + 0.3); c.lineTo(mx + 0.9, my + 2.1); c.lineTo(mx - 0.9, my + 2.1); c.closePath();
+    const gm = c.createLinearGradient(mx - 1.2, 0, mx + 1.2, 0);
+    gm.addColorStop(0, C.barroLuz); gm.addColorStop(0.5, C.barro); gm.addColorStop(1, C.barroSombra);
+    c.fillStyle = gm; c.fill(); c.lineWidth = 0.12; c.strokeStyle = C.contorno; c.stroke();
+    roundRect(c, mx - 1.4, my - 0.15, 2.8, 0.55, 0.12); c.fillStyle = C.barro; c.fill(); c.stroke();
+    c.beginPath(); c.ellipse(mx, my - 0.1, 1.15, 0.22, 0, 0, Math.PI * 2); c.fillStyle = C.tierra; c.fill();
+    pintarPlanta(c, f.planta);
+    if (!f.lata) return;
+    const [lx, ly0, a] = f.lata, ly = ly0 + dy;
+    const ca = Math.cos(a), sa = Math.sin(a);
+    const en = (u, v) => [lx + u * ca - v * sa, ly + u * sa + v * ca];
+    const asa = en(-0.6, -1.25);
+    brazosDelProp(c, P, pose, [[1, GESTO_HOMBRO_D, asa[0], asa[1]]]);
+    if (f.agua) {
+      // El chorro, del pico a la tierra: tres trazos punteados que bajan.
+      const pico = en(2.45, -1.0);
+      c.save(); c.setLineDash([0.35, 0.3]); c.lineCap = 'round';
+      for (const off of [-0.18, 0, 0.18]) {
+        c.beginPath(); c.moveTo(pico[0] + off, pico[1]);
+        c.quadraticCurveTo(pico[0] + off + 0.2, (pico[1] + my) / 2, mx + off * 1.5, my - 0.2);
+        c.lineWidth = 0.1; c.strokeStyle = withA(C.agua, 0.85); c.stroke();
+      }
+      c.restore();
+    }
+    c.save(); c.translate(lx, ly); c.rotate(a);
+    // El pico con su flor de regadera.
+    c.beginPath(); c.moveTo(0.8, 0.1); c.lineTo(2.3, -0.9); c.lineTo(2.45, -0.7); c.lineTo(0.95, 0.45); c.closePath();
+    c.fillStyle = C.lata; c.fill(); c.lineWidth = 0.1; c.strokeStyle = C.contorno; c.stroke();
+    c.beginPath(); c.ellipse(2.45, -0.95, 0.22, 0.38, 0.6, 0, Math.PI * 2); c.fillStyle = C.lataSombra; c.fill(); c.stroke();
+    // El cuerpo, con el asa arriba.
+    c.beginPath(); c.arc(-0.6, -0.5, 0.75, Math.PI, 0); c.lineWidth = 0.22; c.strokeStyle = C.lataSombra; c.stroke();
+    roundRect(c, -1.15, -0.55, 2.2, 1.6, 0.3);
+    const gl = c.createLinearGradient(-1.15, 0, 1.05, 0);
+    gl.addColorStop(0, C.lataLuz); gl.addColorStop(0.5, C.lata); gl.addColorStop(1, C.lataSombra);
+    c.fillStyle = gl; c.fill(); c.lineWidth = 0.12; c.strokeStyle = C.contorno; c.stroke();
+    c.beginPath(); c.moveTo(-1.1, 0.25); c.lineTo(1.0, 0.25); c.lineWidth = 0.08; c.strokeStyle = C.lataSombra; c.stroke();
+    c.restore();
+    manoGuitarra(c, P, asa[0], asa[1]);
+  }
+
+  // ── Guardia: el celular que suena y la llamada ──
+  //
+  // El mismo celular de la selfie (pintarCelular, de dorso). Cuando suena
+  // tiembla y echa ondas a los costados; atendido va a la oreja, por fuera
+  // del ojo derecho. El pulgar de la izquierda es el de la selfie.
+  // `tel`: [x, y, giro]; `suena`: las ondas y el temblor; `pulgar`: la mano
+  // izquierda arriba.
+  const GUARDIA = [
+    { dy: 0.1,  tel: [12.3, 12.6, 0.1],  suena: 1 },             // 0 suena (dormitando)
+    { dy: -0.2, tel: [12.5, 12.3, -0.1], suena: 1 },             // 1 ¡se sobresalta!
+    { dy: 0,    tel: [14.2, 7.4, 0.22] },                        // 2 atiende
+    { dy: 0,    tel: [14.2, 7.4, 0.22] },                        // 3 escucha
+    { dy: 0.1,  tel: [14.3, 7.6, 0.28] },                        // 4 preocupado
+    { dy: -0.1, tel: [14.2, 7.3, 0.2] },                         // 5 ¡ya sé qué es!
+    { dy: 0.1,  tel: [14.2, 7.5, 0.22] },                        // 6 asiente
+    { dy: -0.15, tel: [14.2, 7.3, 0.2], pulgar: 1 },             // 7 resuelto
+    { dy: 0,    tel: [12.0, 12.3, 0.08] },                       // 8 corta
+  ];
+  function poseGuardia(i, cara) {
+    const pose = { prop: 'guardia', propPhase: i, armR: false, bodyDY: GUARDIA[i].dy };
+    if (GUARDIA[i].pulgar) pose.armL = false;
+    return Object.assign(pose, cara);
+  }
+  function propGuardia(c, P, pose) {
+    const f = GUARDIA[pose.propPhase || 0] || GUARDIA[0];
+    const dy = pose.bodyDY || 0, k = SELFIE_K;
+    const [x0, y0, a] = f.tel, x = x0 + (f.suena ? 0.12 : 0), y = y0 + dy;
+    const ca = Math.cos(a), sa = Math.sin(a);
+    const en = (lx, ly) => [x + (lx * ca - ly * sa) * k, y + (lx * sa + ly * ca) * k];
+    const mano = en(0.35, SELFIE_H / 2 - 0.1);
+    const manos = [[1, GESTO_HOMBRO_D, mano[0], mano[1]]];
+    const pulgar = f.pulgar ? [2.0, 8.4 + dy] : null;
+    if (pulgar) manos.push([-1, GESTO_HOMBRO_I, pulgar[0], pulgar[1]]);
+    brazosDelProp(c, P, pose, manos);
+    if (f.suena) {
+      // Ondas de vibración a los dos costados del aparato.
+      c.save(); c.lineCap = 'round';
+      for (const s of [-1, 1]) for (const r of [1.5, 2.1]) {
+        c.beginPath(); c.arc(x, y, r, s > 0 ? -0.5 : Math.PI - 0.5, s > 0 ? 0.5 : Math.PI + 0.5);
+        c.lineWidth = 0.14; c.strokeStyle = withA('#ffffff', r > 2 ? 0.45 : 0.8); c.stroke();
+      }
+      c.restore();
+    }
+    c.save();
+    c.translate(x, y); c.rotate(a + (f.suena ? 0.08 : 0)); c.scale(k, k);
+    c.lineJoin = 'round';
+    pintarCelular(c, P, { cara: 'dorso' }, _k >= SELFIE_DETALLE_PX);
+    c.restore();
+    manoGuitarra(c, P, mano[0], mano[1]);
+    if (pulgar) pulgarSelfie(c, P, pulgar[0], pulgar[1]);
+  }
+
+  // ── Barrilete: el rombo de colores, el hilo y la cola con moños ──
+  //
+  // Vuela arriba a la derecha, donde no hay cabeza ni sombrero que tapar. El
+  // hilo sale de la mano derecha y se comba cuando el viento lo afloja; la
+  // cola ondula con `fase`, así dos cuadros seguidos se leen como viento.
+  const BARRILETE_COL = {
+    contorno: '#1a1410', a: '#e0533d', b: '#f5c542', c: '#3f86c4', d: '#f3efe4',
+    cana: '#8a6a48', hilo: '#f4f1e8', mono: '#e0533d',
+  };
+  // `kite`: [x, y, giro] del centro; `mano`: dónde está la mano; `comba`:
+  // cuánto cuelga el hilo; `fase`: la ondulación de la cola.
+  const BARRILETE_K = 1.25;
+  const BARRILETE = [
+    { dy: 0,    kite: [14.6, 6.4, 0.25], mano: [12.9, 9.8], comba: 0.3, fase: 0 },   // 0 lo suelta
+    { dy: -0.05, kite: [15.0, 3.3, -0.1], mano: [13.1, 9.4], comba: 0.2, fase: 1 },  // 1 sube
+    { dy: -0.1, kite: [15.4, 1.2, 0.12], mano: [13.2, 9.2], comba: 0.1, fase: 0 },   // 2 alto
+    { dy: -0.1, kite: [15.0, 1.0, -0.12], mano: [13.2, 9.2], comba: 0.1, fase: 1 },  // 3 alto, del otro lado
+    { dy: 0.1,  kite: [15.3, 5.6, 0.95], mano: [13.0, 9.6], comba: 1.4, fase: 2 },   // 4 se cae: el viento paró
+    { dy: 0.25, kite: [15.2, 3.0, 0.3],  mano: [12.4, 11.6], comba: 0, fase: 1 },    // 5 tironea
+    { dy: -0.1, kite: [15.4, 1.2, 0],    mano: [13.2, 9.2], comba: 0.1, fase: 0 },   // 6 vuelve a subir
+    { dy: -0.15, kite: [14.9, 1.4, 2.3], mano: [13.3, 9.0], comba: 0.1, fase: 2 },   // 7 rulo
+    { dy: -0.15, kite: [14.7, 1.2, 4.4], mano: [13.3, 9.0], comba: 0.1, fase: 1 },   // 8 rulo
+  ];
+  function poseBarrilete(i, cara) {
+    return Object.assign({ prop: 'barrilete', propPhase: i, armR: false, bodyDY: BARRILETE[i].dy }, cara);
+  }
+  function propBarrilete(c, P, pose) {
+    const f = BARRILETE[pose.propPhase || 0] || BARRILETE[0];
+    const C = BARRILETE_COL, dy = pose.bodyDY || 0;
+    const [kx, ky, a] = f.kite, [hx, hy0] = f.mano, hy = hy0 + dy;
+    const ca = Math.cos(a), sa = Math.sin(a);
+    const K = BARRILETE_K;
+    const en = (u, v) => [kx + (u * ca - v * sa) * K, ky + (u * sa + v * ca) * K];
+    brazosDelProp(c, P, pose, [[1, GESTO_HOMBRO_D, hx, hy]]);
+    // Hilo: de la mano al cruce de las cañas, con la comba del viento.
+    const nudo = en(0, 0.3);
+    c.beginPath(); c.moveTo(hx, hy);
+    c.quadraticCurveTo((hx + nudo[0]) / 2 + f.comba * 0.4, (hy + nudo[1]) / 2 + f.comba, nudo[0], nudo[1]);
+    c.lineWidth = 0.08; c.strokeStyle = withA(C.hilo, 0.9); c.stroke();
+    // Cola: ondula según la fase, con tres moños.
+    const cola = en(0, 1.6), w = [0.5, -0.5, 0.15][f.fase || 0];
+    const p1 = [cola[0] - 0.6 + w, cola[1] + 1.0], p2 = [cola[0] - 0.4 - w, cola[1] + 2.0], p3 = [cola[0] - 1.1 + w * 0.6, cola[1] + 2.9];
+    c.beginPath(); c.moveTo(cola[0], cola[1]); c.bezierCurveTo(p1[0], p1[1], p2[0], p2[1], p3[0], p3[1]);
+    c.lineWidth = 0.08; c.strokeStyle = C.hilo; c.stroke();
+    for (const [mx, my] of [p1, p2, p3]) {
+      c.beginPath(); c.moveTo(mx, my); c.lineTo(mx - 0.32, my - 0.2); c.lineTo(mx - 0.32, my + 0.2); c.closePath();
+      c.moveTo(mx, my); c.lineTo(mx + 0.32, my - 0.2); c.lineTo(mx + 0.32, my + 0.2); c.closePath();
+      c.fillStyle = C.mono; c.fill();
+    }
+    // El rombo en cuatro paños y las cañas cruzadas.
+    c.save(); c.translate(kx, ky); c.rotate(a); c.scale(K, K);
+    const pts = [[0, -1.75], [1.3, -0.35], [0, 1.6], [-1.3, -0.35]];
+    const panos = [C.a, C.b, C.c, C.d];
+    for (let i = 0; i < 4; i++) {
+      const [x1, y1] = pts[i], [x2, y2] = pts[(i + 1) % 4];
+      c.beginPath(); c.moveTo(0, -0.35); c.lineTo(x1, y1); c.lineTo(x2, y2); c.closePath();
+      c.fillStyle = panos[i]; c.fill();
+    }
+    c.beginPath(); pts.forEach(([x, y], i) => i ? c.lineTo(x, y) : c.moveTo(x, y)); c.closePath();
+    c.lineWidth = 0.14; c.strokeStyle = C.contorno; c.stroke();
+    c.beginPath(); c.moveTo(0, -1.75); c.lineTo(0, 1.6); c.moveTo(-1.3, -0.35); c.lineTo(1.3, -0.35);
+    c.lineWidth = 0.1; c.strokeStyle = C.cana; c.stroke();
+    c.restore();
+    manoGuitarra(c, P, hx, hy);
+  }
+
   const POSES = {
     base:        { eyes: 'open' },
     blink:       { eyes: 'shut' },
@@ -11846,6 +13331,58 @@
     teachTalk:   { eyes: 'open',  mouth: 'o', prop: 'puntero', propPhase: 2, armR: false },
     teachSmile:  { eyes: 'happy', mouth: 'smile', prop: 'puntero', propPhase: 2, armR: false },
     teachBlink:  { eyes: 'shut',  mouth: 'smile', prop: 'puntero', propPhase: 2, armR: false },
+
+    // ── Pesas (propPesas), según la tabla PESAS ──
+    pesasAgarra:   posePesas(0, { eyes: 'squint', mouth: 'line', gaze: [0, 1] }),
+    pesasTira:     posePesas(1, { eyes: 'shut', mouth: 'line' }),
+    pesasPanza:    posePesas(2, { eyes: 'open', mouth: 'line', gaze: [0, -0.6] }),
+    pesasTiembla1: posePesas(3, { eyes: 'squint', mouth: 'o' }),
+    pesasTiembla2: posePesas(4, { eyes: 'squint', mouth: 'o' }),
+    pesasEnvion:   posePesas(5, { eyes: 'wide', mouth: 'o', gaze: [0, -1] }),
+    pesasArriba:   posePesas(6, { eyes: 'happy', mouth: 'smile' }),
+    pesasSuelta:   posePesas(7, { eyes: 'happy', mouth: 'smile' }),
+
+    // ── Magia (propMagia), según la tabla MAGIA ──
+    magiaMuestra:  poseMagia(0, { eyes: 'open', mouth: 'smile' }),
+    magiaGolpe:    poseMagia(1, { eyes: 'squint', mouth: 'line', gaze: [-0.8, 0.8] }),
+    magiaFloreo:   poseMagia(2, { eyes: 'happy', mouth: 'o' }),
+    magiaGolpe2:   poseMagia(3, { eyes: 'squint', mouth: 'line', gaze: [-0.8, 0.8] }),
+    magiaEspia:    poseMagia(4, { eyes: 'open', mouth: 'line', gaze: [-1, 1] }),
+    magiaSale:     poseMagia(5, { eyes: 'wide', mouth: 'o', gaze: [-0.8, 0.6] }),
+    magiaTada:     poseMagia(6, { eyes: 'happy', mouth: 'smile' }),
+
+    // ── Jardín (propJardin), según la tabla JARDIN ──
+    jardinSaca:    poseJardin(0, { eyes: 'open', mouth: 'smile', gaze: [1, 0.8] }),
+    jardinRiega:   poseJardin(1, { eyes: 'happy', mouth: 'smile', gaze: [1, 1] }),
+    jardinBrota:   poseJardin(2, { eyes: 'wide', mouth: 'o', gaze: [1, 1] }),
+    jardinMira:    poseJardin(3, { eyes: 'open', mouth: 'smile', gaze: [1, 1] }),
+    jardinHojas:   poseJardin(4, { eyes: 'happy', mouth: 'smile', gaze: [1, 1] }),
+    jardinPimpollo: poseJardin(5, { eyes: 'happy', mouth: 'smile', gaze: [1, 0.7] }),
+    jardinEspera:  poseJardin(6, { eyes: 'open', mouth: 'line', gaze: [1, 0.6] }),
+    jardinCanta:   poseJardin(7, { eyes: 'shut', mouth: 'o', gaze: [0.6, 0] }),
+    jardinFlor:    poseJardin(8, { eyes: 'heart', mouth: 'smile', gaze: [0.8, 0.4] }),
+
+    // ── Guardia (propGuardia), según la tabla GUARDIA ──
+    guardiaSuena:  poseGuardia(0, { eyes: 'shut', mouth: 'line' }),
+    guardiaSalta:  poseGuardia(1, { eyes: 'wide', mouth: 'o', gaze: [0.6, 1] }),
+    guardiaAtiende: poseGuardia(2, { eyes: 'open', mouth: 'o' }),
+    guardiaEscucha: poseGuardia(3, { eyes: 'open', mouth: 'line', gaze: [-0.7, -0.6] }),
+    guardiaPreocupa: poseGuardia(4, { eyes: 'squint', mouth: 'line', gaze: [-0.4, 0.5] }),
+    guardiaEntiende: poseGuardia(5, { eyes: 'wide', mouth: 'o', gaze: [0, -0.7] }),
+    guardiaAsiente: poseGuardia(6, { eyes: 'happy', mouth: 'smile', gaze: [0, 0.8] }),
+    guardiaListo:  poseGuardia(7, { eyes: 'happy', mouth: 'smile' }),
+    guardiaCorta:  poseGuardia(8, { eyes: 'happy', mouth: 'smile', gaze: [0.5, 0.8] }),
+
+    // ── Barrilete (propBarrilete), según la tabla BARRILETE ──
+    barrileteSuelta: poseBarrilete(0, { eyes: 'open', mouth: 'smile', gaze: [0.8, -0.6] }),
+    barrileteSube:   poseBarrilete(1, { eyes: 'happy', mouth: 'smile', gaze: [0.9, -0.9] }),
+    barrileteAlto1:  poseBarrilete(2, { eyes: 'happy', mouth: 'smile', gaze: [1, -1] }),
+    barrileteAlto2:  poseBarrilete(3, { eyes: 'happy', mouth: 'o', gaze: [0.9, -1] }),
+    barrileteCae:    poseBarrilete(4, { eyes: 'wide', mouth: 'o', gaze: [1, -0.4] }),
+    barrileteTira:   poseBarrilete(5, { eyes: 'squint', mouth: 'line', gaze: [1, -0.8] }),
+    barrileteVuelve: poseBarrilete(6, { eyes: 'happy', mouth: 'smile', gaze: [1, -1] }),
+    barrileteRulo1:  poseBarrilete(7, { eyes: 'wide', mouth: 'o', gaze: [1, -1] }),
+    barrileteRulo2:  poseBarrilete(8, { eyes: 'happy', mouth: 'o', gaze: [1, -1] }),
   };
 
   const PROPS_BEHIND = { pintor: 1, pesca: 1, skate: 1, mareo: 1, levita: 1, jueguito: 1 };
@@ -11853,7 +13390,8 @@
     saludo: propSaludo, festejo: propFestejo, piensa: propPiensa, burbuja: propBurbuja,
     baile: propBaile, estornudo: propEstornudo, siesta: propSiesta, mareo: propMareoAtras,
     amor: propAmor, asiente: propAsiente, curioso: propCurioso, levita: propLevitaAtras,
-    escaneo: propEscaneo };
+    escaneo: propEscaneo,
+    pesas: propPesas, magia: propMagia, jardin: propJardin, guardia: propGuardia, barrilete: propBarrilete };
   // Lo que un prop de atrás pone ADELANTE del cuerpo: la tabla va detrás y los
   // brazos del skate, delante (encima de la bata y de las capas del personaje).
   const PROP_DELANTE = { pintor: propPintorDelante, pesca: propPescaDelante, skate: brazosSkate, mareo: propMareoDelante, levita: propLevitaDelante,
@@ -13959,6 +15497,235 @@
       drawF('happyBlink'); await wait(85); drawF('happy'); await wait(260); drawF('base');
     }
 
+    /* ── Gesto: PESAS (se agacha, se traba a la altura de la panza, envión) ──
+     *
+     * Entrada: se agacha, la agarra y tira; la barra apenas despega. Desarrollo:
+     * la sube a la panza. Nudo: ahí se traba y tiembla de un lado al otro,
+     * con gotas de sudor y el cuerpo sacudiéndose (`plt-sacude`). Remate: un
+     * envión la clava arriba de la cabeza, con chispas y un saltito, y la
+     * suelta: polvo en el piso. Todas las clases llevan su seguro de reloj.
+     */
+    async function g_pesas() {
+      if (!canvas) return;
+      canvas.classList.remove('plt-idle');
+      const px = u => (u + 2) * 2;
+      let seguro = null;
+      try {
+        drawF('pesasAgarra'); await wait(420);
+        for (let i = 0; i < 2; i++) { drawF('pesasTira'); await wait(200); drawF('pesasAgarra'); await wait(160); }
+        drawF('pesasTira'); await wait(180);
+        drawF('pesasPanza'); await wait(360);
+        // Se traba: tiembla y suda.
+        seguro = reinicia('plt-sacude', 600);
+        for (let i = 0; i < 4; i++) {
+          drawF(i % 2 ? 'pesasTiembla2' : 'pesasTiembla1');
+          if (i % 2 === 0) emitParticle('gota', { x: px(i ? 3.6 : 12.4), y: px(5.4), dx: i ? -rand(3, 6) : rand(3, 6), dy: rand(4, 7), dur: 600 });
+          await wait(130);
+        }
+        drawF('pesasPanza'); await wait(260);
+        // Envión.
+        drawF('pesasEnvion'); await wait(220);
+        clearTimeout(seguro);
+        seguro = reinicia('plt-pop', 600);
+        drawF('pesasArriba');
+        for (let i = 0; i < 4; i++) {
+          setTimeout(() => emitParticle('chispa', {
+            x: px(8) + rand(-12, 12), y: px(1.8), dx: rand(-8, 8), dy: -rand(5, 10), dur: 650, rot: rand(60, 160),
+          }), i * 90);
+        }
+        await wait(760);
+        drawF('pesasSuelta');
+        burstParticles('polvo', 3, i => ({ x: px(i === 1 ? 2.5 : 13.5), y: px(16.6), dx: (i === 1 ? -1 : 1) * rand(4, 8), dy: -rand(2, 5), dur: 650 }));
+        await wait(520);
+      } finally {
+        clearTimeout(seguro);
+        canvas.classList.remove('plt-sacude', 'plt-pop');
+      }
+      drawF('happyBlink'); await wait(85); drawF('happy'); await wait(260); drawF('base');
+    }
+
+    /* ── Gesto: MAGIA (dos golpes de varita, no sale nada, sale una base) ──
+     *
+     * Entrada: muestra la galera vacía. Desarrollo: golpe, floreo con brillo,
+     * segundo golpe. Nudo: no pasa nada; espía adentro y aparece la pregunta.
+     * Remate: un floreo más y empieza a salir algo... un cilindro de base de
+     * datos, que asoma y sale entero entre estrellas, y saluda con un pop.
+     */
+    async function g_magia() {
+      mirarA('fr');
+      if (!canvas) return;
+      canvas.classList.remove('plt-idle');
+      const px = u => (u + 2) * 2;
+      const brillo = (u, v) => emitParticle('shine', { text: '✦', x: px(u), y: px(v), dx: rand(-4, 4), dy: -rand(5, 9), dur: 700, rot: 90 });
+      let seguro = null;
+      try {
+        drawF('magiaMuestra'); await wait(520);
+        drawF('magiaGolpe'); await wait(200);
+        drawF('magiaFloreo'); brillo(14.9, 5.6); await wait(300);
+        drawF('magiaGolpe2'); await wait(200);
+        drawF('magiaMuestra'); await wait(260);
+        // No salió nada.
+        drawF('magiaEspia');
+        emitParticle('pregunta', { text: '?', x: px(6.4), y: px(8.2), dx: -1, dy: -3, dur: 900 });
+        await wait(700);
+        // Otra vez, con más ganas.
+        drawF('magiaFloreo'); brillo(14.9, 5.6); await wait(200);
+        drawF('magiaGolpe2'); await wait(160);
+        drawF('magiaSale'); brillo(4.2, 10.0); await wait(360);
+        seguro = reinicia('plt-pop', 600);
+        drawF('magiaTada');
+        for (let i = 0; i < 5; i++) {
+          setTimeout(() => emitParticle('estrella', {
+            x: px(4.4) + rand(-6, 6), y: px(10.2), dx: rand(-8, 6), dy: -rand(8, 14), dur: 800, rot: rand(60, 200),
+          }), i * 80);
+        }
+        await wait(820);
+      } finally {
+        clearTimeout(seguro);
+        canvas.classList.remove('plt-pop');
+      }
+      drawF('happyBlink'); await wait(85); drawF('happy'); await wait(260); drawF('base');
+    }
+
+    /* ── Gesto: JARDÍN (riega, el brote crece, el pimpollo no abre, le canta) ──
+     *
+     * Entrada: saca la regadera mirando la maceta. Desarrollo: riega en tandas
+     * y la planta crece una etapa por tanda (brote, hojas, pimpollo), con las
+     * gotas cayendo. Nudo: el pimpollo no abre; espera, pregunta. Remate:
+     * guarda la regadera y le canta (notas) hasta que florece: ojos de
+     * corazón y un corazón que sube de la flor.
+     */
+    async function g_jardin() {
+      mirarA('fr');
+      if (!canvas) return;
+      canvas.classList.remove('plt-idle');
+      const px = u => (u + 2) * 2;
+      const gotas = () => burstParticles('gota', 2, () => ({ x: px(15.5) + rand(-2, 2), y: px(11.6), dx: rand(-1, 1), dy: rand(6, 9), dur: 450 }));
+      try {
+        drawF('jardinSaca'); await wait(460);
+        drawF('jardinRiega'); gotas(); await wait(420);
+        drawF('jardinBrota'); gotas(); await wait(380);
+        drawF('jardinMira'); await wait(360);
+        drawF('jardinHojas'); gotas(); await wait(420);
+        drawF('jardinPimpollo'); gotas(); await wait(420);
+        // El pimpollo no abre.
+        drawF('jardinEspera');
+        emitParticle('pregunta', { text: '?', x: px(15.6), y: px(8.8), dx: 1, dy: -3, dur: 900 });
+        await wait(820);
+        // Le canta.
+        drawF('jardinCanta');
+        for (let i = 0; i < 3; i++) {
+          setTimeout(() => emitParticle('note', {
+            text: ['♪', '♫'][i % 2], x: px(11.2), y: px(10.2), dx: rand(6, 10), dy: -rand(6, 10), dur: 900, rot: rand(-60, 60),
+          }), i * 220);
+        }
+        await wait(760);
+        drawF('jardinFlor');
+        emitParticle('corazon', { x: px(15.3), y: px(9.2), dx: rand(-2, 2), dy: -rand(8, 12), dur: 1000 });
+        await wait(820);
+      } finally {
+        canvas.classList.remove('plt-pop');
+      }
+      drawF('happyBlink'); await wait(85); drawF('happy'); await wait(260); drawF('base');
+    }
+
+    /* ── Gesto: GUARDIA (suena el celular, atiende, se preocupa, lo resuelve) ──
+     *
+     * Es el gesto del equipo: la llamada de guardia. Entrada: dormita y el
+     * celular vibra; se despierta de un salto. Desarrollo: atiende y escucha
+     * mirando para arriba. Nudo: se preocupa (gota) y de golpe entiende qué es
+     * (el aviso "!"). Remate: asiente dos veces, pulgar arriba y corta,
+     * aliviado.
+     */
+    async function g_guardia() {
+      if (!canvas) return;
+      canvas.classList.remove('plt-idle');
+      const px = u => (u + 2) * 2;
+      let seguro = null;
+      try {
+        for (let i = 0; i < 2; i++) {
+          drawF('guardiaSuena'); await wait(180);
+          drawF('blink'); await wait(120);
+        }
+        seguro = reinicia('plt-pop', 600);
+        drawF('guardiaSalta');
+        emitParticle('aviso', { x: px(13.4), y: px(8.6), dx: 2, dy: -4, dur: 700 });
+        await wait(420);
+        drawF('guardiaAtiende'); await wait(460);
+        drawF('guardiaEscucha'); await wait(560);
+        drawF('guardiaPreocupa');
+        emitParticle('gota', { x: px(4.2), y: px(5.0), dx: -rand(3, 6), dy: rand(4, 7), dur: 650 });
+        await wait(620);
+        clearTimeout(seguro);
+        seguro = reinicia('plt-pop', 600);
+        drawF('guardiaEntiende');
+        emitParticle('aviso', { x: px(8), y: px(1.0), dx: 0, dy: -4, dur: 800 });
+        await wait(480);
+        for (let i = 0; i < 2; i++) {
+          drawF('guardiaAsiente'); await wait(180);
+          drawF('guardiaAtiende'); await wait(160);
+        }
+        drawF('guardiaListo');
+        emitParticle('shine', { text: '✦', x: px(2.2), y: px(6.6), dx: -3, dy: -6, dur: 700, rot: 90 });
+        await wait(620);
+        drawF('guardiaCorta'); await wait(420);
+      } finally {
+        clearTimeout(seguro);
+        canvas.classList.remove('plt-pop');
+      }
+      drawF('happyBlink'); await wait(85); drawF('happy'); await wait(260); drawF('base');
+    }
+
+    /* ── Gesto: BARRILETE (lo remonta, se cae, tironea, rulo) ──
+     *
+     * Entrada: lo suelta y sube con el viento (rayitas de viento cruzando).
+     * Desarrollo: arriba, mecido de un lado al otro. Nudo: el viento para, el
+     * hilo se comba y el barrilete pica; tironea dos veces. Remate: vuelve a
+     * subir y hace dos rulos, con chispas arriba.
+     */
+    async function g_barrilete() {
+      mirarA('fr');
+      if (!canvas) return;
+      canvas.classList.remove('plt-idle');
+      const px = u => (u + 2) * 2;
+      const viento = () => emitParticle('dash', { x: px(9) + rand(-4, 4), y: px(rand(0, 4)), dx: rand(8, 12), dy: 0, dur: 360 });
+      try {
+        drawF('barrileteSuelta'); await wait(360);
+        drawF('barrileteSube'); viento(); await wait(320);
+        for (let i = 0; i < 4; i++) {
+          drawF(i % 2 ? 'barrileteAlto2' : 'barrileteAlto1');
+          if (i % 2 === 0) viento();
+          await wait(280);
+        }
+        // Para el viento: se cae.
+        drawF('barrileteCae');
+        emitParticle('pregunta', { text: '!', x: px(14.4), y: px(5.0), dx: 1, dy: -3, dur: 700 });
+        await wait(520);
+        for (let i = 0; i < 2; i++) {
+          drawF('barrileteTira'); await wait(200);
+          drawF('barrileteCae'); await wait(160);
+        }
+        drawF('barrileteTira'); viento(); await wait(220);
+        drawF('barrileteSube'); viento(); await wait(240);
+        drawF('barrileteVuelve'); await wait(280);
+        // Remate: dos rulos.
+        for (let i = 0; i < 2; i++) {
+          drawF('barrileteRulo1'); await wait(150);
+          drawF('barrileteRulo2'); await wait(150);
+        }
+        drawF('barrileteVuelve');
+        for (let i = 0; i < 3; i++) {
+          setTimeout(() => emitParticle('chispa', {
+            x: px(15.3) + rand(-4, 4), y: px(1.2), dx: rand(-6, 6), dy: -rand(5, 9), dur: 600, rot: rand(60, 160),
+          }), i * 90);
+        }
+        await wait(560);
+      } finally {
+        canvas.classList.remove('plt-pop');
+      }
+      drawF('happyBlink'); await wait(85); drawF('happy'); await wait(260); drawF('base');
+    }
+
     /* El pool de las paradas: las mismas que corría el topbar, en el mismo orden.
      * `skate` quedó afuera porque el pool se escribió cuando caminaba por el
      * topbar, donde ya se desplazaba solo. El dock y los espejos lo suman
@@ -13970,6 +15737,7 @@
       g_levitate, g_guitar,
       g_dance, g_sleep, g_dizzy, g_love, g_magnify, g_sneeze,
       g_pesca, g_pintor, g_malabares, g_yoyo, g_jueguito, g_mate, g_avion, g_rubik, g_selfie,
+      g_pesas, g_magia, g_jardin, g_guardia, g_barrilete,
     ];
 
     /*
@@ -14022,10 +15790,17 @@
      * peso 4 5,85 % cada uno y los otros 1,8 %; en el espejo los doce de peso
      * 4 5,55 % y los otros 1,7 %. Contra el sorteo parejo (3,2 %) cada gesto
      * pesado sigue saliendo casi el doble.
+     *
+     * Las pesas, la magia, el jardín, la guardia y el barrilete (21/10/2026)
+     * también pesan 4. Con el pool en 36 (37 en el espejo), medido igual: en
+     * topbar y vitrina los dieciséis de peso 4 4,6 % cada uno y los otros
+     * 1,3 %; en el espejo los diecisiete 4,4 % y los otros 1,3 %. Contra el
+     * sorteo parejo (2,8 %) cada gesto pesado sigue saliendo más de 1,5 veces.
      */
     const PESO_GESTO = new Map([[g_guitar, 4], [g_skate, 4], [g_coffee, 4],
       [g_pesca, 4], [g_pintor, 4], [g_malabares, 4], [g_yoyo, 4], [g_jueguito, 4], [g_mate, 4], [g_avion, 4],
-      [g_rubik, 4], [g_selfie, 4]]);
+      [g_rubik, 4], [g_selfie, 4],
+      [g_pesas, 4], [g_magia, 4], [g_jardin, 4], [g_guardia, 4], [g_barrilete, 4]]);
     const RECIENTES = 4;
     const recientes = [];
     function elegir(lista) {
@@ -14058,6 +15833,7 @@
       pesca: g_pesca, pintor: g_pintor, malabares: g_malabares,
       yoyo: g_yoyo, jueguito: g_jueguito, mate: g_mate, avion: g_avion,
       rubik: g_rubik, selfie: g_selfie,
+      pesas: g_pesas, magia: g_magia, jardin: g_jardin, guardia: g_guardia, barrilete: g_barrilete,
     };
   }
 
@@ -16505,6 +18281,11 @@
     { id: 'avion',     name: 'Avión',      icon: '✈️', key: 'avion' },
     { id: 'rubik',     name: 'Rubik',      icon: '🧊', key: 'rubik' },
     { id: 'selfie',    name: 'Selfie',     icon: '🤳', key: 'selfie' },
+    { id: 'pesas',     name: 'Pesas',      icon: '🏋️', key: 'pesas' },
+    { id: 'magia',     name: 'Magia',      icon: '🎩', key: 'magia' },
+    { id: 'jardin',    name: 'Jardín',     icon: '🌱', key: 'jardin' },
+    { id: 'guardia',   name: 'Guardia',    icon: '📞', key: 'guardia' },
+    { id: 'barrilete', name: 'Barrilete',  icon: '🪁', key: 'barrilete' },
   ];
 
   let _vitrinaAuto = null;
@@ -17077,7 +18858,8 @@
     },
     // ── Accesorios de cabeza ──
     listHats: () => HAT_PRESETS.slice(),
-    listHatColors:  () => HAT_COLOR_PRESETS.slice(),
+    // `muestra`: lo que se ve con "Natural" en el accesorio puesto.
+    listHatColors:  () => HAT_COLOR_PRESETS.map(c => (c.id === HAT_DARK ? Object.assign({ muestra: HAT_NATURAL[hat] || HAT_DARK }, c) : c)),
     listHatColors2: () => HAT_DETAIL_PRESETS.slice(),
     getHat: () => hat,
     setHat(id) {

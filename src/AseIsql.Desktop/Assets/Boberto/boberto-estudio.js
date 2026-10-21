@@ -436,7 +436,13 @@
       {
         id: 'color', tab: 'Color del accesorio', corto: 'Color', apartado: 'accesorio', forma: 'muestra', vestir: 'accesorio',
         items: () => B.listHatColors(),
-        adorno: (it) => sw(it.id),
+        // "Natural" muestra el color de fábrica del accesorio puesto, no un
+        // gris fijo; sincronizar() lo repinta cuando cambia el accesorio.
+        adorno: (it) => {
+          const t = sw(it.muestra || it.id);
+          if (it.muestra) t.dataset.natural = '1';
+          return t;
+        },
         hacer: (it) => B.setHatColor(it.id),
         puesto: () => B.getHatColor(),
         libre: {
@@ -565,6 +571,12 @@
           e.b.setAttribute('aria-pressed', e.estado() ? 'true' : 'false');
         });
       });
+      const natural = B.listHatColors().find((c) => c.muestra);
+      if (natural) {
+        Object.keys(paneleDe).forEach((id) => {
+          paneleDe[id].querySelectorAll('.bes-tono[data-natural]').forEach((t) => t.style.setProperty('--tono', natural.muestra));
+        });
+      }
       libres.forEach((l) => {
         const puesto = !!l.libre.puesto();
         l.lab.dataset.puesto = puesto ? '1' : '0';
