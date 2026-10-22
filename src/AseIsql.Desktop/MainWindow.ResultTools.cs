@@ -11,22 +11,24 @@ namespace AseIsql.Desktop;
 
 public partial class MainWindow
 {
-    private void ClearResults(bool includePinned = false)
+    private void ClearResults(bool includePinned = false) => ClearResults(activeSession, includePinned);
+    private void ClearResults(SessionWorkspace owner, bool includePinned)
     {
-        foreach (var tab in Workspace.Items.OfType<TabItem>().Where(t => t.Tag is DataTable table && (includePinned || !pinnedResults.Contains(table))).ToArray()) CloseResult(tab);
+        foreach (var tab in owner.Tabs.Where(t => t.Tag is DataTable table && (includePinned || !owner.Pins.Contains(table))).ToArray()) CloseResult(tab);
     }
-    private void TogglePin(TabItem tab)
+    private void TogglePin(TabItem tab) => TogglePin(OwnerOf(tab) ?? activeSession, tab);
+    private void TogglePin(SessionWorkspace owner, TabItem tab)
     {
         if (tab.Tag is not DataTable table) return;
-        if (pinnedResults.Remove(table)) tab.Header = tab.Header.ToString()!.Replace("📌 ", "");
+        if (owner.Pins.Remove(table)) tab.Header = tab.Header.ToString()!.Replace("📌 ", "");
         else {
-            if (pinnedResults.Count >= 8) { ShowError("You can pin up to 8 results."); return; }
+            if (owner.Pins.Count >= 8) { ShowError("You can pin up to 8 results."); return; }
             long bytes = 0;
-            foreach (var candidate in pinnedResults.Append(table))
+            foreach (var candidate in owner.Pins.Append(table))
                 foreach (DataRow row in candidate.Rows)
                     foreach (object? value in row.ItemArray) bytes += value is string s ? s.Length * 2L : value is byte[] binary ? binary.Length : 16;
             if (bytes > 64 * 1024 * 1024) { ShowError("Pinned results exceed 64 MiB of estimated values."); return; }
-            pinnedResults.Add(table); tab.Header = "📌 " + tab.Header;
+            owner.Pins.Add(table); tab.Header = "📌 " + tab.Header;
         }
     }
     private static DataTable VisibleResult(DataGrid grid)

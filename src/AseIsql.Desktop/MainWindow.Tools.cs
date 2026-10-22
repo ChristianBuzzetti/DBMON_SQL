@@ -29,10 +29,10 @@ public partial class MainWindow
         public bool Fits(ServerPlatform platform) => Engine == null || Engine.Equals(platform.Tag(), StringComparison.OrdinalIgnoreCase);
     }
     private readonly List<LibraryItem> favorites = [];
-    private readonly HashSet<DataTable> pinnedResults = [];
-    private readonly Dictionary<DataTable, (string Sql, string Source)> resultOrigins = [];
-    private string executingSql = "";
-    private readonly List<ICSharpCode.AvalonEdit.Document.TextAnchor> bookmarks=[];
+    private HashSet<DataTable> pinnedResults => activeSession.Pins;
+    private Dictionary<DataTable, (string Sql, string Source)> resultOrigins => activeSession.Origins;
+    private string executingSql { get => activeSession.ExecutingSql; set => activeSession.ExecutingSql = value; }
+    private List<ICSharpCode.AvalonEdit.Document.TextAnchor> bookmarks => activeSession.Bookmarks;
     private void ToggleBookmark()
     {
         QueryClick(this,new RoutedEventArgs()); bookmarks.RemoveAll(anchor=>anchor.IsDeleted);
@@ -140,6 +140,15 @@ public partial class MainWindow
     }
     private void Zoom(double delta) => ApplyAppearance(appearance with {EditorSize=Math.Clamp(Editor.FontSize+delta,9,32)});
     private void WrapClick(object sender, RoutedEventArgs e) => Editor.WordWrap = !Editor.WordWrap;
+    // Ctrl + wheel resizes the SQL text; without Ctrl the editor keeps the wheel for scrolling.
+    public static double WheelZoomStep(ModifierKeys modifiers, int delta) =>
+        modifiers != ModifierKeys.Control || delta == 0 ? 0 : delta > 0 ? 1 : -1;
+    private void EditorWheel(object sender, System.Windows.Input.MouseWheelEventArgs e)
+    {
+        double step = WheelZoomStep(Keyboard.Modifiers, e.Delta);
+        if (step == 0) return;
+        e.Handled = true; Zoom(step);
+    }
     private void ZoomInClick(object sender, RoutedEventArgs e) => Zoom(1);
     private void ZoomOutClick(object sender, RoutedEventArgs e) => Zoom(-1);
     private void ZoomResetClick(object sender, RoutedEventArgs e) => ApplyAppearance(appearance with {EditorSize=15});

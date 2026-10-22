@@ -45,7 +45,7 @@ public partial class MainWindow
 
         var savedNames = databaseNames;
         databaseNames = Enumerable.Range(0, 100).Select(i => i == 0 ? "mon_db" : "db_" + i).ToList();
-        var menu = CreateDatabaseMenu();
+        var menu = CreateDatabaseMenu(activeSession);
         try
         {
             menu.MaxHeight = 180;

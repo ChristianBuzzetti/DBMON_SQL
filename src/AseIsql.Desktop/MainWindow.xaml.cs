@@ -20,12 +20,12 @@ namespace AseIsql.Desktop;
 public partial class MainWindow : Window
 {
     private const string DemoSql = "-- Synthetic fixture. No ASE connection.\n-- F9 executes the script or selected statements.\n\nSELECT 42 AS numero, 'Hello, ASE' AS saludo, NULL AS vacio;\nGO\nSELECT 2026 AS anio, 10.13 AS version, 'Independent query' AS descripcion;";
-    private IQueryEngine engine = new DisconnectedQueryEngine();
+    private IQueryEngine engine { get => activeSession.Engine; set => activeSession.Engine = value; }
     private readonly bool isSmoke = Environment.GetCommandLineArgs().Contains("--smoke");
-    private readonly ObservableCollection<LogMessage> log = [];
-    private CancellationTokenSource? running;
-    private string? documentPath;
-    private string savedText = "";
+    private ObservableCollection<LogMessage> log => activeSession.Messages;
+    private CancellationTokenSource? running { get => activeSession.Running; set => activeSession.Running = value; }
+    private string? documentPath { get => activeSession.Path; set => activeSession.Path = value; }
+    private string savedText { get => activeSession.SavedText; set => activeSession.SavedText = value; }
     private bool ready;
     private bool logVisible = true;
     private GridLength savedLogHeight = new(190);
@@ -42,10 +42,12 @@ public partial class MainWindow : Window
         messageMenu.Items.Add(originalMessage); Messages.ContextMenu=messageMenu;
         Messages.PreviewMouseRightButtonDown+=(_,args)=> { var row=FindAncestor<DataGridRow>(args.OriginalSource as DependencyObject); if(row!=null)Messages.SelectedItem=row.Item; };
         search = SearchPanel.Install(Editor.TextArea);
+        Editor.PreviewMouseWheel += EditorWheel;
         AttachEditorMenu();
         if(isSmoke) engine=ShowcaseDirectory!=null?new ShowcaseEngine():new DemoQueryEngine();
         Editor.Text = isSmoke && ShowcaseDirectory==null ? DemoSql : "";
         savedText = Editor.Text;
+        InitializeSessions();
         ready = true;
         InitializeAppearance();
         SourceInitialized += (_, _) => Themes.ApplyChrome(this, Themes.Current);
@@ -90,6 +92,7 @@ public partial class MainWindow : Window
         else if (key == Key.F2 && modifiers is ModifierKeys.None or ModifierKeys.Shift) { GoBookmark(modifiers==ModifierKeys.Shift); e.Handled=true; }
         // Esc ends a repeat as well as the run in progress: nothing keeps firing after the user asked it to stop.
         else if (key == Key.Escape && (running != null || repeat != null)) { if (repeat != null) StopRepeat("Stopped with Esc."); if (running != null) _ = running.CancelAsync(); e.Handled = true; }
+        else if (key == Key.Up && modifiers == ModifierKeys.None && Editor.TextArea.IsKeyboardFocusWithin && MoveCaretToStartOfFirstLine()) e.Handled = true;
         else if (key == Key.Down && modifiers == ModifierKeys.None && Editor.TextArea.IsKeyboardFocusWithin && MoveCaretToEndOfLastLine()) e.Handled = true;
         else if (key is Key.Up or Key.Down && modifiers == ModifierKeys.Shift && Editor.TextArea.IsKeyboardFocusWithin && ExtendSelectionToDocumentEdge(key == Key.Up)) e.Handled = true;
         else if (modifiers == ModifierKeys.Control)
@@ -132,6 +135,25 @@ public partial class MainWindow : Window
         return true;
     }
 
+    // AvalonEdit leaves the caret where it is when Up is pressed on the first line. Move it to the start of that line.
+    // A wrapped first line still steps through its visual rows; only the first row jumps to the line start.
+    private bool MoveCaretToStartOfFirstLine()
+    {
+        var area = Editor.TextArea;
+        var document = Editor.Document;
+        if (area.Caret.Line != 1) return false;
+        if (Editor.WordWrap)
+        {
+            var visual = area.TextView.GetOrConstructVisualLine(document.GetLineByNumber(1));
+            if (visual.TextLines.Count > 1 && visual.GetTextLine(area.Caret.VisualColumn) != visual.TextLines[0]) return false;
+        }
+        int target = document.GetLineByNumber(1).Offset;
+        if (area.Caret.Offset == target && area.Selection.IsEmpty) return true;
+        area.ClearSelection();
+        area.Caret.Offset = target;
+        return true;
+    }
+
     // AvalonEdit leaves the caret where it is when Down is pressed on the last line. Move it to the end of that line.
     // A wrapped last line still steps through its visual rows; only the final row jumps to the line end.
     private bool MoveCaretToEndOfLastLine()
@@ -150,67 +172,86 @@ public partial class MainWindow : Window
         area.Caret.Offset = target;
         return true;
     }
-    private async Task ExecuteAsync(bool lineOnly = false, bool selectionOnly = false, string? sqlOverride = null, string? label = null, bool repeatRun = false, int? replaceRun = null)
+    private Task ExecuteAsync(bool lineOnly = false, bool selectionOnly = false, string? sqlOverride = null, string? label = null, bool repeatRun = false, int? replaceRun = null)
+        => ExecuteAsync(activeSession, lineOnly, selectionOnly, sqlOverride, label, repeatRun, replaceRun);
+
+    // One session's execution. The editor is read while that session is on screen; everything after the await is
+    // published into the owning workspace, so another server's tab can be used, and run, while this one works.
+    private async Task ExecuteAsync(SessionWorkspace owner, bool lineOnly = false, bool selectionOnly = false, string? sqlOverride = null, string? label = null, bool repeatRun = false, int? replaceRun = null)
     {
-        if (running != null || changingSession) return;
-        lastRunFailed = true;
+        if (owner.Running != null || owner.Changing || owner.CatalogActions != 0) return;
+        if (!repeatRun && owner.Repeat != null) { SetStatus(owner, "Stop repeating before starting another execution in this session. The repeat is still active."); return; }
+        bool mounted = IsOnScreen(owner);
+        // The editor is only readable while this session is mounted; a background run always carries its own SQL.
+        if (sqlOverride == null && !mounted) { SetStatus(owner, "Open this session's tab to run its editor."); return; }
+        owner.LastRunFailed = true;
         // Offline sessions never execute: the attempt is reported, and connecting stays an explicit action.
-        if(engine is DisconnectedQueryEngine) { ClearMessages(); AddMessage(1,"CLIENT","Not connected. SQL was not executed; connect with F11 or the session button, then run it again."); StatusText.Text="Disconnected · SQL was not executed"; SetLogVisible(true); return; }
-        ClearMessages();
+        if (owner.Engine is DisconnectedQueryEngine)
+        {
+            ClearMessages(owner);
+            AddMessage(owner, 1, "CLIENT", "Not connected. SQL was not executed; connect with F11 or the session button, then run it again.");
+            SetStatus(owner, "Disconnected · SQL was not executed"); ShowMessages(owner); return;
+        }
+        ClearMessages(owner);
         if (sqlOverride == null && selectionOnly && Editor.SelectionLength == 0)
         {
-            AddMessage(1, "CLIENT", "Ctrl+E: select SQL with Shift+arrows before executing.");
-            StatusText.Text = "No selection · SQL was not executed"; Workspace.SelectedItem = QueryTab; Editor.Focus(); SetLogVisible(true); return;
+            AddMessage(owner, 1, "CLIENT", "Ctrl+E: select SQL with Shift+arrows before executing.");
+            SetStatus(owner, "No selection · SQL was not executed"); Workspace.SelectedItem = QueryTab; Editor.Focus(); ShowMessages(owner); return;
         }
         string sql = sqlOverride ?? (lineOnly ? Editor.Document.GetText(Editor.Document.GetLineByNumber(Editor.TextArea.Caret.Line)) :
             Editor.SelectionLength > 0 ? Editor.SelectedText : Editor.Text);
+        // Named before the await, while the editor still belongs to this session.
+        string scope = label ?? (lineOnly ? "current line" : Editor.SelectionLength > 0 ? "selection" : "script");
         if (sqlOverride == null)
         {
             // :name placeholders ask for values; the editor keeps them, only this run uses the filled text.
             if (FillParameters(sql, lineOnly ? "Current line" : Editor.SelectionLength > 0 ? "Selection" : "Query", "Run") is not { } filled)
-            { AddMessage(0, "CLIENT", "Run cancelled while filling parameters. SQL was not executed."); StatusText.Text = "Cancelled · parameters"; return; }
+            { AddMessage(owner, 0, "CLIENT", "Run cancelled while filling parameters. SQL was not executed."); SetStatus(owner, "Cancelled · parameters"); return; }
             sql = filled;
         }
         using var cancellation = new CancellationTokenSource();
-        executingSql = sql;
-        running = cancellation;
-        ExecuteButton.IsEnabled = false;
-        CancelButton.IsEnabled = true;
-        ConnectButton.IsEnabled = ConnectMenu.IsEnabled = DisconnectMenu.IsEnabled = false;
-        string runningName = engine.Name;
-        StatusText.Text = "Executing · " + runningName + " · Esc cancels";
-        AddMessage(0, SourceLabel, "Execute · " + (label ?? (lineOnly ? "current line" : Editor.SelectionLength > 0 ? "selection" : "script")));
+        owner.ExecutingSql = sql;
+        owner.Running = cancellation;
+        RefreshFor(owner);
+        var executingEngine = owner.Engine;
+        string runningName = executingEngine.Name;
+        SetStatus(owner, "Executing · " + runningName + " · Esc cancels");
+        AddMessage(owner, 0, SourceLabelOf(owner), "Execute · " + scope);
         var timer = Stopwatch.StartNew();
         // Long batches show that the session is still working and for how long; the tick only rewrites the status line.
         var ticker = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
-        ticker.Tick += (_, _) => StatusText.Text = $"Executing · {timer.Elapsed.TotalSeconds:F1} s · {runningName} · Esc cancels";
+        ticker.Tick += (_, _) => SetStatus(owner, $"Executing · {timer.Elapsed.TotalSeconds:F1} s · {runningName} · Esc cancels");
         ticker.Start();
         try
         {
-            var output = await Task.Run(() => engine.Execute(sql, cancellation.Token), cancellation.Token);
+            var output = await Task.Run(() => executingEngine.Execute(sql, cancellation.Token), cancellation.Token);
             double elapsedMs = timer.Elapsed.TotalMilliseconds; ticker.Stop();
             int rowCount = output.Tables.Sum(t => t.Rows.Count);
-            if (engine is DemoQueryEngine) cancellation.Token.ThrowIfCancellationRequested();
+            if (owner.Engine is DemoQueryEngine) cancellation.Token.ThrowIfCancellationRequested();
             // Results accumulate; a re-run replaces only its own earlier tabs.
-            var run = NewRun(sql, engine); lastRunId = run.Id;
-            PublishResults(output.Tables, run, replaceRun);
-            foreach (QueryMessage message in output.Messages) AddMessage(message.Number, message.Source, message.Text, message.RawText);
-            if (output.OmittedMessages > 0) AddMessage(0, "CLIENT", $"{output.OmittedMessages} earlier messages were omitted by the retention limit.");
+            var run = NewRun(owner, sql, owner.Engine); owner.LastRunId = run.Id;
+            PublishResults(owner, output.Tables, run, replaceRun);
+            foreach (QueryMessage message in output.Messages) AddMessage(owner, message.Number, message.Source, message.Text, message.RawText);
+            if (output.OmittedMessages > 0) AddMessage(owner, 0, "CLIENT", $"{output.OmittedMessages} earlier messages were omitted by the retention limit.");
             // A repeat records its SQL once when it starts, not on every run.
             if (!repeatRun) RecordHistory(sql);
-            lastRunFailed = output.Error != null;
-            if (output.Error != null) { AddMessage(1, output.ErrorSource, output.Error, output.ErrorRawText); SetLogVisible(true); }
-            else AddMessage(0, SourceLabel, $"Done · {Counts.Of(output.Tables.Count, "result")} · {Counts.Of(rowCount, "row")} · {Elapsed(elapsedMs)}");
+            owner.LastRunFailed = output.Error != null;
+            if (output.Error != null) { AddMessage(owner, 1, output.ErrorSource, output.Error, output.ErrorRawText); ShowMessages(owner); }
+            else AddMessage(owner, 0, SourceLabelOf(owner), $"Done · {Counts.Of(output.Tables.Count, "result")} · {Counts.Of(rowCount, "row")} · {Elapsed(elapsedMs)}");
             // An empty run under NOEXEC looks like a broken server; say which option produced it, every time.
-            if (aseOptions.NoExec && engine is AseIsql.Odbc.OdbcSession { Platform: ServerPlatform.Ase }) AddMessage(0, "CLIENT", "NOEXEC is on: the server compiled this script and executed none of it. Tools › SAP ASE session options turns it off."
-                + (aseOptions.StatisticsSilencedByNoExec ? " Statistics IO and statistics time measure execution, so they report nothing until it is off." : ""));
-            if (output.Tables.Count > 0) Workspace.SelectedItem = Workspace.Items.OfType<TabItem>().First(tab => ReferenceEquals(tab.Tag, output.Tables[0]));
-            StatusText.Text = output.Error == null ? $"Ready · {Counts.Of(output.Tables.Count, "result")} · {Counts.Of(rowCount, "row")} · {Elapsed(elapsedMs)} · {SourceLabel}" : "Error / partial output · see Messages";
+            if (owner.Options.NoExec && owner.Engine is AseIsql.Odbc.OdbcSession { Platform: ServerPlatform.Ase }) AddMessage(owner, 0, "CLIENT", "NOEXEC is on: the server compiled this script and executed none of it. Tools › SAP ASE session options turns it off."
+                + (owner.Options.StatisticsSilencedByNoExec ? " Statistics IO and statistics time measure execution, so they report nothing until it is off." : ""));
+            // The new result becomes this session's selection, whether or not its tab is the one on screen.
+            if (output.Tables.Count > 0 && owner.Tabs.FirstOrDefault(tab => ReferenceEquals(tab.Tag, output.Tables[0])) is { } firstTab)
+            {
+                if (IsOnScreen(owner)) Workspace.SelectedItem = firstTab; else owner.SelectedTab = firstTab;
+            }
+            SetStatus(owner, output.Error == null ? $"Ready · {Counts.Of(output.Tables.Count, "result")} · {Counts.Of(rowCount, "row")} · {Elapsed(elapsedMs)} · {SourceLabelOf(owner)}" : "Error / partial output · see Messages");
         }
-        catch (OperationCanceledException) { AddMessage(0, SourceLabel, "Execution cancelled. No new results were published."); StatusText.Text = "Cancelled · " + SourceLabel; }
+        catch (OperationCanceledException) { AddMessage(owner, 0, SourceLabelOf(owner), "Execution cancelled. No new results were published."); SetStatus(owner, "Cancelled · " + SourceLabelOf(owner)); }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
-        { AddMessage(1, "CLIENT", "Unable to display the result: " + ex.Message); StatusText.Text = "Error · see Messages"; SetLogVisible(true); }
-        finally { ticker.Stop(); running = null; ExecuteButton.IsEnabled = true; CancelButton.IsEnabled = false; RefreshConnection(); }
+        { AddMessage(owner, 1, "CLIENT", "Unable to display the result: " + ex.Message); SetStatus(owner, "Error · see Messages"); ShowMessages(owner); }
+        finally { ticker.Stop(); owner.Running = null; RefreshFor(owner); }
     }
 
     private static string Elapsed(double milliseconds) => milliseconds < 1000
@@ -233,10 +274,11 @@ public partial class MainWindow : Window
         return stem.Length == 0 ? "Result" : stem;
     }
 
-    private TabItem AddResult(DataTable table, int number, string? source = null, string? sql = null, string? header = null, string? server = null, int? insertAt = null)
+    private TabItem AddResult(DataTable table, int number, string? source = null, string? sql = null, string? header = null, string? server = null, int? insertAt = null, SessionWorkspace? owner = null)
     {
-        string origin = source ?? OriginOf(engine);
-        resultOrigins[table] = (sql ?? executingSql, origin);
+        var target = owner ?? activeSession;
+        string origin = source ?? OriginOf(target.Engine);
+        target.Origins[table] = (sql ?? target.ExecutingSql, origin);
         // Result rows keep the compact minimum height for single-line cells, grow for multiline payloads (such as
         // XML plans or stored procedure text), scroll smoothly by pixel, and can be dragged taller or shorter.
         var grid = new DataGrid { ItemsSource = table.DefaultView, AutoGenerateColumns = false, RowHeight = double.NaN };
@@ -266,7 +308,7 @@ public partial class MainWindow : Window
             ToolTip = (server != null ? "Server " + server + " · " : "") + "Source: " + origin + " · double-click to rename · middle-click to close" };
         AttachResultActions(tab, grid);
         AddResultTools(tab, grid, body, label);
-        if (insertAt is int index && index >= 0 && index <= Workspace.Items.Count) Workspace.Items.Insert(index, tab); else Workspace.Items.Add(tab);
+        MountResultTab(target, tab, insertAt ?? target.Tabs.Count);
         return tab;
     }
 
@@ -295,10 +337,7 @@ public partial class MainWindow : Window
         return Math.Clamp(Math.Ceiling(widest) + 28, 72, MaxFittedColumn);
     }
 
-    private void ClearMessages()
-    {
-        log.Clear();LogCount.Text="0 messages";
-    }
+    private void ClearMessages() => ClearMessages(activeSession);
 
     private void WorkAreaSizeChanged(object sender,SizeChangedEventArgs e)
     {
@@ -306,13 +345,7 @@ public partial class MainWindow : Window
         LogRow.MaxHeight=e.NewSize.Height<380?Math.Max(128,e.NewSize.Height*.4):double.PositiveInfinity;
     }
 
-    private void AddMessage(int number, string source, string text, string? rawText = null)
-    {
-        log.Add(new LogMessage(DateTime.Now.ToString("HH:mm:ss.fff", CultureInfo.InvariantCulture), number, source, text, rawText));
-        if (log.Count > 500) log.RemoveAt(0);
-        LogCount.Text = $"{log.Count} {(log.Count==1?"message":"messages")}";
-        if (Messages.IsVisible) Messages.ScrollIntoView(log[^1]);
-    }
+    private void AddMessage(int number, string source, string text, string? rawText = null) => AddMessage(activeSession, number, source, text, rawText);
 
     private bool ConfirmDiscard()
     {
@@ -333,7 +366,9 @@ public partial class MainWindow : Window
         Editor.Focus();
     }
 
-    private void UpdateTitle() => Title = $"{(repeat != null ? "⚠ REPEATING EVERY " + RepeatPlan.Describe(repeat.Interval).ToUpperInvariant() + " · " : "")}{(Editor.Text != savedText ? "* " : "")}{(documentPath == null ? "Untitled.sql" : Path.GetFileName(documentPath))} — DBMON SQL · {engine.Name}";
+    // The title names the document and the product, nothing else: the server, platform and database live in the
+    // session tab and the status bar, and one title cannot speak for several sessions at once.
+    private void UpdateTitle() => Title = $"{(repeat != null ? "⚠ REPEATING EVERY " + RepeatPlan.Describe(repeat.Interval).ToUpperInvariant() + " · " : "")}{(Editor.Text != savedText ? "* " : "")}{(documentPath == null ? "Untitled.sql" : Path.GetFileName(documentPath))} — DBMON SQL";
     private void EditorChanged(object sender, EventArgs e) { if (ready) UpdateTitle(); }
     private void NewClick(object sender, RoutedEventArgs e) { if (ConfirmDiscard()) SetDocument("", null); }
     private void OpenClick(object sender, RoutedEventArgs e)
@@ -368,7 +403,7 @@ public partial class MainWindow : Window
     // The Run chevron: every other way to run, with its shortcut, enabled for the current state.
     private void RunMenuClick(object sender, RoutedEventArgs e)
     {
-        bool idle = running == null && !changingSession, online = engine is not DisconnectedQueryEngine;
+        bool idle = running == null && !changingSession && repeat == null && catalogActions == 0, online = engine is not DisconnectedQueryEngine;
         var menu = new ContextMenu { PlacementTarget = ExecuteButton, Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom };
         void Item(string header, string gesture, string glyph, Action action, bool enabled)
         {
@@ -459,6 +494,15 @@ public partial class MainWindow : Window
             Require(MoveCaretToEndOfLastLine() && Editor.TextArea.Caret.Offset == Editor.Document.TextLength, "Down at the end of the last line stays there");
             Editor.Select(0, 0); Editor.TextArea.Caret.Offset = 3;
             Require(!MoveCaretToEndOfLastLine() && Editor.TextArea.Caret.Offset == 3, "Down on an earlier line keeps native movement");
+            Require(MoveCaretToStartOfFirstLine() && Editor.SelectionLength == 0 && Editor.TextArea.Caret.Offset == 0, "Up on the first line moves the caret to the start of that line");
+            Require(MoveCaretToStartOfFirstLine() && Editor.TextArea.Caret.Offset == 0, "Up at the start of the first line stays there");
+            Editor.Select(0, 0); Editor.TextArea.Caret.Offset = lastLineStart + 3;
+            Require(!MoveCaretToStartOfFirstLine() && Editor.TextArea.Caret.Offset == lastLineStart + 3, "Up on a later line keeps native movement");
+            string twoLineSql = Editor.Text;
+            Editor.Text = "select top 100 * from sample";
+            Editor.Select(0, 0); Editor.TextArea.Caret.Offset = Editor.Document.TextLength;
+            Require(MoveCaretToStartOfFirstLine() && Editor.SelectionLength == 0 && Editor.TextArea.Caret.Offset == 0, "Up on a single-line query moves the caret to the start of the line");
+            Editor.Text = twoLineSql;
             Editor.Select(0, 0); Editor.TextArea.Caret.Offset = 0; EditingCommands.SelectDownByLine.Execute(null, Editor.TextArea);
             int selectionStart = Editor.SelectionStart, selectionLength = Editor.SelectionLength;
             string selected = Editor.SelectedText;
@@ -492,7 +536,7 @@ public partial class MainWindow : Window
             Require(dockState.GetProperty("requested").GetDouble()==6&&dockState.GetProperty("scale").GetDouble() is >=3 and <=6&&dockState.GetProperty("slotHeight").GetDouble()<=dockState.GetProperty("viewportHeight").GetDouble()&&BobertoPanel.ActualWidth>=220&&BobertoHost.ActualHeight is >=90 and <=220,"Boberto lives in the header band: companion size is a ceiling and the scene fits the band height without clipping");var fitted=await DockUntil(dock,f=>f.GetProperty("canvasTop").GetDouble()>=4);Require(fitted.GetProperty("floorGap").GetDouble() is >=0 and <=30,"Boberto stands low in the header scene: the neon floor sits near the band foot, as on the Studio stage"+$" (floor gap {fitted.GetProperty("floorGap")})");Require(fitted.GetProperty("canvasTop").GetDouble()>=4,"Boberto fits whole in the header scene: the measured canvas top stays inside the band"+$" (top {fitted.GetProperty("canvasTop")}, scale {fitted.GetProperty("scale")})");
             Require(Math.Abs(BobertoHost.ActualWidth/BobertoHost.ActualHeight-16.0/9)<0.04,"Boberto's scene keeps the 16:9 proportion of its background art"+$" ({BobertoHost.ActualWidth:F0}x{BobertoHost.ActualHeight:F0})");
             var onlineEngine=engine;engine=new DisconnectedQueryEngine();RefreshConnection();int offlineTabs=Workspace.Items.Count;await ExecuteAsync();
-            Require(!ExecuteButton.IsEnabled&&OfflineBanner.Visibility==Visibility.Visible&&Workspace.Items.Count==offlineTabs&&log.Count==1&&log[0].Text.StartsWith("Not connected")&&ConnectionBadge.Text=="Connect…","Offline workspace shows a disconnected notice, disables Run and never executes SQL");
+            Require(!ExecuteButton.IsEnabled&&OfflineBanner.Visibility==Visibility.Visible&&Workspace.Items.Count==offlineTabs&&log.Count==1&&log[0].Text.StartsWith("Not connected"),"Offline workspace shows a disconnected notice, disables Run and never executes SQL");
             engine=onlineEngine;RefreshConnection();Require(ExecuteButton.IsEnabled&&OfflineBanner.Visibility==Visibility.Collapsed,"A session clears the offline notice and re-enables Run");
             Require(SessionFactsPanel.Visibility==Visibility.Collapsed,"Engines without server session facts show no database or SPID");
             try {
@@ -700,6 +744,15 @@ public partial class MainWindow : Window
                 string accentFixture=Path.Combine(Path.GetTempPath(),"ase-accent-"+Guid.NewGuid().ToString("N")+".json");
                 try{AppearanceStore.Save(accentFixture,appearance);Require(AppearanceStore.Load(accentFixture).AccentHex=="#7A3BFF","A custom accent survives the appearance store round trip");}finally{foreach(var fixturePath in Directory.GetFiles(Path.GetDirectoryName(accentFixture)!,Path.GetFileName(accentFixture)+"*"))File.Delete(fixturePath);}
             }finally{mixerWindow.Close();}
+            Require(new AppearanceSettings().EditorFont=="consolas"&&Application.Current.Resources["MonoFont"] is FontFamily defaultMono&&defaultMono.Source.Contains("Consolas",StringComparison.Ordinal),
+                "A fresh install writes SQL in Consolas"+$" (default {new AppearanceSettings().EditorFont}, applied {Application.Current.Resources["MonoFont"]})");
+            Require(WheelZoomStep(ModifierKeys.Control,120)==1&&WheelZoomStep(ModifierKeys.Control,-120)==-1&&WheelZoomStep(ModifierKeys.None,120)==0&&WheelZoomStep(ModifierKeys.Control|ModifierKeys.Shift,120)==0,
+                "Only Ctrl and the wheel resize the query text, up or down; the wheel alone keeps scrolling");
+            double sizeBeforeWheel=appearance.EditorSize;
+            Zoom(WheelZoomStep(ModifierKeys.Control,120));
+            Require(appearance.EditorSize==sizeBeforeWheel+1&&Editor.FontSize==sizeBeforeWheel+1,"A wheel step up grows the query text and is stored in appearance"+$" ({sizeBeforeWheel} to {appearance.EditorSize})");
+            Zoom(WheelZoomStep(ModifierKeys.Control,-120));
+            Require(appearance.EditorSize==sizeBeforeWheel&&Editor.FontSize==sizeBeforeWheel,"A wheel step down returns the query text to its previous size");
             ApplyAppearance(appearance with {ThemeId="light",AccentHex=null});
             var dialog = new ConnectionWindow();
             string themeBeforeLogin=appearance.ThemeId;
@@ -926,7 +979,7 @@ public partial class MainWindow : Window
             RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice,PresentationSource.FromVisual(this)!,0,Key.Escape){RoutedEvent=Keyboard.PreviewKeyDownEvent});
             Require(repeat==null&&RepeatBanner.Visibility==Visibility.Collapsed&&!Title.StartsWith("⚠",StringComparison.Ordinal),"Esc stops a repeat and removes every warning");
             var orphan=new RepeatPlan("select 7 as tick",TimeSpan.FromSeconds(5),null,true,engine,"query");StartRepeat(orphan);await UntilRepeat(()=>orphan.Runs==1&&!repeatBusy);
-            var repeatEngine=engine;engine=new DemoQueryEngine();RepeatTick();engine=repeatEngine;
+            var repeatEngine=engine;engine=new DemoQueryEngine();RepeatTick(activeSession);engine=repeatEngine;
             Require(repeat==null&&orphan.Runs==1,"A repeat stops when the session it started on is replaced");
             string accumulateBuffer=Editor.Text;ClearResults(true);QueryClick(this,new RoutedEventArgs());
             Editor.Text="select 1 as first_run";await ExecuteAsync();Editor.Text="select 2 as second_run";await ExecuteAsync();
@@ -1020,7 +1073,7 @@ public partial class MainWindow : Window
                 var library=Application.Current.Windows.OfType<Window>().Single(window=>window.Title.StartsWith("Library ·",StringComparison.Ordinal));
                 try {
                     library.UpdateLayout();var recipePreview=VisualChildren<TextBox>(library).Single(box=>box.IsReadOnly);var recipeList=VisualChildren<ListBox>(library).Single();
-                    Require(recipeList.Items.Count==94&&recipeList.FontFamily.Equals(AppTypography.Inter)&&recipePreview.FontFamily.Equals(AppTypography.Mono)&&recipePreview.FontSize==appearance.EditorSize,"Library renders recipe metadata in interface type and SQL in the selected editor type");
+                    Require(recipeList.Items.Count==94&&recipeList.FontFamily.Equals(AppTypography.Inter)&&recipePreview.FontFamily.Equals(Application.Current.Resources["MonoFont"])&&recipePreview.FontSize==appearance.EditorSize,"Library renders recipe metadata in interface type and SQL in the selected editor type"+$" (recipes {recipeList.Items.Count}, list {recipeList.FontFamily}, preview {recipePreview.FontFamily} at {recipePreview.FontSize}, editor {appearance.EditorSize})");
                     CaptureSmokeVisual(library,"library.png");
                 }catch(Exception ex){libraryFailure=ex;}finally{library.Close();}
             }),System.Windows.Threading.DispatcherPriority.ContextIdle);
@@ -1036,7 +1089,7 @@ public partial class MainWindow : Window
                 foreach(string bad in new[]{"{}","[1]","[{\"name\":\"x\"}]","[{\"name\":\" \",\"sql\":\"select 1\"}]","[{\"name\":\"x\",\"sql\":5}]","not json"})
                     Require(Throws<System.Text.Json.JsonException>(()=>ParseRecipeImport(bad)), "Recipe import rejects malformed file: "+bad);
             } finally { File.Delete(favoriteFixture); foreach(string backup in Directory.GetFiles(Path.GetDirectoryName(favoriteFixture)!,Path.GetFileName(favoriteFixture)+".*.bak")) File.Delete(backup); }
-            while (Workspace.Items.Count > 1) Workspace.Items.RemoveAt(Workspace.Items.Count - 1);
+            ClearResults(true);
             var large = new DataTable();
             large.Columns.Add("id", typeof(int)); large.Columns.Add("description", typeof(string));
             var largeTimer = Stopwatch.StartNew();
@@ -1051,6 +1104,8 @@ public partial class MainWindow : Window
             string completeCopy = BuildResultCopy(grid, ResultCopy.AllWithHeaders, ',', delimited: true);
             Require(completeCopy.StartsWith("id,description\r\n") && completeCopy.EndsWith("99999,Test row 99999\r\n") && completeCopy.Count(c => c == '\n') == 100001, "Copy all includes all 100k rows beyond the viewport");
             checks.Add($"PERF copy all 100k rows: {copyTimer.Elapsed.TotalMilliseconds:F1} ms; {completeCopy.Length} characters; serialization only, OS clipboard not measured");
+            // Keep initial-render Boberto timing checks ahead of the longer session lifecycle fixtures.
+            await VerifySessionWorkspaces(Require);
         }
         catch (Exception ex) { checks.Add("FAIL: " + ex); exitCode = 1; }
         string[] args = Environment.GetCommandLineArgs();

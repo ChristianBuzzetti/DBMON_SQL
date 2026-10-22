@@ -57,8 +57,7 @@ public partial class MainWindow
         bool narrow=ActualWidth is > 0 and < 1180;var labels=narrow?Visibility.Collapsed:Visibility.Visible;
         CancelText.Visibility=ObjectsText.Visibility=RecipesText.Visibility=PersonalizeText.Visibility=RunKeyHint.Visibility=RepeatNowText.Visibility=labels;
         CommandsText.Visibility=ActualWidth is > 0 and < 1000?Visibility.Collapsed:Visibility.Visible;CommandsButton.MinWidth=narrow?0:250;
-        RepeatStopText.Text=narrow?"Stop":"Stop repeating";ConnectionBadge.MaxWidth=narrow?220:360;
-        HeaderSubtitleBox.Visibility=shortWindow||narrow?Visibility.Collapsed:Visibility.Visible;
+        RepeatStopText.Text=narrow?"Stop":"Stop repeating";
         HeaderBar.Padding=shortWindow?new Thickness(20,6,16,6):new Thickness(20,10,16,10);
         MainMenu.Padding=shortWindow?new Thickness(16,4,16,0):new Thickness(16,8,16,0);
         SizeBobertoBand();

@@ -10,7 +10,7 @@ namespace AseIsql.Desktop;
 public partial class MainWindow
 {
     // Values typed for :name placeholders during this session only; never written to disk.
-    private readonly Dictionary<string,string> parameterValues=new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string,string> parameterValues => activeSession.Parameters;
 
     // Shows the parameter form when sql has placeholders. Returns the filled SQL, the original text for "as written",
     // or null when the user cancels. SQL without placeholders comes back unchanged without a dialog.

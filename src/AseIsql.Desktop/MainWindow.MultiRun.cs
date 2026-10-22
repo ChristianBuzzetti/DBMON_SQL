@@ -21,7 +21,7 @@ public partial class MainWindow
     // The login profile of each extra session, so the current list can be saved as a group (never a password).
     private readonly Dictionary<RunTarget, ConnectionProfile> targetProfiles = [];
     // Each Diff tab remembers the per-server tables and key it compared, so the key can be changed later.
-    private readonly Dictionary<DataTable, (IReadOnlyList<(string Server, DataTable Table)> Parts, IReadOnlyList<int> Keys, int Number)> diffSources = [];
+    private Dictionary<DataTable, (IReadOnlyList<(string Server, DataTable Table)> Parts, IReadOnlyList<int> Keys, int Number)> diffSources => activeSession.Diffs;
     private string ServerGroupsPath => isSmoke ? Path.Combine(AppContext.BaseDirectory, "UiSmoke", "server-groups.json") :
         DataFolder.File("server-groups.json");
 
@@ -47,7 +47,8 @@ public partial class MainWindow
 
     private void MultiRunClick(object sender, RoutedEventArgs e)
     {
-        if (running != null || changingSession) return;
+        if (running != null || changingSession || catalogActions != 0) return;
+        if (repeat != null) { StatusText.Text = "Stop repeating before starting a multi-server execution. The repeat is still active."; return; }
         string scope = Editor.SelectionLength > 0 ? "selection" : "script";
         string sql = Editor.SelectionLength > 0 ? Editor.SelectedText : Editor.Text;
         if (string.IsNullOrWhiteSpace(sql)) { StatusText.Text = "Write SQL before running it on several servers."; Editor.Focus(); return; }
@@ -59,63 +60,68 @@ public partial class MainWindow
 
     private async Task ExecuteOnTargetsAsync(IReadOnlyList<RunTarget> chosen, string sql, string scope)
     {
-        if (running != null || changingSession) return;
-        ClearMessages();
+        var owner = activeSession;
+        if (owner.Running != null || owner.Changing || owner.CatalogActions != 0) return;
+        if (owner.Repeat != null) { SetStatus(owner, "Stop repeating before starting a multi-server execution. The repeat is still active."); return; }
+        ClearMessages(owner);
         using var cancellation = new CancellationTokenSource();
-        executingSql = sql; running = cancellation;
-        ExecuteButton.IsEnabled = false; CancelButton.IsEnabled = true; RefreshConnection();
-        AddMessage(0, "CLIENT", $"Execute · {scope} · {Counts.Of(chosen.Count, "server")} in parallel · {string.Join(", ", chosen.Select(t => t.Label))}");
+        owner.ExecutingSql = sql; owner.Running = cancellation;
+        RefreshFor(owner);
+        AddMessage(owner, 0, "CLIENT", $"Execute · {scope} · {Counts.Of(chosen.Count, "server")} in parallel · {string.Join(", ", chosen.Select(t => t.Label))}");
         var timer = Stopwatch.StartNew();
         var ticker = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
-        ticker.Tick += (_, _) => StatusText.Text = $"Executing on {Counts.Of(chosen.Count, "server")} · {timer.Elapsed.TotalSeconds:F1} s · Esc cancels all";
-        StatusText.Text = $"Executing on {Counts.Of(chosen.Count, "server")} · Esc cancels all"; ticker.Start();
+        ticker.Tick += (_, _) => SetStatus(owner, $"Executing on {Counts.Of(chosen.Count, "server")} · {timer.Elapsed.TotalSeconds:F1} s · Esc cancels all");
+        SetStatus(owner, $"Executing on {Counts.Of(chosen.Count, "server")} · Esc cancels all"); ticker.Start();
         try
         {
             var outcomes = await MultiRun.ExecuteAsync(chosen, sql, cancellation.Token);
             double elapsedMs = timer.Elapsed.TotalMilliseconds; ticker.Stop();
             // Multi-server results accumulate like any run; they are registered without a session, so F9 points to Run on….
-            int firstNew = Workspace.Items.Count; var multiRun = NewRun(sql, null);
+            int firstNew = owner.Tabs.Count; var multiRun = NewRun(owner, sql, null);
             foreach (var combined in MultiRun.Combine(outcomes))
             {
                 if (combined.Table != null)
                 {
-                    AddResult(combined.Table, combined.Index + 1, "All servers · " + string.Join(", ", outcomes.Where(o => o.Output.Tables.Count > combined.Index).Select(o => o.Target.Label)), sql, $"All · {combined.Index + 1}");
+                    AddResult(combined.Table, combined.Index + 1, "All servers · " + string.Join(", ", outcomes.Where(o => o.Output.Tables.Count > combined.Index).Select(o => o.Target.Label)), sql, $"All · {combined.Index + 1}", owner: owner);
                     var parts = outcomes.Where(o => o.Output.Tables.Count > combined.Index).Select(o => (o.Target.Label, o.Output.Tables[combined.Index])).ToList();
-                    var diff = AddDiffResult(parts, [0], combined.Index + 1, sql);
-                    AddMessage(0, "CLIENT", diff.DifferingKeys == 0 ? $"Result {combined.Index + 1} is identical on every server · {Counts.Of(diff.Keys, "key")} by {diff.KeyDescription}" :
+                    var diff = AddDiffResult(owner, parts, [0], combined.Index + 1, sql);
+                    AddMessage(owner, 0, "CLIENT", diff.DifferingKeys == 0 ? $"Result {combined.Index + 1} is identical on every server · {Counts.Of(diff.Keys, "key")} by {diff.KeyDescription}" :
                         $"Result {combined.Index + 1} · {diff.DifferingKeys} of {Counts.Of(diff.Keys, "key")} differ between servers · key {diff.KeyDescription} · see Diff · {combined.Index + 1}");
                 }
-                else if (outcomes.Count(o => o.Output.Tables.Count > combined.Index) > 1) AddMessage(0, "CLIENT", combined.Reason!);
+                else if (outcomes.Count(o => o.Output.Tables.Count > combined.Index) > 1) AddMessage(owner, 0, "CLIENT", combined.Reason!);
             }
             foreach (var outcome in outcomes)
             {
                 string label = outcome.Target.Label; int number = 1;
                 string origin = OriginOf(outcome.Target.Engine);
-                foreach (DataTable table in outcome.Output.Tables) { AddResult(table, number, origin, sql, $"{label} · {number}", label); number++; }
-                foreach (QueryMessage message in outcome.Output.Messages) AddMessage(message.Number, label, message.Text, message.RawText);
-                if (outcome.Output.OmittedMessages > 0) AddMessage(0, label, $"{outcome.Output.OmittedMessages} earlier messages were omitted by the retention limit.");
-                if (outcome.Output.Error != null) AddMessage(1, label, outcome.Output.Error, outcome.Output.ErrorRawText);
-                else AddMessage(0, label, $"Done · {Counts.Of(outcome.Output.Tables.Count, "result")} · {Counts.Of(outcome.Output.Tables.Sum(t => t.Rows.Count), "row")} · {Elapsed(outcome.ElapsedMs)}");
+                foreach (DataTable table in outcome.Output.Tables) { AddResult(table, number, origin, sql, $"{label} · {number}", label, owner: owner); number++; }
+                foreach (QueryMessage message in outcome.Output.Messages) AddMessage(owner, message.Number, label, message.Text, message.RawText);
+                if (outcome.Output.OmittedMessages > 0) AddMessage(owner, 0, label, $"{outcome.Output.OmittedMessages} earlier messages were omitted by the retention limit.");
+                if (outcome.Output.Error != null) AddMessage(owner, 1, label, outcome.Output.Error, outcome.Output.ErrorRawText);
+                else AddMessage(owner, 0, label, $"Done · {Counts.Of(outcome.Output.Tables.Count, "result")} · {Counts.Of(outcome.Output.Tables.Sum(t => t.Rows.Count), "row")} · {Elapsed(outcome.ElapsedMs)}");
             }
             RecordHistory(sql);
-            foreach (var added in Workspace.Items.OfType<TabItem>().Skip(firstNew).Where(t => t.Tag is DataTable table && !resultRuns.ContainsKey(table))) resultRuns[(DataTable)added.Tag] = multiRun;
-            TrimResults(multiRun.Id);
+            foreach (var added in owner.Tabs.Skip(firstNew).Where(t => t.Tag is DataTable table && !owner.Runs.ContainsKey(table)).ToArray()) owner.Runs[(DataTable)added.Tag] = multiRun;
+            TrimResults(owner, multiRun.Id);
             int failed = outcomes.Count(o => o.Output.Error != null);
-            if (failed > 0) SetLogVisible(true);
-            if (Workspace.Items.OfType<TabItem>().FirstOrDefault(tab => tab.Tag is DataTable table && resultRuns.TryGetValue(table, out var owner) && owner.Id == multiRun.Id) is { } firstTab) Workspace.SelectedItem = firstTab;
-            StatusText.Text = $"{(failed == 0 ? "Ready" : "Done with errors")} · {Counts.Of(chosen.Count, "server")} · {chosen.Count - failed} ok · {failed} failed · {Elapsed(elapsedMs)}";
+            if (failed > 0) ShowMessages(owner);
+            if (owner.Tabs.FirstOrDefault(tab => tab.Tag is DataTable table && owner.Runs.TryGetValue(table, out var run) && run.Id == multiRun.Id) is { } firstTab)
+            {
+                if (IsOnScreen(owner)) Workspace.SelectedItem = firstTab; else owner.SelectedTab = firstTab;
+            }
+            SetStatus(owner, $"{(failed == 0 ? "Ready" : "Done with errors")} · {Counts.Of(chosen.Count, "server")} · {chosen.Count - failed} ok · {failed} failed · {Elapsed(elapsedMs)}");
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
-        { AddMessage(1, "CLIENT", "Multi-server run failed: " + ex.Message); StatusText.Text = "Error · see Messages"; SetLogVisible(true); }
-        finally { ticker.Stop(); running = null; ExecuteButton.IsEnabled = true; CancelButton.IsEnabled = false; RefreshConnection(); }
+        { AddMessage(owner, 1, "CLIENT", "Multi-server run failed: " + ex.Message); SetStatus(owner, "Error · see Messages"); ShowMessages(owner); }
+        finally { ticker.Stop(); owner.Running = null; RefreshFor(owner); }
     }
 
-    private DiffResult AddDiffResult(IReadOnlyList<(string Server, DataTable Table)> parts, IReadOnlyList<int> keys, int number, string sql)
+    private DiffResult AddDiffResult(SessionWorkspace owner, IReadOnlyList<(string Server, DataTable Table)> parts, IReadOnlyList<int> keys, int number, string sql)
     {
         var diff = ResultDiff.Compare(parts, keys);
-        AddResult(diff.Table, number, $"Differences by {diff.KeyDescription} · {diff.DifferingKeys} of {Counts.Of(diff.Keys, "key")} differ · {string.Join(", ", parts.Select(p => p.Server))}", sql, $"Diff · {number}");
-        var tab = (TabItem)Workspace.Items[^1];
-        diffSources[diff.Table] = (parts, keys, number);
+        AddResult(diff.Table, number, $"Differences by {diff.KeyDescription} · {diff.DifferingKeys} of {Counts.Of(diff.Keys, "key")} differ · {string.Join(", ", parts.Select(p => p.Server))}", sql, $"Diff · {number}", owner: owner);
+        var tab = owner.Tabs[^1];
+        owner.Diffs[diff.Table] = (parts, keys, number);
         var keyButton = new Button { Content = "Key: " + diff.KeyDescription + "  ▾", Padding = new Thickness(8, 4, 8, 4), Margin = new Thickness(6, 0, 0, 0), MaxWidth = 320,
             ToolTip = "Rows are matched across servers by these columns · click to choose others" };
         keyButton.Click += (_, _) => ChooseDiffKeys(tab);
@@ -125,7 +131,7 @@ public partial class MainWindow
 
     private void ChooseDiffKeys(TabItem tab)
     {
-        if (tab.Tag is not DataTable table || !diffSources.TryGetValue(table, out var source)) return;
+        if (tab.Tag is not DataTable table || OwnerOf(tab) is not { } diffOwner || !diffOwner.Diffs.TryGetValue(table, out var source)) return;
         var shape = source.Parts[0].Table;
         var window = new Window { Owner = this, Title = "Diff key columns", Width = 420, SizeToContent = SizeToContent.Height, MaxHeight = 640, ResizeMode = ResizeMode.NoResize, WindowStartupLocation = WindowStartupLocation.CenterOwner };
         var panel = new StackPanel { Margin = new Thickness(20) };
@@ -147,16 +153,17 @@ public partial class MainWindow
     // Replaces a Diff tab in place with the comparison by other key columns; the per-server tables stay as received.
     private bool RekeyDiff(TabItem tab, IReadOnlyList<int> keys)
     {
-        if (tab.Tag is not DataTable table || !diffSources.TryGetValue(table, out var source)) return false;
+        if (tab.Tag is not DataTable table || OwnerOf(tab) is not { } owner || !owner.Diffs.TryGetValue(table, out var source)) return false;
         try
         {
-            int position = Workspace.Items.IndexOf(tab); bool pinned = pinnedResults.Contains(table);
-            var diff = AddDiffResult(source.Parts, keys, source.Number, resultOrigins.GetValueOrDefault(table).Sql);
-            var replacement = (TabItem)Workspace.Items[^1];
-            CloseResult(tab); Workspace.Items.Remove(replacement); Workspace.Items.Insert(Math.Min(position, Workspace.Items.Count), replacement);
-            if (pinned) TogglePin(replacement);
-            Workspace.SelectedItem = replacement;
-            StatusText.Text = $"Diff · {diff.DifferingKeys} of {Counts.Of(diff.Keys, "key")} differ by {diff.KeyDescription}";
+            int position = owner.Tabs.IndexOf(tab); bool pinned = owner.Pins.Contains(table);
+            var diff = AddDiffResult(owner, source.Parts, keys, source.Number, owner.Origins.GetValueOrDefault(table).Sql);
+            var replacement = owner.Tabs[^1];
+            CloseResult(tab);
+            UnmountResultTab(owner, replacement); MountResultTab(owner, replacement, Math.Min(position, owner.Tabs.Count));
+            if (pinned) TogglePin(owner, replacement);
+            if (IsOnScreen(owner)) Workspace.SelectedItem = replacement; else owner.SelectedTab = replacement;
+            SetStatus(owner, $"Diff · {diff.DifferingKeys} of {Counts.Of(diff.Keys, "key")} differ by {diff.KeyDescription}");
             return true;
         }
         catch (ArgumentException ex) { ShowError("Unable to compare: " + ex.Message); return false; }

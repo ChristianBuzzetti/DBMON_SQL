@@ -153,12 +153,15 @@ public partial class MainWindow
 
     private void CloseResult(TabItem tab)
     {
-        if (tab.Tag is not DataTable || !Workspace.Items.Contains(tab)) return;
-        bool active = tab.IsSelected; int index = Workspace.Items.IndexOf(tab);
-        pinnedResults.Remove((DataTable)tab.Tag); resultOrigins.Remove((DataTable)tab.Tag); diffSources.Remove((DataTable)tab.Tag); resultRuns.Remove((DataTable)tab.Tag);
-        Workspace.Items.Remove(tab);
-        if (!ResultTabs.Any()) resultCounter = 0;
-        if (active) Workspace.SelectedIndex = Math.Max(0, Math.Min(index, Workspace.Items.Count - 1));
+        if (tab.Tag is not DataTable table || OwnerOf(tab) is not { } owner) return;
+        bool mounted = IsOnScreen(owner), selected = mounted && tab.IsSelected;
+        int index = mounted ? Workspace.Items.IndexOf(tab) : 0;
+        owner.Pins.Remove(table); owner.Origins.Remove(table); owner.Diffs.Remove(table); owner.Runs.Remove(table);
+        UnmountResultTab(owner, tab);
+        if (owner.Tabs.Count == 0) owner.ResultCounter = 0;
+        if (ReferenceEquals(owner.SelectedTab, tab)) owner.SelectedTab = null;
+        if (!mounted) return;
+        if (selected) Workspace.SelectedIndex = Math.Max(0, Math.Min(index, Workspace.Items.Count - 1));
         if (Workspace.SelectedItem == QueryTab) { Editor.Focus(); StatusText.Text = "Result closed · Query · " + SourceLabel; }
     }
 

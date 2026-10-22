@@ -11,7 +11,7 @@ public partial class MainWindow
 {
     // What this window has sent on the current session. A new session starts at the default, because the SET options
     // of the previous one went with it.
-    private AseSessionOptions aseOptions = AseSessionOptions.Default;
+    private AseSessionOptions aseOptions { get => activeSession.Options; set => activeSession.Options = value; }
 
     private bool AseOptionsAvailable => engine is OdbcSession { IsOpen: true, Platform: ServerPlatform.Ase } && running == null && !changingSession;
 
@@ -68,45 +68,48 @@ public partial class MainWindow
 
     // The menu item has already flipped its own check mark by the time this runs, so every exit path refreshes the
     // menu and the chip from aseOptions: what the window shows is what the server acknowledged, never what was clicked.
-    private void ApplyAseOptions(AseSessionOptions next) => RunCatalogAction(async () => {
-        if (engine is not OdbcSession { IsOpen: true, Platform: ServerPlatform.Ase })
-        { RefreshAseOptions(); StatusText.Text = "Session options apply to a connected SAP ASE session."; return; }
-        var script = AseSessionOptions.Script(aseOptions, next);
-        if (script.Count == 0) { RefreshAseOptions(); return; }
+    private void ApplyAseOptions(AseSessionOptions next) => RunCatalogAction(async owner => {
+        if (owner.Engine is not OdbcSession { IsOpen: true, Platform: ServerPlatform.Ase })
+        { RefreshAseOptions(owner); SetStatus(owner, "Session options apply to a connected SAP ASE session."); return; }
+        var script = AseSessionOptions.Script(owner.Options, next);
+        if (script.Count == 0) { RefreshAseOptions(owner); return; }
         string sql = string.Join(Environment.NewLine + "go" + Environment.NewLine, script);
-        var output = await ReadCatalog(sql, "Session options");
-        if (output == null || output.Error != null) { RefreshAseOptions(); return; }
-        aseOptions = next;
-        AddMessage(0, "CLIENT", "Session options · " + string.Join(" · ", script));
-        if (next.NoExec) AddMessage(0, "CLIENT", "NOEXEC is on: until you turn it off, the server compiles every script and runs none.");
-        if (next.StatisticsSilencedByNoExec) AddMessage(0, "CLIENT", "Statistics IO and statistics time measure execution, so they report nothing while NOEXEC is on.");
-        RefreshAseOptions();
-        StatusText.Text = next.Tags.Count == 0 ? "Session options · all off" : "Session options · " + string.Join(" · ", next.Tags);
+        var output = await ReadCatalog(owner, sql, "Session options");
+        if (output == null || output.Error != null) { RefreshAseOptions(owner); return; }
+        owner.Options = next;
+        AddMessage(owner, 0, "CLIENT", "Session options · " + string.Join(" · ", script));
+        if (next.NoExec) AddMessage(owner, 0, "CLIENT", "NOEXEC is on: until you turn it off, the server compiles every script and runs none.");
+        if (next.StatisticsSilencedByNoExec) AddMessage(owner, 0, "CLIENT", "Statistics IO and statistics time measure execution, so they report nothing while NOEXEC is on.");
+        RefreshAseOptions(owner);
+        SetStatus(owner, next.Tags.Count == 0 ? "Session options · all off" : "Session options · " + string.Join(" · ", next.Tags));
     }, "Session options");
 
-    private void RefreshAseOptions()
+    private void RefreshAseOptions() => RefreshAseOptions(activeSession);
+    private void RefreshAseOptions(SessionWorkspace owner)
     {
-        bool ase = engine is OdbcSession { IsOpen: true, Platform: ServerPlatform.Ase };
-        bool showChip = ase || engine is ISessionFacts { Facts.Platform: ServerPlatform.Ase } and not OdbcSession;
+        bool ase = owner.Engine is OdbcSession { IsOpen: true, Platform: ServerPlatform.Ase };
         // Only the options that make ASE talk after the last row pay for the extra call; everyone else gets none.
-        if (engine is OdbcSession session)
+        // This reaches the session's own connection whether or not its tab is the one on screen.
+        if (owner.Engine is OdbcSession session)
         {
-            session.TrailingFlush = ase ? aseOptions.TrailingFlushStatement : null;
-            session.CaptureExecutionIo = ase && aseOptions.CapturesExecutionIo;
+            session.TrailingFlush = ase ? owner.Options.TrailingFlushStatement : null;
+            session.CaptureExecutionIo = ase && owner.Options.CapturesExecutionIo;
         }
+        if (!IsOnScreen(owner)) return;
+        bool showChip = ase || owner.Engine is ISessionFacts { Facts.Platform: ServerPlatform.Ase } and not OdbcSession;
         AseOptionsMenu.IsEnabled = AseOptionsAvailable;
         AseOptionsMenu.ToolTip = ase
             ? "SET options on this session only · they are gone when it closes, and multi-server and repeat runs open their own sessions"
             : "Connect to SAP ASE to set session options";
-        var tags = aseOptions.Tags;
+        var tags = owner.Options.Tags;
         SetOptionsButton.Visibility = showChip ? Visibility.Visible : Visibility.Collapsed;
         SetOptionsButton.IsEnabled = running == null && !changingSession;
         SetOptionsText.Text = string.Join(" · ", tags);
         SetOptionsText.Visibility = tags.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-        SetOptionsText.SetResourceReference(System.Windows.Controls.TextBlock.ForegroundProperty, aseOptions.NoExec ? "ErrorInk" : "Accent");
+        SetOptionsText.SetResourceReference(System.Windows.Controls.TextBlock.ForegroundProperty, owner.Options.NoExec ? "ErrorInk" : "Accent");
         SetOptionsButton.ToolTip = tags.Count == 0
             ? "SAP ASE session options · all off · click to change"
-            : (aseOptions.NoExec ? "NOEXEC is on: scripts are compiled, not executed. " : "")
+            : (owner.Options.NoExec ? "NOEXEC is on: scripts are compiled, not executed. " : "")
                 + "SAP ASE session options in force · click to change";
     }
 }

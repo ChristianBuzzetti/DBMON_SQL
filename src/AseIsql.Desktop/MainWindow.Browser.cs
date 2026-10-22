@@ -29,7 +29,7 @@ public partial class MainWindow
             Owner != null ? ResultFormats.Identifier(Owner) + "." + ResultFormats.Identifier(Name) : ResultFormats.Identifier(Name);
     }
     private const int CatalogPage = 100;
-    private string browserFilter = "";
+    private string browserFilter { get => activeSession.Filter; set => activeSession.Filter = value; }
     private static readonly (string Type, string Label)[] CatalogGroups = [("U","Tables"),("V","Views"),("P","Procedures"),("TR","Triggers"),("SF","Functions"),("S","System tables")];
     // IQ: base and global temporary tables, views, procedures (functions included) and the SYS/dbo system objects.
     private static readonly (string Type, string Label)[] IqCatalogGroups = [("U","Tables"),("V","Views"),("P","Procedures"),("S","System objects")];
@@ -37,28 +37,35 @@ public partial class MainWindow
 
     // Catalog actions start from tree and menu callbacks. Each one has an owner here: unexpected server shapes and
     // driver failures become a visible message instead of an unobserved task or an async-void crash.
-    private async void RunCatalogAction(Func<Task> action,string context)
+    // A catalog request belongs to the session that asked for it, and the user may select another tab while the round
+    // trip is in flight: the owner is handed to the action so nothing it publishes can land on the session on screen.
+    private async void RunCatalogAction(Func<SessionWorkspace,Task> action,string context)
     {
-        try { await action(); }
+        var owner=activeSession;
+        if (owner.Repeat != null) { SetStatus(owner,"Stop repeating before browsing the catalog. The repeat is still active."); return; }
+        owner.CatalogActions++;
+        try { await action(owner); }
         catch(Exception ex) when(ex is FormatException or InvalidCastException or OverflowException or IndexOutOfRangeException or ArgumentException or InvalidOperationException or OdbcException)
-        { AddMessage(1,"CLIENT",context+" failed: "+ex.Message); SetLogVisible(true); StatusText.Text=context+" failed · see Messages"; }
+        { AddMessage(owner,1,"CLIENT",context+" failed: "+ex.Message); ShowMessages(owner); SetStatus(owner,context+" failed · see Messages"); }
+        finally { owner.CatalogActions--; RefreshFor(owner); }
     }
-    private async Task<QueryOutput?> ReadCatalog(string sql,string label="Catalog")
+    private async Task<QueryOutput?> ReadCatalog(SessionWorkspace owner,string sql,string label="Catalog")
     {
-        if(running!=null||changingSession) { StatusText.Text="Wait for the current operation to finish, then reload the catalog."; return null; }
-        if(engine is not OdbcSession { IsOpen:true } session) { StatusText.Text="The catalog requires a connected session."; return null; }
+        if(owner.Running!=null||owner.Changing) { SetStatus(owner,"Wait for this session's current operation to finish, then reload the catalog."); return null; }
+        if(owner.Repeat!=null) { SetStatus(owner,"Stop repeating before browsing the catalog. The repeat is still active."); return null; }
+        if(owner.Engine is not OdbcSession { IsOpen:true } session) { SetStatus(owner,"The catalog requires a connected session."); return null; }
         // Same publication rules as an execution: Messages shows this catalog request only, with omissions and raw evidence.
-        using var cancellation=new CancellationTokenSource(); running=cancellation; ExecuteButton.IsEnabled=false; CancelButton.IsEnabled=true; RefreshConnection();
-        ClearMessages(); AddMessage(0,"CLIENT",label+" · "+engine.Name);
+        using var cancellation=new CancellationTokenSource(); owner.Running=cancellation; RefreshFor(owner);
+        ClearMessages(owner); AddMessage(owner,0,"CLIENT",label+" · "+owner.Engine.Name);
         try {
             string tagged = label == "Session options" ? sql : "/* dbmon_execio */\n" + sql;
             var output=await Task.Run(()=>session.Execute(tagged,cancellation.Token,userRun:false));
-            foreach(var message in output.Messages) AddMessage(message.Number,message.Source,message.Text,message.RawText);
-            if(output.OmittedMessages>0) AddMessage(0,"CLIENT",$"{output.OmittedMessages} earlier messages were omitted by the retention limit.");
-            if(output.Error!=null) { AddMessage(1,output.ErrorSource,output.Error,output.ErrorRawText); SetLogVisible(true); StatusText.Text="Catalog partial/unavailable: "+output.Error; if(output.Tables.Count==0)return null; }
+            foreach(var message in output.Messages) AddMessage(owner,message.Number,message.Source,message.Text,message.RawText);
+            if(output.OmittedMessages>0) AddMessage(owner,0,"CLIENT",$"{output.OmittedMessages} earlier messages were omitted by the retention limit.");
+            if(output.Error!=null) { AddMessage(owner,1,output.ErrorSource,output.Error,output.ErrorRawText); ShowMessages(owner); SetStatus(owner,"Catalog partial/unavailable: "+output.Error); if(output.Tables.Count==0)return null; }
             return output;
-        } catch(Exception ex) when(ex is ArgumentException or InvalidOperationException or OperationCanceledException or OdbcException) { AddMessage(1,"CLIENT","Catalog request failed: "+ex.Message); StatusText.Text=ex.Message; return null; }
-        finally { running=null; ExecuteButton.IsEnabled=true; CancelButton.IsEnabled=false; RefreshConnection(); }
+        } catch(Exception ex) when(ex is ArgumentException or InvalidOperationException or OperationCanceledException or OdbcException) { AddMessage(owner,1,"CLIENT","Catalog request failed: "+ex.Message); SetStatus(owner,ex.Message); return null; }
+        finally { owner.Running=null; RefreshFor(owner); }
     }
     private void ReloadBrowserClick(object sender,RoutedEventArgs e)=>RunCatalogAction(LoadBrowser,"Catalog reload");
     private void BrowserSearchKeyDown(object sender,System.Windows.Input.KeyEventArgs e)
@@ -73,40 +80,52 @@ public partial class MainWindow
         }
         StatusText.Text=browserFilter.Length==0?"Object filter cleared":"Object filter · names containing \""+browserFilter+"\"";
     }
-    private async Task LoadBrowser()
+    private async Task LoadBrowser(SessionWorkspace owner)
     {
-        if(engine is not OdbcSession { IsOpen:true }) { BrowserTree.Items.Clear(); BrowserTree.Items.Add(new TreeViewItem { Header="Connect to browse databases." }); return; }
-        if(CurrentPlatform==ServerPlatform.Rs) { BrowserTree.Items.Clear(); BrowserTree.Items.Add(new TreeViewItem { Header="Replication Server has no catalog to browse. Use the RS recipes: admin who, admin health." }); return; }
+        if(owner.Engine is not OdbcSession { IsOpen:true }) { PublishCatalog(owner,[new TreeViewItem { Header="Connect to browse databases." }]); return; }
+        var platform=PlatformOf(owner);
+        if(platform==ServerPlatform.Rs) { PublishCatalog(owner,[new TreeViewItem { Header="Replication Server has no catalog to browse. Use the RS recipes: admin who, admin health." }]); return; }
         // IQ serves one database: the tree starts at it without a query, and its groups page on demand.
-        if(CurrentPlatform==ServerPlatform.Iq) {
-            BrowserTree.Items.Clear();
-            string iqDatabase=(engine as ISessionFacts)?.Facts.Database is {Length:>0} name?name:"IQ database";
-            var root=new TreeViewItem { Header=iqDatabase, Tag=iqDatabase }; ResetDatabaseNode(root); BrowserTree.Items.Add(root); root.IsExpanded=true;
+        if(platform==ServerPlatform.Iq) {
+            string iqDatabase=(owner.Engine as ISessionFacts)?.Facts.Database is {Length:>0} name?name:"IQ database";
+            var root=new TreeViewItem { Header=iqDatabase, Tag=iqDatabase }; ResetDatabaseNode(root,owner);
+            PublishCatalog(owner,[root]); root.IsExpanded=true;
             return;
         }
-        var output=await ReadCatalog(DatabasesSql);
+        var output=await ReadCatalog(owner,DatabasesSql);
         if(output==null) return;
-        RememberDatabases(output);
-        BrowserTree.Items.Clear();
-        if(output.Tables.Count==0||output.Tables[0].Columns.Count<1) { BrowserTree.Items.Add(new TreeViewItem {Header="No catalog data"}); return; }
+        RememberDatabases(owner,output);
+        if(output.Tables.Count==0||output.Tables[0].Columns.Count<1) { PublishCatalog(owner,[new TreeViewItem {Header="No catalog data"}]); return; }
+        var nodes=new List<TreeViewItem>();
         foreach(DataRow row in output.Tables[0].Rows) {
             string name=Convert.ToString(row[0],CultureInfo.InvariantCulture)??""; if(name.Length==0) continue;
-            var node=new TreeViewItem { Header=name, Tag=name }; ResetDatabaseNode(node);
-            BrowserTree.Items.Add(node);
+            var node=new TreeViewItem { Header=name, Tag=name }; ResetDatabaseNode(node,owner);
+            nodes.Add(node);
         }
-        if(output.Error!=null)BrowserTree.Items.Add(new TreeViewItem {Header="Partial list · "+output.Error});
+        if(output.Error!=null)nodes.Add(new TreeViewItem {Header="Partial list · "+output.Error});
+        PublishCatalog(owner,nodes);
+    }
+    // The explorer tree is the session's own: it is kept on the workspace and mirrored into the shell only while that
+    // tab is on screen, so a catalog read that lands after a tab switch never overwrites another session's tree.
+    private void PublishCatalog(SessionWorkspace owner,IReadOnlyList<TreeViewItem> nodes)
+    {
+        owner.Catalog.Clear(); owner.Catalog.AddRange(nodes);
+        if(!IsOnScreen(owner))return;
+        BrowserTree.Items.Clear();
+        foreach(var node in nodes)BrowserTree.Items.Add(node);
     }
     // Opening a database costs no query: it lists object groups, and each group pages its own objects on demand.
-    private void ResetDatabaseNode(TreeViewItem node)
+    private void ResetDatabaseNode(TreeViewItem node)=>ResetDatabaseNode(node,activeSession);
+    private void ResetDatabaseNode(TreeViewItem node,SessionWorkspace owner)
     {
         string database=(string)node.Tag;node.Items.Clear();node.IsExpanded=false;
-        var platform=CurrentPlatform;
+        var platform=PlatformOf(owner);
         foreach(var (type,label) in CatalogGroupsFor(platform)){
-            var group=new TreeViewItem {Header=label+(browserFilter.Length>0?" · \""+browserFilter+"\"":"")};group.Items.Add(new TreeViewItem {Header="Expand to load"});
+            var group=new TreeViewItem {Header=label+(owner.Filter.Length>0?" · \""+owner.Filter+"\"":"")};group.Items.Add(new TreeViewItem {Header="Expand to load"});
             bool loading=false,loaded=false;
             group.Expanded+=(_,args)=> {
-                if(args.OriginalSource!=group||loaded||loading)return; loading=true;
-                RunCatalogAction(async()=> {try{loaded=await LoadObjectPage(database,type,label,group,null,platform);}finally{loading=false;}},label+" of "+database);
+                if(args.OriginalSource!=group||loaded||loading||activeSession!=owner||owner.Repeat!=null)return; loading=true;
+                RunCatalogAction(async _=> {try{loaded=await LoadObjectPage(owner,database,type,label,group,null,platform);}finally{loading=false;}},label+" of "+database);
             };
             node.Items.Add(group);
         }
@@ -156,20 +175,21 @@ public partial class MainWindow
         }
         return objects;
     }
-    private async Task<bool> LoadObjectPage(string database,string type,string label,TreeViewItem group,CatalogObject? after,ServerPlatform platform=ServerPlatform.Ase)
+    private async Task<bool> LoadObjectPage(SessionWorkspace owner,string database,string type,string label,TreeViewItem group,CatalogObject? after,ServerPlatform platform=ServerPlatform.Ase)
     {
-        var output=await ReadCatalog(platform==ServerPlatform.Iq?IqObjectsPageSql(type,browserFilter,after):ObjectsPageSql(database,type,browserFilter,after));
+        string filter=owner.Filter;
+        var output=await ReadCatalog(owner,platform==ServerPlatform.Iq?IqObjectsPageSql(type,filter,after):ObjectsPageSql(database,type,filter,after));
         if(output==null)return false;
         var (page,more)=PageObjects(output.Tables.Count==0?[]:ParseCatalogObjects(output.Tables[0],database,platform));
         if(after==null)group.Items.Clear();
         else foreach(var stale in group.Items.OfType<TreeViewItem>().Where(item=>item.Tag is "more").ToArray())group.Items.Remove(stale);
         foreach(var item in page)group.Items.Add(ObjectNode(item));
         int shown=group.Items.OfType<TreeViewItem>().Count(item=>item.Tag is CatalogObject);
-        group.Header=label+" · "+shown+(more?"+":"")+(browserFilter.Length>0?" · \""+browserFilter+"\"":"");
-        if(shown==0)group.Items.Add(new TreeViewItem {Header=browserFilter.Length>0?"No names contain \""+browserFilter+"\"":"No objects"});
+        group.Header=label+" · "+shown+(more?"+":"")+(filter.Length>0?" · \""+filter+"\"":"");
+        if(shown==0)group.Items.Add(new TreeViewItem {Header=filter.Length>0?"No names contain \""+filter+"\"":"No objects"});
         if(more){
             var button=new Button {Content=$"Show {CatalogPage} more…",Style=(Style)FindResource("QuietButton"),Margin=new Thickness(0),Padding=new Thickness(4,2,4,2)};
-            var last=page[^1];button.Click+=(_,_)=> {button.IsEnabled=false;RunCatalogAction(async()=> {if(!await LoadObjectPage(database,type,label,group,last,platform))button.IsEnabled=true;},"More "+label);};
+            var last=page[^1];button.Click+=(_,_)=> {RunCatalogAction(async target=> {if(!ReferenceEquals(target,owner))return;button.IsEnabled=false;if(!await LoadObjectPage(owner,database,type,label,group,last,platform))button.IsEnabled=true;},"More "+label);};
             group.Items.Add(new TreeViewItem {Header=button,Tag="more",Focusable=false});
         }
         if(output.Error!=null)group.Items.Add(new TreeViewItem {Header="Partial list · "+output.Error});
@@ -198,7 +218,7 @@ public partial class MainWindow
         }
         bool relation=type is null or "U" or "S" or "V",code=type is null or "P" or "V" or "TR" or "SF";
         if(relation)Add("Select TOP 100 rows",null,()=>RunHelper(ObjectHelperSql("top",target),"TOP 100 · "+target.Display));
-        if(code)Add("View code",null,()=>RunCatalogAction(()=>ObjectCode(target),"Code of "+target.Display));
+        if(code)Add("View code",null,()=>RunCatalogAction(owner=>ObjectCode(owner,target),"Code of "+target.Display));
         Add("Describe · sp_help",null,()=>RunHelper(ObjectHelperSql("help",target),"sp_help · "+target.Display));
         Add("Dependencies · sp_depends",null,()=>RunHelper(ObjectHelperSql("depends",target),"sp_depends · "+target.Display));
         if(relation){Add("Indexes · sp_helpindex",null,()=>RunHelper(ObjectHelperSql("indexes",target),"sp_helpindex · "+target.Display));Add("Rows and space · sp_spaceused",null,()=>RunHelper(ObjectHelperSql("space",target),"sp_spaceused · "+target.Display));}
@@ -217,7 +237,7 @@ public partial class MainWindow
         }
         bool relation=type is null or "U" or "S" or "V",table=type is null or "U" or "S";
         if(relation)Add("Select TOP 100 rows",()=>RunHelper(IqObjectHelperSql("top",target),"TOP 100 · "+target.Display));
-        if(item!=null&&type is "V" or "P")Add("View code",()=>RunCatalogAction(()=>ObjectCode(target,IqCodeSql(item)),"Code of "+target.Display));
+        if(item!=null&&type is "V" or "P")Add("View code",()=>RunCatalogAction(owner=>ObjectCode(owner,target,IqCodeSql(item)),"Code of "+target.Display));
         if(relation)Add("Columns · sp_iqcolumn",()=>RunHelper(IqObjectHelperSql("columns",target),"sp_iqcolumn · "+target.Display));
         if(table){Add("Indexes · sp_iqindex",()=>RunHelper(IqObjectHelperSql("indexes",target),"sp_iqindex · "+target.Display));Add("Size · sp_iqtablesize",()=>RunHelper(IqObjectHelperSql("size",target),"sp_iqtablesize · "+target.Display));}
         if(relation)Add("Write SELECT TOP 100 in the editor",()=> {if(!ConfirmDiscard())return;SetDocument("SELECT TOP 100 *"+Environment.NewLine+"FROM "+target.From+";"+Environment.NewLine,null);},needsSession:false);
@@ -247,12 +267,12 @@ public partial class MainWindow
         _=>throw new ArgumentException("Unknown object action.")};
     private void RunHelper(string sql,string label)
     {
-        if(running!=null||changingSession){StatusText.Text="Wait for the current operation to finish.";return;}
+        if(running!=null||changingSession){StatusText.Text="Wait for this session's current operation to finish.";return;}
         _=ExecuteAsync(sqlOverride:sql,label:label);
     }
-    private async Task ObjectCode(ObjectTarget target,string? sql=null)
+    private async Task ObjectCode(SessionWorkspace owner,ObjectTarget target,string? sql=null)
     {
-        var result=await ReadCatalog(sql??ObjectHelperSql("code",target));
+        var result=await ReadCatalog(owner,sql??ObjectHelperSql("code",target));
         if(result?.Tables.Count>0) {
             if(result.Tables[0].Columns.Count<1) throw new FormatException("The definition catalog returned no text column.");
             var text=string.Concat(result.Tables[0].Rows.Cast<DataRow>().Select(row=>Convert.ToString(row[0],CultureInfo.InvariantCulture)));

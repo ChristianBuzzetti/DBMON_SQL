@@ -49,10 +49,13 @@ Platform-neutral building blocks, fully covered by the core checks.
 | File | Concern |
 |---|---|
 | `MainWindow.xaml(.cs)` | Shell, editor, execution (`ExecuteAsync`), keyboard, smoke checks. |
-| `MainWindow.Connection.cs` | Login, session chip, status bar facts, database switch, closing. |
+| `MainWindow.Connection.cs` | Login, status bar facts, database switch, closing. |
+| `MainWindow.Sessions.cs`, `MainWindow.SessionsSmoke.cs` | Per-session workspace ownership, navigation/lifecycle and synthetic isolation checks. |
 | `MainWindow.ResultRuns.cs`, `Results.cs`, `ResultTools.cs` | Accumulated results, re-run in place, copies, exports, pins, charts. |
 | `MainWindow.MultiRun.cs` | Run on several servers, groups, combined results and diffs. |
-| `MainWindow.Repeat.cs` | Timed repeats, the caution band and the repeat dialog. |
+| `MainWindow.Repeat.cs` | The repeat dialog, its launcher and the caution band contents. |
+| `MainWindow.Repeat.Session.cs` | Per-session repeat lifecycle on one window clock, and the band that follows the active tab. |
+| `MainWindow.SessionOutput.cs` | Owner-scoped status, messages and refresh, so a background session never writes to the shell. |
 | `MainWindow.Parameters.cs` | The `:name` parameter form. |
 | `MainWindow.Browser.cs`, `EditorMenu.cs` | Object explorer (ASE and IQ catalogs) and editor object actions. |
 | `MainWindow.Tools.cs` | Recipe library, history, command search, dialogs. |
@@ -63,6 +66,20 @@ Platform-neutral building blocks, fully covered by the core checks.
 | `MainWindow.Showcase.cs`, `ShowcaseRecorder.cs` | Synthetic README tour and its own-window recorder. |
 
 Assets: `dbmon-palettes.json` (19 palettes), `ase-recipes.json` (94 recipes tagged ASE/IQ/RS), bundled fonts with their licenses, and `Assets/Boberto` (engine, Studio, adapters and backgrounds).
+
+## Session workspace ownership
+
+One `MainWindow` owns a list of `SessionWorkspace` instances. Each owns one `IQueryEngine` (an `OdbcSession` still owns exactly one connection), its connection profile, an AvalonEdit `TextDocument`, file/dirty state, caret/selection/scroll, bookmark anchors, result tabs and their provenance/run/pin/diff maps, messages, cached explorer nodes/filter/database list, ASE options, remembered parameter values and repeat plan.
+
+The existing shell mounts only the active workspace. Navigation saves view state, detaches the old result tabs and tree nodes, then mounts the new references. Reusing the actual document retains undo and anchor tracking; reusing tabs and nodes retains result filters, sorting, names and loaded catalog pages. Window-level accessors are views over the active workspace, so existing code keeps reading the session on screen. Result runs retain their producing engine identity and refuse a re-run against a replacement engine.
+
+Execution state belongs to the workspace: its cancellation source, connection-change flag, catalog-action count and repeat activity. Each guard therefore applies to one session only, so tabs execute concurrently, one query per session. `ExecuteAsync`, `ExecuteOnTargetsAsync` and `ReadCatalog` capture their owner before the first await and publish through owner-scoped helpers (`SetStatus`, `AddMessage`, `ClearMessages`, `ShowMessages`, `RefreshFor`), which write to the shell only while that owner is mounted. Result tabs are the workspace's own ordered list; the mounted workspace mirrors it into the shell `TabControl` after `QueryTab`, and `MountResultTab` / `UnmountResultTab` are the only writers. A background run therefore builds real `TabItem`s in its own list and records its selection for the next mount.
+
+Navigation no longer waits for queries: only a connection change already in flight on the same session holds the strip, and the login modal owns the window while it is open. A session that is running, repeating, publishing a catalog request or changing its connection refuses to close. One window `DispatcherTimer` drives every session's repeat plan; the caution band, Run glyph, repeat menu entry and title warning are rendered from the active workspace by `SyncRepeatBanner`. Window closure stops every repeat and cancels every running query before disposing owned sessions and fan-out extras, deduplicated by reference. The existing `Shift+F9` fan-out keeps its separate extra connections and resolves the active workspace dynamically.
+
+Connect fills the active disconnected workspace or creates a fresh one before showing the existing login. Cancellation leaves the target offline. Disconnect disposes only the active engine; closing a tab confirms its document and disposes its connection. The final close creates an offline workspace. Window closure confirms all documents and disposes every owned session plus fan-out extras, deduplicated by reference.
+
+Appearance, Boberto, profile storage, history, recipes, server groups and command search remain window-owned. Workspace state stays in memory; profile encryption, persistence and the one-process model are unchanged.
 
 ## Execution flow
 

@@ -34,16 +34,16 @@ public sealed class RepeatPlan(string sql,TimeSpan interval,int? maxRuns,bool st
 
 public partial class MainWindow
 {
-    private RepeatPlan? repeat;
+    private RepeatPlan? repeat { get => activeSession.Repeat; set => activeSession.Repeat = value; }
     private DispatcherTimer? repeatClock;
-    private bool repeatBusy;
+    private bool repeatBusy { get => activeSession.RepeatBusy; set => activeSession.RepeatBusy = value; }
     // Set by ExecuteAsync for the run that just finished: an error, a cancellation or a display failure.
-    private bool lastRunFailed;
+    private bool lastRunFailed { get => activeSession.LastRunFailed; set => activeSession.LastRunFailed = value; }
 
     private void RepeatClick(object sender,RoutedEventArgs e)
     {
         if(repeat!=null){StopRepeat("Stopped from the toolbar.");return;}
-        if(running!=null||changingSession){StatusText.Text="Wait for the current operation to finish.";return;}
+        if(running!=null||changingSession||catalogActions!=0){StatusText.Text="Wait for this session's current operation to finish.";return;}
         if(engine is DisconnectedQueryEngine){StatusText.Text="Connect before repeating SQL.";return;}
         bool selection=Editor.SelectionLength>0;string source=selection?Editor.SelectedText:Editor.Text;
         if(string.IsNullOrWhiteSpace(source)){StatusText.Text="Write or select SQL to repeat.";return;}
@@ -53,52 +53,9 @@ public partial class MainWindow
         if(form.ShowDialog()!=true||form.Plan(engine) is not {} plan)return;
         StartRepeat(plan);
     }
-    private void RepeatNowClick(object sender,RoutedEventArgs e){if(repeat!=null)repeat.NextRun=DateTime.Now;RepeatTick();}
+    private void RepeatNowClick(object sender,RoutedEventArgs e){if(repeat!=null)repeat.NextRun=DateTime.Now;RepeatTick(activeSession);}
     private void RepeatStopClick(object sender,RoutedEventArgs e)=>StopRepeat("Stopped by you.");
 
-    private void StartRepeat(RepeatPlan plan)
-    {
-        repeat=plan;plan.NextRun=DateTime.Now;
-        RecordHistory(plan.Sql);
-        repeatClock??=new DispatcherTimer {Interval=TimeSpan.FromMilliseconds(250)};
-        repeatClock.Tick-=RepeatClockTick;repeatClock.Tick+=RepeatClockTick;repeatClock.Start();
-        RepeatBanner.Visibility=Visibility.Visible;RunMenuGlyph.Text="\uE895";RepeatMenu.Header="Stop repeating";
-        RepeatPulse.BeginAnimation(OpacityProperty,shellMotion?new DoubleAnimation(1,.25,TimeSpan.FromSeconds(.8)){AutoReverse=true,RepeatBehavior=RepeatBehavior.Forever}:null);
-        UpdateRepeatBanner();UpdateTitle();
-        RepeatTick();
-    }
-    private void RepeatClockTick(object? sender,EventArgs e)=>RepeatTick();
-    // Runs when due and idle; a user run in progress simply delays the next repeat.
-    private async void RepeatTick()
-    {
-        var plan=repeat;
-        if(plan==null)return;
-        if(!ReferenceEquals(engine,plan.Session)||engine is AseIsql.Odbc.OdbcSession {IsOpen:false}){StopRepeat("Stopped: the session it was running on is no longer active.");return;}
-        UpdateRepeatBanner();
-        if(repeatBusy||running!=null||changingSession||DateTime.Now<plan.NextRun)return;
-        repeatBusy=true;
-        try{
-            plan.Runs++;UpdateRepeatBanner();
-            int before=lastRunId;
-            await ExecuteAsync(sqlOverride:plan.Sql,label:"repeat run "+plan.Runs+(plan.MaxRuns is int max?" of "+max:"")+" · every "+RepeatPlan.Describe(plan.Interval),repeatRun:true,replaceRun:plan.KeepEveryRun?null:plan.LastRunId);
-            if(lastRunId!=before)plan.LastRunId=lastRunId;
-            if(!ReferenceEquals(repeat,plan))return;
-            if(lastRunFailed)plan.Failures++;
-            plan.NextRun=DateTime.Now+plan.Interval;
-            if(lastRunFailed&&plan.StopOnError){StopRepeat("Stopped: run "+plan.Runs+" failed. Review Messages.");return;}
-            if(plan.MaxRuns is int limit&&plan.Runs>=limit){StopRepeat("Completed "+Counts.Of(plan.Runs,"run")+".");return;}
-            UpdateRepeatBanner();
-        }finally{repeatBusy=false;}
-    }
-    private void StopRepeat(string reason)
-    {
-        if(repeat is not {} plan)return;
-        repeat=null;repeatClock?.Stop();
-        RepeatBanner.Visibility=Visibility.Collapsed;RunMenuGlyph.Text="\uE70D";RepeatMenu.Header="Repeat every…";
-        RepeatPulse.BeginAnimation(OpacityProperty,null);
-        AddMessage(plan.Failures>0?1:0,"CLIENT","Repeat ended · "+reason+" "+Counts.Of(plan.Runs,"run")+(plan.Failures>0?", "+Counts.Of(plan.Failures,"failed run"):"")+" every "+RepeatPlan.Describe(plan.Interval)+".");
-        StatusText.Text="Repeat ended · "+reason;UpdateTitle();
-    }
     private void UpdateRepeatBanner()
     {
         if(repeat is not {} plan)return;

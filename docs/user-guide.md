@@ -3,6 +3,7 @@
 DBMON SQL is a Windows workbench for writing and running SQL against SAP ASE, SAP IQ and SAP Replication Server (RS). This guide walks through each part of the window.
 
 - [Connecting](#connecting)
+- [Session tabs](#session-tabs)
 - [The window](#the-window)
 - [The editor](#the-editor)
 - [Running SQL](#running-sql)
@@ -20,7 +21,7 @@ DBMON SQL is a Windows workbench for writing and running SQL against SAP ASE, SA
 
 ## Connecting
 
-The login opens when the app starts (and with `F11` or the session chip at the end of the toolbar).
+The login opens when the app starts (and with `F11` or **Connection → Connect…**).
 
 | Field | Notes |
 |---|---|
@@ -50,9 +51,25 @@ Cancelling the login leaves the app open **offline**: a notice sits above the ed
 | SAP IQ | `SAP IQ` (64-bit) | `Host=host:port`, optional server and database names. Explorer and `sp_iq*` object actions. |
 | Replication Server | `Adaptive Server Enterprise` (64-bit) | RCL commands (`admin who`, `admin health`…). No database, no catalog. |
 
+## Session tabs
+
+Use **+ Session** to open the existing login in a new workspace in the same window. `F11` / **Connect** fills the active offline tab, or adds a tab when the active one is already connected. Cancelling login leaves that tab **Not connected**, with an offline notice and Run disabled. Each connected tab shows its alias (or host:port) and **ASE**, **IQ** or **RS**.
+
+Switch tabs to return to that session's SQL document, undo history, caret, bookmarks, results, pins, messages and cached object explorer. ASE options and the current database belong to that connection. `F9` on a result re-runs its recorded SQL on the session that produced it; pinned results remain in place.
+
+**Disconnect** (`F12`) affects only the active session. The **×** on a session tab closes that connection and confirms unsaved SQL. Closing the last tab leaves one offline workspace. Closing the window confirms unsaved documents and closes all its connections.
+
+Sessions run independently. Start a long query, switch to another engine's tab and work there: each tab keeps its own query in flight, its own Run and Cancel state, its own status line and its own messages, and publishes its results into its own tab when they arrive. A tab that is working shows a **▶** before its name, and the result it produced while you were away is already selected when you return. Inside one session the rules are unchanged: one query at a time, and a repeat there blocks that session's `F9`, multi-server run and catalog until it stops.
+
+A session that is running or repeating cannot be closed: stop it first, and the English status says so. The caution band, the Run chevron glyph and the title warning describe the session on screen, so they follow the tab you select. **Run on several servers** (`Shift+F9`) uses the active connection and its separately managed extra servers.
+
+Appearance, Boberto, profiles, SQL history, recipes, server groups and command search are shared by the window. Session tabs are held in memory for the window's lifetime; they do not launch another process or window.
+
 ## The window
 
-The toolbar keeps one row: **Run** with its chevron ▾ (run selection, current line, several servers, repeat), **Cancel**, the file glyphs (new, open, save), **Objects** and **Recipes**, and the session chip on the right. In windows narrower than 1180 DIP, labels turn into glyphs (tooltips name them); below 900 DIP Boberto's band steps aside so the workspace keeps the header.
+The window title names the open document and the product, with a `*` while it has unsaved changes. The server, platform and database are not repeated there: they belong to the session tab and the status bar, which are always on screen, and one title cannot speak for several sessions at once.
+
+The toolbar keeps one row: **Run** with its chevron ▾ (run selection, current line, several servers, repeat), **Cancel**, the file glyphs (new, open, save), **Objects** and **Recipes**. Session tabs sit below the toolbar; the active session has an accent border and underline, and **+ Session** opens another workspace. In windows narrower than 1180 DIP, labels turn into glyphs (tooltips name them); below 900 DIP Boberto's band steps aside so the workspace keeps the header.
 
 ## The editor
 
@@ -61,7 +78,7 @@ The SQL editor is [AvalonEdit](https://github.com/icsharpcode/AvalonEdit) with S
 - **Find** `Ctrl+F`, **find and replace** `Ctrl+H`.
 - **Bookmarks**: `Ctrl+F2` toggles, `F2` / `Shift+F2` jump to the next / previous one. Bookmarks follow inserted lines.
 - **Editor menu** and right-click: undo/redo, copy/paste, comment or uncomment lines, duplicate line (`Ctrl+Shift+D`), selection to upper or lower case.
-- **Word wrap** `Alt+Z`; **zoom** `Ctrl++`, `Ctrl+-`, `Ctrl+0`.
+- **Word wrap** `Alt+Z`; **zoom** `Ctrl++`, `Ctrl+-`, `Ctrl+0`, or `Ctrl` with the mouse wheel over the editor.
 - **Files**: `Ctrl+N` new, `Ctrl+O` open, `Ctrl+S` save, `Ctrl+Shift+S` save as. Files are UTF-8; the previous version is kept as a backup when you overwrite. Unsaved changes are confirmed before they are discarded.
 - **History** `Ctrl+R`: the latest 100 queries across sessions, newest date/time first; double-click one to load its complete SQL. Stored as plaintext in `%LOCALAPPDATA%\DBMON_SQL\query-history.json` with atomic-write backups. Keep sensitive SQL out of history. Unreadable history files are preserved and a warning is shown instead of overwriting them.
 - **Command search** `Ctrl+K`: every command by name.
@@ -156,7 +173,7 @@ A form asks for each value when you **insert a recipe**, when you **run SQL** th
 - **Keep every run as a new result**: off by default, so each run replaces the previous run's result; on, every run adds its own tab (within the 40-tab limit).
 - SQL that changes data or server state (`insert`, `update`, `delete`, `drop`, `kill`, `resume`…; temporary `#tables` excluded) needs an explicit acknowledgement before it can start.
 
-While repeating, an amber band shows *REPEATING*, the interval, the run count, the server, the SQL and a countdown with a progress rail, plus **Run now** and **Stop repeating**. The window title starts with `⚠ REPEATING`. The repeat stops on Stop, `Esc`, the run limit, a failure (when set), disconnecting, a new session or closing the app; Messages records why.
+While repeating, an amber band shows *REPEATING*, the interval, the run count, the server, the SQL and a countdown with a progress rail, plus **Run now** and **Stop repeating**. The window title starts with `⚠ REPEATING`. The repeat stops on Stop, `Esc`, the run limit, a failure (when set), disconnecting or closing the app; Messages records why. It belongs to its own session: other tabs keep running their own SQL while it ticks, and its band reappears when you return to its tab.
 
 ## Object explorer
 
@@ -183,7 +200,7 @@ On the right: the caret position, then the session facts reported by the server.
 **Personalize** opens one window with a live preview:
 
 - **Style**: 19 DBMON palettes (17 dark, 2 light) and the accent: *Auto*, 14 presets or a **custom color** with a hue, saturation and value mixer and a hex box. On light palettes a bright accent is deepened until it reads as text.
-- **Text**: interface font (bundled Inter or Segoe UI Variable) and size; SQL font (bundled JetBrains Mono or Consolas) and size. Changes keep your SQL, selection and undo history.
+- **Text**: interface font (bundled Inter or Segoe UI Variable) and size; SQL font (Consolas, the default, or the bundled JetBrains Mono) and size. Changes keep your SQL, selection and undo history.
 - **Interface**: compact rows, soft corners, server messages panel.
 - **Effects**: show Boberto, and motion (idle animations, neon edges); Windows' reduce-animation setting is honored.
 
