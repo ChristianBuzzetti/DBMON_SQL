@@ -826,6 +826,33 @@ public partial class MainWindow : Window
             captured=dialog.ReadProfile();
             Require(captured is {Platform:ServerPlatform.Iq,Server:"iq-host",Port:2638,Database:"",IqServerName:"iq_dev"}&&dialog.Database.IsEnabled&&dialog.IqServerRow.Visibility==Visibility.Visible&&dialog.LanguageRow.Visibility==Visibility.Collapsed&&dialog.DriverStatus.Text.Contains(OdbcSession.DriverFor(ServerPlatform.Iq)),"SAP IQ login names the IQ driver, offers the optional IQ server name and database, and hides ASE-only options");
             CaptureSmokeVisual(dialog,"connection-iq.png");
+            string iqCa=Path.GetTempFileName(),iqId=Path.GetTempFileName(),iqStore=Path.Combine(Path.GetTempPath(),"dbmon-iq-profiles-"+Guid.NewGuid().ToString("N")+".dat");
+            try {
+                ProfileStore.OverridePath=iqStore;
+                dialog.EncryptData.IsChecked=true;dialog.TrustedFile.Text=iqCa;dialog.IqIdentityFile.Text=iqId;
+                dialog.Password.Password="fixture-db-password";dialog.IqIdentityPassword.Password="fixture-key-password";dialog.RememberPassword.IsChecked=true;
+                var iqSaved=dialog.StoreCurrent("IQ TLS fixture");
+                var iqLoaded=ProfileStore.Load(iqStore).Single();
+                Require(iqLoaded.Profile.IqIdentityFile==iqId&&iqLoaded.Profile.TrustedFile==iqCa&&iqLoaded.Password=="fixture-db-password"&&!System.Text.Json.JsonSerializer.Serialize(iqLoaded).Contains("fixture-key-password"),"IQ profiles preserve both certificate paths and remember only the database password");
+                var iqRestored=new ConnectionWindow(iqLoaded.Profile);
+                try {
+                    iqRestored.ApplySavedLogin(iqLoaded);
+                    Require(iqRestored.IqIdentityFile.Text==iqId&&iqRestored.TrustedFile.Text==iqCa&&iqRestored.IqIdentityPassword.Password.Length==0&&iqRestored.IqIdentityRow.Visibility==Visibility.Visible,"Restoring an IQ profile requires fresh identity password input");
+                    iqRestored.IqIdentityPassword.Password="fixture-key-password";
+                }finally{iqRestored.Close();}
+                Require(iqRestored.IqIdentityPassword.Password.Length==0,"Closing login clears the identity password");
+                dialog.AdvancedOptions.IsExpanded=true;dialog.UpdateLayout();dialog.IqIdentityRow.BringIntoView();dialog.UpdateLayout();
+                Require(dialog.IqIdentityPassword.Focus()&&dialog.IqIdentityPassword.IsKeyboardFocused,"IQ identity password accepts keyboard focus in the expanded login options");
+                CaptureSmokeVisual(dialog,"connection-iq-identity.png");
+                dialog.ApplySavedLogin(iqSaved);
+                Require(dialog.IqIdentityPassword.Password.Length==0,"Loading another profile clears the transient identity password");
+                dialog.IqIdentityPassword.Password="fixture-key-password";dialog.IqIdentityFile.Text=iqId+".changed";
+                Require(dialog.IqIdentityPassword.Password.Length==0,"Changing the identity path clears the prior key password");
+                dialog.IqIdentityFile.Text=iqId;dialog.IqIdentityPassword.Password="fixture-key-password";
+                dialog.SelectPlatform(ServerPlatform.Ase);
+                Require(dialog.IqIdentityRow.Visibility==Visibility.Collapsed&&dialog.IqIdentityPassword.Password.Length==0,"ASE hides the IQ identity and clears its password");
+                dialog.SelectPlatform(ServerPlatform.Iq);
+            }finally{ProfileStore.OverridePath=null;File.Delete(iqCa);File.Delete(iqId);File.Delete(iqStore);}
             var restored=new ConnectionWindow(captured);try{Require(restored.SelectedPlatform==ServerPlatform.Iq&&restored.IqServerName.Text=="iq_dev","A saved IQ profile reopens with its server type and IQ server name");}finally{restored.Close();}
             dialog.SelectPlatform(ServerPlatform.Ase);
             dialog.Close();

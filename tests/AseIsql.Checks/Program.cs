@@ -392,6 +392,40 @@ Check("SAP IQ profiles use the IQ driver with Host, optional server and database
     Assert((string)builder["ServerName"] == "iq_prod" && (string)builder["DatabaseName"] == "iqdb" && (string)builder["CharSet"] == "utf8" && ((string)builder["AppInfo"]).Contains("DBMON SQL"));
     Assert(OdbcSession.DriverFor(ServerPlatform.Iq) == "SAP IQ" && OdbcSession.TestSql(ServerPlatform.Iq).StartsWith("SELECT", StringComparison.Ordinal));
 });
+Check("IQ TLS profiles supply both files while the identity password remains transient", () => {
+    string ca = Path.GetTempFileName(), identity = Path.GetTempFileName();
+    try {
+        var profile = new ConnectionProfile("iq-host", 2638, "", "dba", true, ca, Platform: ServerPlatform.Iq, IqIdentityFile: identity);
+        string json = System.Text.Json.JsonSerializer.Serialize(profile);
+        Assert(System.Text.Json.JsonSerializer.Deserialize<ConnectionProfile>(json)!.IqIdentityFile == identity && !json.Contains("key-secret"));
+        var builder = new OdbcConnectionStringBuilder(OdbcSession.BuildConnectionString(profile, "db-secret", "key-secret"));
+        Assert((string)builder["PWD"] == "db-secret" && ((string)builder["Encryption"]).Trim('{', '}') == $"TLS(TLS_TYPE=RSA;TRUSTED_CERTIFICATES={ca};IDENTITY={identity};IDENTITY_PASSWORD=key-secret)");
+        var caOnly = new OdbcConnectionStringBuilder(OdbcSession.BuildConnectionString(profile with { IqIdentityFile = "" }, "db-secret"));
+        Assert(((string)caOnly["Encryption"]).Trim('{', '}') == $"TLS(TLS_TYPE=RSA;TRUSTED_CERTIFICATES={ca})");
+        foreach (var bad in new[] { profile with { UseTls = false }, profile with { Platform = ServerPlatform.Ase, Database = "master" }, profile with { IqIdentityFile = identity + ".missing" } })
+            try { bad.Validate(); throw new Exception("Accepted invalid identity profile"); } catch (ArgumentException) { }
+        foreach (string secret in new[] { "", "a;SKIP_CERTIFICATE_NAME_CHECK=ON", "a)b", "a(b", "a\0b", "a\nb", "a\"b", "a'b", " leading", "trailing " })
+            try { OdbcSession.BuildConnectionString(profile, "db-secret", secret); throw new Exception("Accepted unsafe identity password"); } catch (ArgumentException) { }
+        foreach (string suffix in new[] { ";SKIP_CERTIFICATE_NAME_CHECK=ON", "(identity)", "'identity'" })
+        {
+            string unsafePath = identity + suffix;
+            try {
+                File.WriteAllText(unsafePath, "fixture");
+                foreach (var badPath in new[] { profile with { IqIdentityFile = unsafePath }, profile with { TrustedFile = unsafePath } })
+                    try { OdbcSession.BuildConnectionString(badPath, "db-secret", "key-secret"); throw new Exception("Accepted ambiguous TLS file path"); } catch (ArgumentException) { }
+            } finally { File.Delete(unsafePath); }
+        }
+        try { OdbcSession.BuildConnectionString(profile with { IqIdentityFile = "" }, "db-secret", "key-secret"); throw new Exception("Ignored identity password"); } catch (ArgumentException) { }
+    } finally { File.Delete(ca); File.Delete(identity); }
+});
+Check("IQ identity secrets are redacted from displayed and original diagnostics", () => {
+    const string raw = "db-secret key-secret key}}secret db-secret-long";
+    var message = new DiagnosticMessages().Read(1, "08001", raw, "db-secret", "key-secret");
+    Assert(message.Text == "[password] [password] key}}secret [password]-long" && message.RawText == message.Text);
+    Assert(OdbcSession.Redact("key}}secret key}secret", "", "key}secret") == "[password] [password]");
+    Assert(OdbcSession.Redact("db-secret-long db-secret", "db-secret", "db-secret-long") == "[password] [password]");
+    Assert(OdbcSession.DescribeConnectionFailure(new ArgumentException(raw), "db-secret", "key-secret") == message.Text);
+});
 Check("Replication Server profiles use the ASE driver without a database and test with RCL", () => {
     var profile = new ConnectionProfile("rs-host", 5510, "", "sa", false, "", Platform: ServerPlatform.Rs);
     var builder = new OdbcConnectionStringBuilder(OdbcSession.BuildConnectionString(profile, "secret"));
@@ -409,7 +443,8 @@ Check("Each platform validates its own database rule and IQ server name", () => 
     new ConnectionProfile("h", 5510, "", "u", false, "", Platform: ServerPlatform.Rs).Validate();
     string json = System.Text.Json.JsonSerializer.Serialize(new ConnectionProfile("h", 2638, "", "u", false, "", Platform: ServerPlatform.Iq, IqServerName: "iq1"));
     Assert(json.Contains("\"Platform\":\"Iq\"") && System.Text.Json.JsonSerializer.Deserialize<ConnectionProfile>(json)!.Platform == ServerPlatform.Iq);
-    Assert(System.Text.Json.JsonSerializer.Deserialize<ConnectionProfile>("{\"Server\":\"h\",\"Port\":1,\"Database\":\"d\",\"User\":\"u\",\"UseTls\":false,\"TrustedFile\":\"\"}")!.Platform == ServerPlatform.Ase);
+    var legacy = System.Text.Json.JsonSerializer.Deserialize<ConnectionProfile>("{\"Server\":\"h\",\"Port\":1,\"Database\":\"d\",\"User\":\"u\",\"UseTls\":false,\"TrustedFile\":\"\"}")!;
+    Assert(legacy.Platform == ServerPlatform.Ase && legacy.IqIdentityFile == "");
     Assert(Platforms.TryParseTag("rs", out var rs) && rs == ServerPlatform.Rs && !Platforms.TryParseTag("oracle", out _));
 });
 Check("sql.ini keeps master entries apart from query endpoints", () => {

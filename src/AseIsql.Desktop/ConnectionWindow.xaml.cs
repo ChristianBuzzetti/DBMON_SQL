@@ -67,6 +67,8 @@ public partial class ConnectionWindow : Window
         else if (platform == ServerPlatform.Ase && Database.Text.Length == 0) Database.Text = "master";
         Database.ToolTip = platform switch { ServerPlatform.Iq => "Optional: the IQ database name. Empty uses the server's database.", ServerPlatform.Rs => "Replication Server has no databases.", _ => "Database to open after login" };
         IqServerRow.Visibility = platform == ServerPlatform.Iq ? Visibility.Visible : Visibility.Collapsed;
+        IqIdentityRow.Visibility = platform == ServerPlatform.Iq ? Visibility.Visible : Visibility.Collapsed;
+        if (platform != ServerPlatform.Iq) IqIdentityPassword.Clear();
         LanguageRow.Visibility = EncryptPassword.Visibility = platform == ServerPlatform.Iq ? Visibility.Collapsed : Visibility.Visible;
         DriverStatus.Text = installed ? "Driver: " + OdbcSession.DriverFor(platform) + " · 64 bits · " + platform.Title() :
             "The 64-bit " + OdbcSession.DriverFor(platform) + " ODBC driver is missing. Install it with the official SAP installer to connect to " + platform.Title() + ".";
@@ -197,6 +199,12 @@ public partial class ConnectionWindow : Window
         var picker = new OpenFileDialog { Title = "Select the TLS CA certificate file", Filter = "CA certificates|*.pem;*.crt;*.cer;*.txt|All files|*.*" };
         if (picker.ShowDialog(this) == true) TrustedFile.Text = picker.FileName;
     }
+    private void BrowseIdentityFile(object sender, RoutedEventArgs e)
+    {
+        var picker = new OpenFileDialog { Title = "Select the SAP IQ client identity file", Filter = "Client identity files|*.id;*.pem|All files|*.*" };
+        if (picker.ShowDialog(this) == true) { IqIdentityFile.Text = picker.FileName; IqIdentityPassword.Clear(); EncryptData.IsChecked = true; }
+    }
+    private void IdentityFileChanged(object sender, TextChangedEventArgs e) => IqIdentityPassword?.Clear();
     private void SelectAlias(string? alias, string? host, int? port)
     {
         ServerAliases.SelectedItem = catalog?.Servers.SingleOrDefault(s => !s.Duplicate && s.Name.Equals(alias, StringComparison.OrdinalIgnoreCase));
@@ -209,6 +217,7 @@ public partial class ConnectionWindow : Window
         Server.Text = profile.Server; Port.Text = profile.Port.ToString(); Database.Text = profile.Database; UserName.Text = profile.User;
         Charset.Text = profile.EffectiveCharset; LoginLanguage.Text = profile.Language; Hostname.Text = profile.ClientHostname; EncryptPassword.IsChecked = profile.EncryptPassword;
         EncryptData.IsChecked = profile.UseTls; TrustedFile.Text = profile.TrustedFile;
+        IqIdentityFile.Text = profile.IqIdentityFile; IqIdentityPassword.Clear();
         LoginTimeout.Text = profile.LoginTimeout.ToString(); QueryTimeout.Text = profile.QueryTimeout.ToString(); MaxRows.Text = profile.MaxRows.ToString();
         ManualMode.IsChecked = string.IsNullOrEmpty(profile.ServerAlias); SelectAlias(profile.ServerAlias, profile.Server, profile.Port);
         EncryptData.IsChecked = profile.UseTls || (ManualMode.IsChecked != true && (Endpoints.SelectedItem as SqlIniEndpoint)?.UseTls == true);
@@ -230,7 +239,8 @@ public partial class ConnectionWindow : Window
         }
         var platform = SelectedPlatform;
         var profile = new ConnectionProfile(host, port, platform == ServerPlatform.Rs ? "" : Database.Text.Trim(), UserName.Text, tls, TrustedFile.Text, login, query, rows,
-            Charset.Text, Hostname.Text, EncryptPassword.IsChecked == true, alias, path, LoginLanguage.Text, platform, platform == ServerPlatform.Iq ? IqServerName.Text.Trim() : "");
+            Charset.Text, Hostname.Text, EncryptPassword.IsChecked == true, alias, path, LoginLanguage.Text, platform, platform == ServerPlatform.Iq ? IqServerName.Text.Trim() : "",
+            platform == ServerPlatform.Iq ? IqIdentityFile.Text : "");
         profile.Validate(); return profile;
     }
     internal LoginSelection ReadSelection()=>new(ReadProfile());
@@ -253,38 +263,39 @@ public partial class ConnectionWindow : Window
     private async Task ConnectAsync(bool testOnly)
     {
         if (busy) return;
-        string password = "";
+        string password = "", identityPassword = "";
         try
         {
             if (!IsDriverInstalled(SelectedPlatform)) throw new ArgumentException("The 64-bit " + OdbcSession.DriverFor(SelectedPlatform) + " ODBC driver is unavailable.");
             CheckCatalogFreshness(); var selection=ReadSelection(); Profile = selection.Profile; password = Password.Password;
+            identityPassword = SelectedPlatform == ServerPlatform.Iq ? IqIdentityPassword.Password : "";
             var clock = System.Diagnostics.Stopwatch.StartNew();
             busy = true; Fields.IsEnabled = false; TestButton.IsEnabled = ConnectButton.IsEnabled = CloseButton.IsEnabled = false;
             Feedback.SetResourceReference(TextBlock.ForegroundProperty, "Muted"); Feedback.Text = "Connecting…";
             var profile = selection.Profile;
             if (testOnly)
             {
-                QueryOutput output = await Task.Run(() => { using var candidate = OdbcSession.Open(profile, password); return candidate.Execute(OdbcSession.TestSql(profile.Platform)); });
+                QueryOutput output = await Task.Run(() => { using var candidate = OdbcSession.Open(profile, password, identityPassword); return candidate.Execute(OdbcSession.TestSql(profile.Platform)); });
                 if (output.Error != null) throw new InvalidOperationException(output.Error);
                 if (output.Tables.Count < 1 || output.Tables[0].Rows.Count < 1) throw new InvalidOperationException("The test did not return the expected result.");
                 Feedback.Text = profile.Platform.Title() + " connection and " + (profile.Platform == ServerPlatform.Rs ? "admin version" : "SELECT") + " test succeeded in " + clock.Elapsed.TotalSeconds.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " s. Click Connect to open your session.";
             }
             else
             {
-                connectedLogin = new(await Task.Run(() => OdbcSession.Open(profile, password)),selection);
+                connectedLogin = new(await Task.Run(() => OdbcSession.Open(profile, password, identityPassword)),selection);
                 // A loaded profile follows the login that just worked: its password is stored or dropped per Remember password.
                 if (SavedProfiles.SelectedItem is SavedLogin chosen)
                     try { StoreCurrent(chosen.Name); } catch (Exception ex) when (ex is IOException or JsonException or ArgumentException or UnauthorizedAccessException) { System.Diagnostics.Debug.WriteLine("Profile update: " + ex.Message); }
                 connectedLogin = connectedLogin with { Total = clock.Elapsed };
-                Password.Clear(); DialogResult = true;
+                Password.Clear(); IqIdentityPassword.Clear(); DialogResult = true;
             }
         }
         catch (Exception ex) when (ex is OdbcException or ArgumentException or InvalidOperationException or IOException or UnauthorizedAccessException)
-        { Feedback.Text = OdbcSession.DescribeConnectionFailure(ex, password); Feedback.SetResourceReference(TextBlock.ForegroundProperty, "ErrorInk"); }
-        finally { password = ""; busy = false; Fields.IsEnabled = true; TestButton.IsEnabled = ConnectButton.IsEnabled = IsDriverInstalled(SelectedPlatform); CloseButton.IsEnabled = true; }
+        { Feedback.Text = OdbcSession.DescribeConnectionFailure(ex, password, identityPassword); Feedback.SetResourceReference(TextBlock.ForegroundProperty, "ErrorInk"); }
+        finally { password = identityPassword = ""; busy = false; Fields.IsEnabled = true; TestButton.IsEnabled = ConnectButton.IsEnabled = IsDriverInstalled(SelectedPlatform); CloseButton.IsEnabled = true; }
     }
     private void TestClick(object sender, RoutedEventArgs e) => _ = ConnectAsync(true);
     private void ConnectClick(object sender, RoutedEventArgs e) => _ = ConnectAsync(false);
     private void CloseClick(object sender, RoutedEventArgs e) => Close();
-    private void OnClosing(object? sender, CancelEventArgs e) { if (busy && connectedLogin == null) e.Cancel = true; else Password.Clear(); }
+    private void OnClosing(object? sender, CancelEventArgs e) { if (busy && connectedLogin == null) e.Cancel = true; else { Password.Clear(); IqIdentityPassword.Clear(); } }
 }

@@ -37,6 +37,10 @@ The login opens when the app starts (and with `F11` or **Connection → Connect�
 
 **Advanced options** holds manual host and port, the TLS CA file (`TrustedFile`), the IQ server name (optional when one IQ server listens on the host and port), login timeout, query timeout and the maximum number of rows per execution.
 
+For SAP IQ servers that require a client identity, enable **Encrypt data (TLS)** and select both the trusted `.crt` under **Browse CA…** and the `.id` under **Browse identity…** in Advanced options. Enter the private key password in **Client identity password**, separately from the database login password. Saving a profile retains both paths; the identity password is never stored, even with **Remember password** enabled. Enter it again when opening another connection. Changing the loaded profile or leaving SAP IQ clears that field.
+
+When using a client identity, IQ TLS values containing semicolons, parentheses, quotes, control characters or leading/trailing whitespace are rejected before calling the driver: these values would be ambiguous in its nested TLS option syntax. Diagnostics hide both passwords. Certificate and hostname verification remain enabled; a TLS failure never triggers an unencrypted retry. See SAP's [connection parameters reference](https://help.sap.com/doc/1948d3f607fc4e7b9745d07669ad0f1b/16.2.0/en-US/SAP_IQ_Communication_Reference_en.pdf) for `IDENTITY`, `IDENTITY_PASSWORD` and `TRUSTED_CERTIFICATES`.
+
 **Test connection** opens a temporary session and runs `SELECT 1` (`admin version` on Replication Server). **Connect** opens the session and closes the dialog. The *Information* tab shows the driver in use and the `sql.ini` that was read.
 
 **Profiles** keep the form under a name. They are stored in `%LOCALAPPDATA%\DBMON_SQL\profiles.dat`, encrypted with Windows DPAPI for your user. *Forget password* removes a saved password; deleting a profile asks for a second click.

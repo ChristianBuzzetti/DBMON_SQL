@@ -20,6 +20,7 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
     private readonly OdbcConnection connection;
     private readonly ConnectionProfile profile;
     private string password;
+    private string identityPassword;
     private string database;
     private bool connectionIssue;
     private int? spid;
@@ -35,10 +36,10 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
     public SessionFacts Facts => new(database, spid, login, charset, profile.Platform);
     public IReadOnlyList<QueryMessage> LoginMessages { get { lock (messagesGate) return loginMessages.ToArray(); } }
 
-    private OdbcSession(ConnectionProfile profile, string password)
+    private OdbcSession(ConnectionProfile profile, string password, string identityPassword)
     {
-        this.profile = profile; this.password = password; database = profile.Database;
-        connection = new OdbcConnection(BuildConnectionString(profile, password));
+        this.profile = profile; this.password = password; this.identityPassword = identityPassword; database = profile.Database;
+        connection = new OdbcConnection(BuildConnectionString(profile, password, identityPassword));
         if (profile.Platform == ServerPlatform.Iq) connection.ConnectionTimeout = profile.LoginTimeout;
         connection.InfoMessage += (_, args) => {
             lock (messagesGate)
@@ -46,7 +47,7 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
                 if (suppressMessages) return;
                 foreach (OdbcError error in args.Errors)
                 {
-                    var message = diagnostics.Read(error.NativeError, error.SQLState, error.Message, this.password);
+                    var message = diagnostics.Read(error.NativeError, error.SQLState, error.Message, this.password, this.identityPassword);
                     // Nothing but a transport frame: ASE separates its trailing blocks with these, and a row that
                     // shows no server text is noise in Messages.
                     if (message.Text.Length == 0) continue;
@@ -58,10 +59,10 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
         };
     }
 
-    public static OdbcSession Open(ConnectionProfile profile, string password)
+    public static OdbcSession Open(ConnectionProfile profile, string password, string identityPassword = "")
     {
         profile.Validate();
-        var session = new OdbcSession(profile, password);
+        var session = new OdbcSession(profile, password, identityPassword);
         try
         {
             var clock = System.Diagnostics.Stopwatch.StartNew();
@@ -123,12 +124,14 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
         catch (Exception ex) when (ex is OdbcException or InvalidOperationException) { }
     }
 
-    public static string BuildConnectionString(ConnectionProfile profile, string password)
+    public static string BuildConnectionString(ConnectionProfile profile, string password, string identityPassword = "")
     {
         profile.Validate();
+        if (identityPassword.Length != 0 && (profile.Platform != ServerPlatform.Iq || profile.IqIdentityFile.Length == 0))
+            throw new ArgumentException("Select an IQ client identity file before entering its password.");
         if (profile.UseTls && string.IsNullOrWhiteSpace(profile.TrustedFile))
             throw new ArgumentException("TLS is enabled: select the server CA certificate file in TrustedFile. For a TCP server without TLS, clear Encrypt data (TLS); Encrypt password is independent.");
-        if (profile.Platform == ServerPlatform.Iq) return BuildIqConnectionString(profile, password);
+        if (profile.Platform == ServerPlatform.Iq) return BuildIqConnectionString(profile, password, identityPassword);
         var builder = new OdbcConnectionStringBuilder { Driver = DriverName };
         builder["Server"] = profile.Server; builder["Port"] = profile.Port;
         if (profile.Platform == ServerPlatform.Ase) builder["Database"] = profile.Database;
@@ -144,7 +147,7 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
     }
 
     // SAP IQ (SQL Anywhere family) parameters: Host carries host:port, ServerName and DatabaseName are optional.
-    private static string BuildIqConnectionString(ConnectionProfile profile, string password)
+    private static string BuildIqConnectionString(ConnectionProfile profile, string password, string identityPassword)
     {
         var builder = new OdbcConnectionStringBuilder { Driver = IqDriverName };
         builder["UID"] = profile.User; builder["PWD"] = password;
@@ -152,24 +155,44 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
         if (profile.IqServerName.Length != 0) builder["ServerName"] = profile.IqServerName;
         if (profile.Database.Length != 0) builder["DatabaseName"] = profile.Database;
         if (!profile.EffectiveCharset.Equals("ServerDefault", StringComparison.OrdinalIgnoreCase)) builder["CharSet"] = profile.EffectiveCharset;
-        if (profile.UseTls && profile.TrustedFile.IndexOfAny([';', ')', '(']) >= 0) throw new ArgumentException("For SAP IQ the CA file path cannot contain ';', '(' or ')'.");
-        if (profile.UseTls) builder["Encryption"] = "TLS(TLS_TYPE=RSA;TRUSTED_CERTIFICATES=" + profile.TrustedFile + ")";
+        if (profile.UseTls)
+        {
+            if (profile.TrustedFile.IndexOfAny([';', ')', '(']) >= 0) throw new ArgumentException("For SAP IQ the CA file path cannot contain ';', '(' or ')'.");
+            string tls = "TLS(TLS_TYPE=RSA;TRUSTED_CERTIFICATES=" + profile.TrustedFile;
+            if (profile.IqIdentityFile.Length != 0)
+            {
+                ValidateIqTlsValue(profile.TrustedFile, "CA file path");
+                ValidateIqTlsValue(profile.IqIdentityFile, "client identity file path");
+                if (identityPassword.Length == 0) throw new ArgumentException("Enter the IQ client identity password. It is separate from the database login password.");
+                ValidateIqTlsValue(identityPassword, "client identity password");
+                tls += ";IDENTITY=" + profile.IqIdentityFile + ";IDENTITY_PASSWORD=" + identityPassword;
+            }
+            builder["Encryption"] = tls + ")";
+        }
         builder["AppInfo"] = "APPNAME=" + ApplicationName;
         return builder.ConnectionString;
     }
 
-    public static string DescribeConnectionFailure(Exception exception, string password)
+    // ODBC quoting protects the outer string only. Reject ambiguous values in IQ's nested TLS grammar
+    // rather than interpreting a password or filename as an additional security option.
+    private static void ValidateIqTlsValue(string value, string field)
     {
-        if (exception is not OdbcException odbc) return Redact(exception.Message, password);
+        if (value.IndexOfAny([';', '(', ')', '\'', '"']) >= 0 || value.Any(char.IsControl) || value != value.Trim())
+            throw new ArgumentException("The IQ " + field + " cannot contain semicolons, parentheses, quotes, control characters or leading/trailing whitespace. Its value was not sent to the driver.");
+    }
+
+    public static string DescribeConnectionFailure(Exception exception, string password, string identityPassword = "")
+    {
+        if (exception is not OdbcException odbc) return Redact(exception.Message, password, identityPassword);
         var errors = odbc.Errors.Cast<OdbcError>().ToArray();
         var reader = new DiagnosticMessages();
         string details = string.Join("\n", errors.DistinctBy(e => (e.SQLState, e.NativeError, e.Message))
-            .Select(e => (Error: e, Text: reader.Read(e.NativeError, e.SQLState, e.Message, password).Text))
+            .Select(e => (Error: e, Text: reader.Read(e.NativeError, e.SQLState, e.Message, password, identityPassword).Text))
             .Where(record => record.Text.Length != 0)
             .Select(record => $"[{record.Error.SQLState} / {record.Error.NativeError}] {record.Text}"));
         bool certificateList = errors.Any(e => IsCertificateAuthorityFailure(e.SQLState, e.Message));
         return (certificateList ? "Unable to load the TLS CA certificate list. Check TrustedFile and its format. No unencrypted retry was attempted.\n\n" : "") +
-            (details.Length == 0 ? Redact(exception.Message, password) : details);
+            (details.Length == 0 ? Redact(exception.Message, password, identityPassword) : details);
     }
 
     public static bool IsCertificateAuthorityFailure(string state, string message) =>
@@ -220,7 +243,7 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
                     try { ResultReader.Read(reader, output, budget, cancellation); }
                     catch (Exception ex) when (ex is ResultLimitException or OperationCanceledException)
                     {
-                        try { command.Cancel(); } catch (OdbcException cancelError) { output.Messages.Add(new QueryMessage(0, "ODBC", "Cancellation was not confirmed. Open the original diagnostic for details.", Redact(cancelError.Message, password))); }
+                        try { command.Cancel(); } catch (OdbcException cancelError) { output.Messages.Add(new QueryMessage(0, "ODBC", "Cancellation was not confirmed. Open the original diagnostic for details.", RedactSecrets(cancelError.Message))); }
                         throw;
                     }
                     if (reader.RecordsAffected >= 0) output.Messages.Add(new QueryMessage(0, profile.Platform.Tag(), $"Rows affected: {reader.RecordsAffected}"));
@@ -246,16 +269,16 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
         catch (OdbcException ex)
         {
             lock (messagesGate)
-                foreach (OdbcError error in ex.Errors) output.Messages.Add(diagnostics.Read(error.NativeError, error.SQLState, error.Message, password));
+                foreach (OdbcError error in ex.Errors) output.Messages.Add(diagnostics.Read(error.NativeError, error.SQLState, error.Message, password, identityPassword));
             output.ErrorSource = "ODBC";
             if (ex.Errors.Cast<OdbcError>().Any(e => e.SQLState.StartsWith("08", StringComparison.Ordinal))) connectionIssue = true;
             // Native records above own the readable server facts. Do not append
             // the exception's framed aggregate as another display message.
-            output.ErrorRawText = Redact(ex.Message, password);
+            output.ErrorRawText = RedactSecrets(ex.Message);
             output.Error = cancellation.IsCancellationRequested ? "Cancellation requested. Review server messages and verify the session state." : "Query failed. Review server messages or open the original diagnostic for details.";
         }
         catch (Exception ex) when (ex is FormatException or ResultLimitException or InvalidOperationException or OverflowException or NotSupportedException or InvalidCastException or ArgumentException)
-        { output.Error = Redact(ex.Message, password); }
+        { output.Error = RedactSecrets(ex.Message); }
         catch (OperationCanceledException) { output.Error = "Cancellation requested. Received results are partial; verify the session before continuing."; }
         finally
         {
@@ -332,7 +355,7 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
         }
         catch (Exception ex) when (ex is OdbcException or InvalidOperationException or FormatException or InvalidCastException or OverflowException or ResultLimitException)
         {
-            output.Messages.Add(new QueryMessage(0, "CLIENT", "Statistics IO plan read failed: " + Redact(ex.Message, password)));
+            output.Messages.Add(new QueryMessage(0, "CLIENT", "Statistics IO plan read failed: " + RedactSecrets(ex.Message)));
             return;
         }
         finally
@@ -361,11 +384,18 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
             output.Messages.Add(new QueryMessage(0, "CLIENT", $"Statistics IO: {report.Unreadable} plan block(s) could not be parsed.", rawXml));
     }
 
-    public static string Redact(string text, string secret)
+    public static string Redact(string text, string secret, string identityPassword = "")
     {
-        if (secret.Length == 0) return text;
-        return text.Replace(secret.Replace("}", "}}", StringComparison.Ordinal), "[password]", StringComparison.Ordinal).Replace(secret, "[password]", StringComparison.Ordinal);
+        if (identityPassword.Length == 0)
+            return secret.Length == 0 ? text : text.Replace(secret.Replace("}", "}}", StringComparison.Ordinal), "[password]", StringComparison.Ordinal).Replace(secret, "[password]", StringComparison.Ordinal);
+        var secrets = new[] { secret, identityPassword }.Where(s => s.Length != 0)
+            .SelectMany(s => new[] { s, s.Replace("}", "}}", StringComparison.Ordinal) }).Distinct()
+            .OrderByDescending(s => s.Length).ToArray();
+        if (secrets.Length == 0) return text;
+        // One pass preserves overlapping secrets and never rewrites an already inserted placeholder.
+        return Regex.Replace(text, string.Join("|", secrets.Select(Regex.Escape)), "[password]", RegexOptions.CultureInvariant);
     }
 
-    public void Dispose() { connection.Dispose(); password = ""; }
+    private string RedactSecrets(string text) => Redact(text, password, identityPassword);
+    public void Dispose() { try { connection.Dispose(); } finally { password = identityPassword = ""; } }
 }

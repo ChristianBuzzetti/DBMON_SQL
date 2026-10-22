@@ -7,7 +7,7 @@ public sealed class DiagnosticMessages
 {
     private const string DriverPrefix = "[SAP][ASE ODBC Driver][Adaptive Server Enterprise]";
     private string previous = "";
-    public QueryMessage Read(int number, string state, string raw, string password)
+    public QueryMessage Read(int number, string state, string raw, string password, string identityPassword = "")
     {
         string display = raw;
         if (previous.Length > 0 && raw.Length > previous.Length && raw.StartsWith(previous, StringComparison.Ordinal))
@@ -27,6 +27,6 @@ public sealed class DiagnosticMessages
         // ASE separates its trailing blocks with records that are nothing but the transport frame. Unframing leaves
         // them empty, and an empty display is the caller's signal to drop the record: it carries no server text, and
         // the frame is the one thing this class exists to hide. RawText still holds it for anyone who asks.
-        return new(number, "ODBC " + state, OdbcSession.Redact(display, password), OdbcSession.Redact(raw, password));
+        return new(number, "ODBC " + state, OdbcSession.Redact(display, password, identityPassword), OdbcSession.Redact(raw, password, identityPassword));
     }
 }
