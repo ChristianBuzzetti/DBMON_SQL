@@ -15,6 +15,6 @@ The synchronized catalog contains 52 accessories, 14 materials, and 30 gestures.
 ## Verification on 2026-10-21
 
 - Before synchronization, the 39 upstream checks reported 28 failures and 11 passes; after synchronization, all 40 checks passed, including the desktop translation check.
-- `./build.ps1 -Test -Publish` passed: 82 core checks and 315 UI checks/measurements, without contacting ASE. Development output: `artifacts/windows-x64-dev`.
+- `./build.ps1 -Test -Publish` passed: 82 core checks and 315 UI checks/measurements, without contacting ASE. Current development output: `artifacts/DBMON_SQL`.
 - Both packaged engine scripts matched the SMG_APPS source SHA-256 hashes. The real Studio capture displayed the expanded gesture catalog and corrected crown outfit.
 - Additional Gentle AI review remained unavailable: preflight returned `operation_timeout`, `mutation_outcome: not_started`. No review approval was obtained. Existing unrelated session edits were preserved.

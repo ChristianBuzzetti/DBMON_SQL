@@ -5,7 +5,7 @@ if ($Release -and -not $Publish) { throw 'A formal release requires -Test -Publi
 [xml]$taskBuildProperties = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'Directory.Build.props') -Raw
 $taskVersion = [version]$taskBuildProperties.Project.PropertyGroup.Version
 if ([string]::IsNullOrWhiteSpace($PublishDirectory)) {
-    $PublishDirectory = if($Release) { 'artifacts/windows-x64-v' + $taskVersion.ToString(3) + '-final' } else { 'artifacts/windows-x64-dev' }
+    $PublishDirectory = if($Release) { 'artifacts/windows-x64-v' + $taskVersion.ToString(3) + '-final' } else { 'artifacts/DBMON_SQL' }
 }
 if ($Publish) {
     $taskOutputPath = if([IO.Path]::IsPathRooted($PublishDirectory)) { [IO.Path]::GetFullPath($PublishDirectory) } else { [IO.Path]::GetFullPath((Join-Path $PSScriptRoot $PublishDirectory)) }
@@ -40,6 +40,7 @@ try {
         [ordered]@{version=$taskVersion.ToString(3);builtAtUtc=[DateTime]::UtcNow.ToString('O');kind=$(if($Release){'release'}else{'development'});coreTestsPassed=$true;uiChecks=$taskSmokeResult.checks.Count;assemblySha256=$taskAssemblyHashes} | ConvertTo-Json -Depth 4 | Set-Variable taskBuildInfo
         # The smoke's WebView2 processes can hold the folder for a moment after exit; retry the marker briefly.
         for($taskTry=1;;$taskTry++) { try { Set-Content -LiteralPath (Join-Path $taskOutputPath 'build-info.json') -Value $taskBuildInfo -Encoding utf8 -ErrorAction Stop; break } catch [System.IO.IOException] { if($taskTry -ge 10) { throw }; Start-Sleep -Milliseconds 500 } }
+        & (Join-Path $PSScriptRoot 'scripts/prepare-distribution.ps1') -PackageDirectory $taskOutputPath
         if ($Release -and (Split-Path $taskOutputPath -Leaf) -match '^windows-x64-v\d+\.\d+\.\d+-final$') { & (Join-Path $PSScriptRoot 'scripts/prune-releases.ps1') -CurrentRelease $taskOutputPath }
     }
 } finally { Pop-Location }

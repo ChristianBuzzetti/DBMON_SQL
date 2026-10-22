@@ -66,7 +66,9 @@ The drivers and network access are your own: DBMON SQL never installs or changes
    ```powershell
    ./build.ps1 -Test -Publish
    ```
-2. Start `artifacts/windows-x64-dev/DBMON SQL.exe`. The package is self-contained: no separate .NET install is needed to run it.
+2. Start `artifacts/DBMON_SQL/DBMON SQL.exe`. The package is self-contained: no separate .NET install is needed to run it.
+
+To share the app, zip the entire `artifacts/DBMON_SQL` folder after successful publication. It is automatically cleaned of smoke output and debug symbols and includes recipient instructions and the MIT license. Recipients extract the ZIP and run `DBMON SQL.exe`; they still need the [requirements](#requirements). See [distribution details](docs/building.md#share-the-app).
 
 ### Connect
 

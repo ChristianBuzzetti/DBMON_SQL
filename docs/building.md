@@ -18,7 +18,22 @@ NuGet restores use lock files (`packages.lock.json`), so builds are repeatable.
 ./build.ps1 -Test -Publish   # + self-contained win-x64 package and UI smoke checks
 ```
 
-`-Publish` writes a self-contained package to `artifacts/windows-x64-dev`, then runs the packaged app with `--smoke` and stops if any UI check fails. It refuses to overwrite a package that is running. `build-info.json` in the package records the version, build time, check counts and assembly hashes.
+`-Publish` writes a self-contained package to `artifacts/DBMON_SQL`, then runs the packaged app with `--smoke` and stops if any UI check fails. It refuses to overwrite a package that is running. `build-info.json` in the package records the version, build time, check counts and assembly hashes.
+
+### Share the app
+
+Use **`artifacts/DBMON_SQL`** as the single development distribution folder. After successful publication, the build script removes generated `UiSmoke/` and `BobertoSmoke/` output, root debug symbols (`*.pdb`) and WebView2 API documentation (`Microsoft.Web.WebView2.*.xml`). Application DLLs, runtime files, language folders, assets and font licenses stay in place. `README.txt` explains recipient requirements and `LICENSE.txt` includes the MIT license.
+
+Zip that entire folder. Recipients extract it and run `DBMON SQL.exe`; sending only the executable is insufficient. They need Windows x64, their own SAP ODBC x64 driver, server access and credentials. WebView2 is required for Boberto; .NET is included. Do not share `%LOCALAPPDATA%/DBMON_SQL`, which contains personal settings and profiles. See the [requirements](../README.md#requirements).
+
+To clean an existing verified package without rebuilding:
+
+```powershell
+./scripts/prepare-distribution.ps1
+./tests/verify-distribution.ps1   # Isolated packaging regression checks
+```
+
+The preparation script checks recorded assembly hashes before making changes and refuses a running package. It does not publish a second copy or change the product version. The optional `-PackageDirectory PATH` accepts an existing verified package, including a formal release directory. Unknown files are preserved; this is targeted cleanup, not a full audit of arbitrary files added manually.
 
 The product version lives only in [`Directory.Build.props`](../Directory.Build.props). Formal releases use `./build.ps1 -Test -Publish -Release`, which writes `artifacts/windows-x64-v<version>-final` and keeps the current and previous release.
 
@@ -29,7 +44,7 @@ The product version lives only in [`Directory.Build.props`](../Directory.Build.p
 | Core checks | `./build.ps1 -Test` (runs `tests/AseIsql.Checks`) | SQL splitting, parameters, risk detection, result reading and limits, formats and exports, `sql.ini` parsing, connection strings per platform, profiles, recipes, multi-server combining and diffs. No server is contacted. |
 | UI smoke | `"DBMON SQL.exe" --smoke --report out.json` (run by `-Publish`) | About 250 checks on the real window: keyboard selection, palettes, personalization, Boberto dock and Studio, results, copies, repeat, parameters, login form per platform, explorer SQL builders. Uses a synthetic in-memory engine; it never opens a server connection. Needs the SAP ASE ODBC driver installed (it checks detection) and WebView2. |
 
-Smoke screenshots are written next to the executable in `UiSmoke/`.
+Direct smoke runs write screenshots next to the executable in `UiSmoke/` and Boberto fixtures in `BobertoSmoke/`. Successful `-Publish` removes these generated folders from the package; the JSON report remains at `artifacts/smoke-latest.json`. A later manual smoke run can recreate them; rerun the preparation script before sharing.
 
 ### Workspace regression checks (2026-10-20)
 
