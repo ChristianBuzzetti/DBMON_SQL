@@ -398,15 +398,15 @@ Check("IQ TLS profiles supply both files while the identity password remains tra
         var profile = new ConnectionProfile("iq-host", 2638, "", "dba", true, ca, Platform: ServerPlatform.Iq, IqIdentityFile: identity);
         string json = System.Text.Json.JsonSerializer.Serialize(profile);
         Assert(System.Text.Json.JsonSerializer.Deserialize<ConnectionProfile>(json)!.IqIdentityFile == identity && !json.Contains("key-secret"));
-        var builder = new OdbcConnectionStringBuilder(OdbcSession.BuildConnectionString(profile, "db-secret", "key-secret"));
-        Assert((string)builder["PWD"] == "db-secret" && ((string)builder["Encryption"]).Trim('{', '}') == $"TLS(TLS_TYPE=RSA;TRUSTED_CERTIFICATES={ca};IDENTITY={identity};IDENTITY_PASSWORD=key-secret)");
-        var caOnly = new OdbcConnectionStringBuilder(OdbcSession.BuildConnectionString(profile with { IqIdentityFile = "" }, "db-secret"));
-        Assert(((string)caOnly["Encryption"]).Trim('{', '}') == $"TLS(TLS_TYPE=RSA;TRUSTED_CERTIFICATES={ca})");
+        string wire = OdbcSession.BuildConnectionString(profile, "db-secret", "key-secret");
+        Assert((string)new OdbcConnectionStringBuilder(wire)["PWD"] == "db-secret" && wire.EndsWith($";Encryption=TLS(TLS_TYPE=RSA;TRUSTED_CERTIFICATES={ca};IDENTITY={identity};IDENTITY_PASSWORD=key-secret)", StringComparison.Ordinal));
+        string caOnly = OdbcSession.BuildConnectionString(profile with { IqIdentityFile = "" }, "db-secret");
+        Assert(caOnly.EndsWith($";Encryption=TLS(TLS_TYPE=RSA;TRUSTED_CERTIFICATES={ca})", StringComparison.Ordinal));
         foreach (var bad in new[] { profile with { UseTls = false }, profile with { Platform = ServerPlatform.Ase, Database = "master" }, profile with { IqIdentityFile = identity + ".missing" } })
             try { bad.Validate(); throw new Exception("Accepted invalid identity profile"); } catch (ArgumentException) { }
-        foreach (string secret in new[] { "", "a;SKIP_CERTIFICATE_NAME_CHECK=ON", "a)b", "a(b", "a\0b", "a\nb", "a\"b", "a'b", " leading", "trailing " })
+        foreach (string secret in new[] { "", "a;SKIP_CERTIFICATE_NAME_CHECK=ON", "a)b", "a(b", "{secret}", "a}b", "a\0b", "a\nb", "a\"b", "a'b", " leading", "trailing " })
             try { OdbcSession.BuildConnectionString(profile, "db-secret", secret); throw new Exception("Accepted unsafe identity password"); } catch (ArgumentException) { }
-        foreach (string suffix in new[] { ";SKIP_CERTIFICATE_NAME_CHECK=ON", "(identity)", "'identity'" })
+        foreach (string suffix in new[] { ";SKIP_CERTIFICATE_NAME_CHECK=ON", "(identity)", "{identity}", "'identity'" })
         {
             string unsafePath = identity + suffix;
             try {
@@ -426,6 +426,28 @@ Check("IQ identity secrets are redacted from displayed and original diagnostics"
     Assert(OdbcSession.Redact("db-secret-long db-secret", "db-secret", "db-secret-long") == "[password] [password]");
     Assert(OdbcSession.DescribeConnectionFailure(new ArgumentException(raw), "db-secret", "key-secret") == message.Text);
 });
+using (var iqDriver = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\ODBC\ODBCINST.INI\SAP IQ"))
+{
+    if (iqDriver?.GetValue("Driver") is not string iqLibrary || !File.Exists(iqLibrary))
+        Console.WriteLine("SKIP native IQ TLS parser check: SAP IQ driver is not installed.");
+    else Check("Installed IQ driver recognizes TLS with and without client identity on loopback", () => {
+        string ca = Path.GetTempFileName(), identity = Path.GetTempFileName();
+        try {
+            foreach (bool withIdentity in new[] { false, true })
+            {
+                var profile = new ConnectionProfile("127.0.0.1", 1, "", "synthetic-user", true, ca, LoginTimeout: 1, Platform: ServerPlatform.Iq, IqIdentityFile: withIdentity ? identity : "");
+                using var connection = new OdbcConnection(OdbcSession.BuildConnectionString(profile, "synthetic-db", withIdentity ? "synthetic-key" : ""));
+                connection.ConnectionTimeout = 1;
+                try { connection.Open(); throw new Exception("An unexpected local server accepted the synthetic connection"); }
+                catch (OdbcException ex) {
+                    // Port 1 has no IQ server. Reaching -100 proves the native driver accepted the TLS
+                    // grammar, rather than rejecting it locally with -832/-895 before network lookup.
+                    Assert(ex.Errors.Cast<OdbcError>().All(e => e.NativeError == -100));
+                }
+            }
+        } finally { File.Delete(ca); File.Delete(identity); }
+    });
+}
 Check("Replication Server profiles use the ASE driver without a database and test with RCL", () => {
     var profile = new ConnectionProfile("rs-host", 5510, "", "sa", false, "", Platform: ServerPlatform.Rs);
     var builder = new OdbcConnectionStringBuilder(OdbcSession.BuildConnectionString(profile, "secret"));

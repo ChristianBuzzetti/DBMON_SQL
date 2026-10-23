@@ -150,6 +150,7 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
     private static string BuildIqConnectionString(ConnectionProfile profile, string password, string identityPassword)
     {
         var builder = new OdbcConnectionStringBuilder { Driver = IqDriverName };
+        string encryption = "";
         builder["UID"] = profile.User; builder["PWD"] = password;
         builder["Host"] = profile.Server + ":" + profile.Port.ToString(CultureInfo.InvariantCulture);
         if (profile.IqServerName.Length != 0) builder["ServerName"] = profile.IqServerName;
@@ -157,28 +158,30 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
         if (!profile.EffectiveCharset.Equals("ServerDefault", StringComparison.OrdinalIgnoreCase)) builder["CharSet"] = profile.EffectiveCharset;
         if (profile.UseTls)
         {
-            if (profile.TrustedFile.IndexOfAny([';', ')', '(']) >= 0) throw new ArgumentException("For SAP IQ the CA file path cannot contain ';', '(' or ')'.");
+            ValidateIqTlsValue(profile.TrustedFile, "CA file path");
             string tls = "TLS(TLS_TYPE=RSA;TRUSTED_CERTIFICATES=" + profile.TrustedFile;
             if (profile.IqIdentityFile.Length != 0)
             {
-                ValidateIqTlsValue(profile.TrustedFile, "CA file path");
                 ValidateIqTlsValue(profile.IqIdentityFile, "client identity file path");
                 if (identityPassword.Length == 0) throw new ArgumentException("Enter the IQ client identity password. It is separate from the database login password.");
                 ValidateIqTlsValue(identityPassword, "client identity password");
                 tls += ";IDENTITY=" + profile.IqIdentityFile + ";IDENTITY_PASSWORD=" + identityPassword;
             }
-            builder["Encryption"] = tls + ")";
+            encryption = ";Encryption=" + tls + ")";
         }
         builder["AppInfo"] = "APPNAME=" + ApplicationName;
-        return builder.ConnectionString;
+        // IQ parses its parenthesized TLS options itself. OdbcConnectionStringBuilder wraps a
+        // semicolon-containing value in braces, which IQ rejects with native error -832.
+        // Only append this validated clause; all ordinary ODBC values still use the builder.
+        return builder.ConnectionString + encryption;
     }
 
-    // ODBC quoting protects the outer string only. Reject ambiguous values in IQ's nested TLS grammar
+    // Reject ambiguous values in IQ's unbraced, nested TLS grammar
     // rather than interpreting a password or filename as an additional security option.
     private static void ValidateIqTlsValue(string value, string field)
     {
-        if (value.IndexOfAny([';', '(', ')', '\'', '"']) >= 0 || value.Any(char.IsControl) || value != value.Trim())
-            throw new ArgumentException("The IQ " + field + " cannot contain semicolons, parentheses, quotes, control characters or leading/trailing whitespace. Its value was not sent to the driver.");
+        if (value.IndexOfAny([';', '(', ')', '{', '}', '\'', '"']) >= 0 || value.Any(char.IsControl) || value != value.Trim())
+            throw new ArgumentException("The IQ " + field + " cannot contain semicolons, parentheses, braces, quotes, control characters or leading/trailing whitespace. Its value was not sent to the driver.");
     }
 
     public static string DescribeConnectionFailure(Exception exception, string password, string identityPassword = "")
