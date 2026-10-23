@@ -19,18 +19,19 @@ public static class Platforms
 
 // Database is required for ASE, optional for IQ (DatabaseName) and unused by Replication Server, which has none.
 // IqServerName is the IQ engine name, optional when one server listens on the host and port.
-public sealed record ConnectionProfile(string Server, int Port, string Database, string User, bool UseTls, string TrustedFile, int LoginTimeout = 15, int QueryTimeout = 60, int MaxRows = 10000, string Charset = "ServerDefault", string ClientHostname = "", bool EncryptPassword = true, string ServerAlias = "", string SqlIniPath = "", string Language = "us_english", ServerPlatform Platform = ServerPlatform.Ase, string IqServerName = "", string IqIdentityFile = "")
+public sealed record ConnectionProfile(string Server, int Port, string Database, string User, bool UseTls, string TrustedFile, int LoginTimeout = 15, int QueryTimeout = 60, int MaxRows = 10000, string Charset = "ServerDefault", string ClientHostname = "", bool EncryptPassword = true, string ServerAlias = "", string SqlIniPath = "", string Language = "us_english", ServerPlatform Platform = ServerPlatform.Ase, string IqServerName = "", string IqIdentityFile = "", string IqCertificateName = "")
 {
     [System.Text.Json.Serialization.JsonIgnore]
     public string EffectiveCharset => Charset.Length == 0 ? "ServerDefault" : Charset;
     public void Validate()
     {
-        if (TrustedFile == null || Charset == null || ClientHostname == null || ServerAlias == null || SqlIniPath == null || Database == null || IqServerName == null || IqIdentityFile == null || string.IsNullOrWhiteSpace(Language)) throw new ArgumentException("The profile contains null fields or an empty language.");
+        if (TrustedFile == null || Charset == null || ClientHostname == null || ServerAlias == null || SqlIniPath == null || Database == null || IqServerName == null || IqIdentityFile == null || IqCertificateName == null || string.IsNullOrWhiteSpace(Language)) throw new ArgumentException("The profile contains null fields or an empty language.");
         if (!Enum.IsDefined(Platform)) throw new ArgumentException("Unknown server type.");
         if (string.IsNullOrWhiteSpace(Server) || string.IsNullOrWhiteSpace(User)) throw new ArgumentException("Enter a server and username.");
         if (Platform == ServerPlatform.Ase && string.IsNullOrWhiteSpace(Database)) throw new ArgumentException("Enter a database for SAP ASE.");
         if (Platform == ServerPlatform.Rs && Database.Length != 0) throw new ArgumentException("Replication Server has no databases; leave Database empty.");
         if (Platform != ServerPlatform.Iq && IqServerName.Length != 0) throw new ArgumentException("An IQ server name applies only to SAP IQ.");
+        if (IqCertificateName.Length != 0 && (Platform != ServerPlatform.Iq || !UseTls)) throw new ArgumentException("An expected certificate name requires SAP IQ with Encrypt data (TLS) enabled.");
         if (IqIdentityFile.Length != 0)
         {
             if (Platform != ServerPlatform.Iq || !UseTls) throw new ArgumentException("A client identity file requires SAP IQ with Encrypt data (TLS) enabled.");

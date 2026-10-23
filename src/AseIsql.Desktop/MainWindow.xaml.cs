@@ -829,15 +829,15 @@ public partial class MainWindow : Window
             string iqCa=Path.GetTempFileName(),iqId=Path.GetTempFileName(),iqStore=Path.Combine(Path.GetTempPath(),"dbmon-iq-profiles-"+Guid.NewGuid().ToString("N")+".dat");
             try {
                 ProfileStore.OverridePath=iqStore;
-                dialog.EncryptData.IsChecked=true;dialog.TrustedFile.Text=iqCa;dialog.IqIdentityFile.Text=iqId;
+                dialog.EncryptData.IsChecked=true;dialog.TrustedFile.Text=iqCa;dialog.IqIdentityFile.Text=iqId;dialog.IqCertificateName.Text="IQDBQA";
                 dialog.Password.Password="fixture-db-password";dialog.IqIdentityPassword.Password="fixture-key-password";dialog.RememberPassword.IsChecked=true;
                 var iqSaved=dialog.StoreCurrent("IQ TLS fixture");
                 var iqLoaded=ProfileStore.Load(iqStore).Single();
-                Require(iqLoaded.Profile.IqIdentityFile==iqId&&iqLoaded.Profile.TrustedFile==iqCa&&iqLoaded.Password=="fixture-db-password"&&!System.Text.Json.JsonSerializer.Serialize(iqLoaded).Contains("fixture-key-password"),"IQ profiles preserve both certificate paths and remember only the database password");
+                Require(iqLoaded.Profile.IqIdentityFile==iqId&&iqLoaded.Profile.TrustedFile==iqCa&&iqLoaded.Profile.IqCertificateName=="IQDBQA"&&iqLoaded.Password=="fixture-db-password"&&!System.Text.Json.JsonSerializer.Serialize(iqLoaded).Contains("fixture-key-password"),"IQ profiles preserve both certificate paths, expected certificate name and remember only the database password");
                 var iqRestored=new ConnectionWindow(iqLoaded.Profile);
                 try {
                     iqRestored.ApplySavedLogin(iqLoaded);
-                    Require(iqRestored.IqIdentityFile.Text==iqId&&iqRestored.TrustedFile.Text==iqCa&&iqRestored.IqIdentityPassword.Password.Length==0&&iqRestored.IqIdentityRow.Visibility==Visibility.Visible,"Restoring an IQ profile requires fresh identity password input");
+                    Require(iqRestored.IqIdentityFile.Text==iqId&&iqRestored.TrustedFile.Text==iqCa&&iqRestored.IqCertificateName.Text=="IQDBQA"&&iqRestored.IqIdentityPassword.Password.Length==0&&iqRestored.IqIdentityRow.Visibility==Visibility.Visible,"Restoring an IQ profile restores the verified certificate name and requires fresh identity password input");
                     iqRestored.IqIdentityPassword.Password="fixture-key-password";
                 }finally{iqRestored.Close();}
                 Require(iqRestored.IqIdentityPassword.Password.Length==0,"Closing login clears the identity password");

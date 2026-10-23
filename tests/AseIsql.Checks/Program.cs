@@ -426,6 +426,23 @@ Check("IQ identity secrets are redacted from displayed and original diagnostics"
     Assert(OdbcSession.Redact("db-secret-long db-secret", "db-secret", "db-secret-long") == "[password] [password]");
     Assert(OdbcSession.DescribeConnectionFailure(new ArgumentException(raw), "db-secret", "key-secret") == message.Text);
 });
+Check("IQ TLS can verify an explicit certificate name independently of the engine name", () => {
+    string ca = Path.GetTempFileName();
+    try {
+        var profile = new ConnectionProfile("127.0.0.1", 4100, "", "synthetic-user", true, ca, Platform: ServerPlatform.Iq, IqServerName: "dw_qa", IqCertificateName: "IQDBQA");
+        string wire = OdbcSession.BuildConnectionString(profile, "synthetic-db");
+        Assert(wire.Contains("servername=dw_qa", StringComparison.OrdinalIgnoreCase));
+        Assert(wire.EndsWith($";Encryption=TLS(TLS_TYPE=RSA;TRUSTED_CERTIFICATES={ca};CERTIFICATE_NAME=IQDBQA)", StringComparison.Ordinal));
+        Assert(!wire.Contains("SKIP_CERTIFICATE_NAME_CHECK", StringComparison.OrdinalIgnoreCase));
+        string json = System.Text.Json.JsonSerializer.Serialize(profile);
+        Assert(System.Text.Json.JsonSerializer.Deserialize<ConnectionProfile>(json)!.IqCertificateName == "IQDBQA");
+        foreach (string name in new[] { "a;SKIP_CERTIFICATE_NAME_CHECK=ON", "a)b", "{name}", "a\"b", "a\nb", " name" })
+            try { OdbcSession.BuildConnectionString(profile with { IqCertificateName = name }, "synthetic-db"); throw new Exception("Accepted ambiguous certificate name"); } catch (ArgumentException) { }
+        foreach (var bad in new[] { profile with { UseTls = false }, profile with { Platform = ServerPlatform.Ase, IqServerName = "", Database = "master" } })
+            try { bad.Validate(); throw new Exception("Accepted certificate name outside IQ TLS"); } catch (ArgumentException) { }
+        Assert(!OdbcSession.BuildConnectionString(profile with { IqCertificateName = "" }, "synthetic-db").Contains("CERTIFICATE_NAME", StringComparison.OrdinalIgnoreCase));
+    } finally { File.Delete(ca); }
+});
 using (var iqDriver = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\ODBC\ODBCINST.INI\SAP IQ"))
 {
     if (iqDriver?.GetValue("Driver") is not string iqLibrary || !File.Exists(iqLibrary))
@@ -435,7 +452,7 @@ using (var iqDriver = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWAR
         try {
             foreach (bool withIdentity in new[] { false, true })
             {
-                var profile = new ConnectionProfile("127.0.0.1", 1, "", "synthetic-user", true, ca, LoginTimeout: 1, Platform: ServerPlatform.Iq, IqIdentityFile: withIdentity ? identity : "");
+                var profile = new ConnectionProfile("127.0.0.1", 1, "", "synthetic-user", true, ca, LoginTimeout: 1, Platform: ServerPlatform.Iq, IqIdentityFile: withIdentity ? identity : "", IqCertificateName: withIdentity ? "IQDBQA" : "");
                 using var connection = new OdbcConnection(OdbcSession.BuildConnectionString(profile, "synthetic-db", withIdentity ? "synthetic-key" : ""));
                 connection.ConnectionTimeout = 1;
                 try { connection.Open(); throw new Exception("An unexpected local server accepted the synthetic connection"); }

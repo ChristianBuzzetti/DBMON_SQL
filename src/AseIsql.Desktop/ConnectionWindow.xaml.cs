@@ -217,7 +217,7 @@ public partial class ConnectionWindow : Window
         Server.Text = profile.Server; Port.Text = profile.Port.ToString(); Database.Text = profile.Database; UserName.Text = profile.User;
         Charset.Text = profile.EffectiveCharset; LoginLanguage.Text = profile.Language; Hostname.Text = profile.ClientHostname; EncryptPassword.IsChecked = profile.EncryptPassword;
         EncryptData.IsChecked = profile.UseTls; TrustedFile.Text = profile.TrustedFile;
-        IqIdentityFile.Text = profile.IqIdentityFile; IqIdentityPassword.Clear();
+        IqIdentityFile.Text = profile.IqIdentityFile; IqCertificateName.Text = profile.IqCertificateName; IqIdentityPassword.Clear();
         LoginTimeout.Text = profile.LoginTimeout.ToString(); QueryTimeout.Text = profile.QueryTimeout.ToString(); MaxRows.Text = profile.MaxRows.ToString();
         ManualMode.IsChecked = string.IsNullOrEmpty(profile.ServerAlias); SelectAlias(profile.ServerAlias, profile.Server, profile.Port);
         EncryptData.IsChecked = profile.UseTls || (ManualMode.IsChecked != true && (Endpoints.SelectedItem as SqlIniEndpoint)?.UseTls == true);
@@ -240,7 +240,7 @@ public partial class ConnectionWindow : Window
         var platform = SelectedPlatform;
         var profile = new ConnectionProfile(host, port, platform == ServerPlatform.Rs ? "" : Database.Text.Trim(), UserName.Text, tls, TrustedFile.Text, login, query, rows,
             Charset.Text, Hostname.Text, EncryptPassword.IsChecked == true, alias, path, LoginLanguage.Text, platform, platform == ServerPlatform.Iq ? IqServerName.Text.Trim() : "",
-            platform == ServerPlatform.Iq ? IqIdentityFile.Text : "");
+            platform == ServerPlatform.Iq ? IqIdentityFile.Text : "", platform == ServerPlatform.Iq ? IqCertificateName.Text.Trim() : "");
         profile.Validate(); return profile;
     }
     internal LoginSelection ReadSelection()=>new(ReadProfile());

@@ -167,6 +167,11 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
                 ValidateIqTlsValue(identityPassword, "client identity password");
                 tls += ";IDENTITY=" + profile.IqIdentityFile + ";IDENTITY_PASSWORD=" + identityPassword;
             }
+            if (profile.IqCertificateName.Length != 0)
+            {
+                ValidateIqTlsValue(profile.IqCertificateName, "expected certificate name");
+                tls += ";CERTIFICATE_NAME=" + profile.IqCertificateName;
+            }
             encryption = ";Encryption=" + tls + ")";
         }
         builder["AppInfo"] = "APPNAME=" + ApplicationName;
