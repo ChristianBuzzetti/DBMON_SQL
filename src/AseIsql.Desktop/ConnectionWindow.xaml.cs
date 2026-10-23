@@ -68,7 +68,7 @@ public partial class ConnectionWindow : Window
         Database.ToolTip = platform switch { ServerPlatform.Iq => "Optional: the IQ database name. Empty uses the server's database.", ServerPlatform.Rs => "Replication Server has no databases.", _ => "Database to open after login" };
         IqServerRow.Visibility = platform == ServerPlatform.Iq ? Visibility.Visible : Visibility.Collapsed;
         IqIdentityRow.Visibility = platform == ServerPlatform.Iq ? Visibility.Visible : Visibility.Collapsed;
-        if (platform != ServerPlatform.Iq) IqIdentityPassword.Clear();
+        if (platform != ServerPlatform.Iq) { IqIdentityPassword.Clear(); RememberIdentityPassword.IsChecked = false; }
         LanguageRow.Visibility = EncryptPassword.Visibility = platform == ServerPlatform.Iq ? Visibility.Collapsed : Visibility.Visible;
         DriverStatus.Text = installed ? "Driver: " + OdbcSession.DriverFor(platform) + " · 64 bits · " + platform.Title() :
             "The 64-bit " + OdbcSession.DriverFor(platform) + " ODBC driver is missing. Install it with the official SAP installer to connect to " + platform.Title() + ".";
@@ -88,7 +88,7 @@ public partial class ConnectionWindow : Window
         restoring = true;
         try {
             SavedProfiles.ItemsSource = null; SavedProfiles.ItemsSource = savedLogins;
-            ProfileList.ItemsSource = null; ProfileList.ItemsSource = savedLogins.Select(l => new ListBoxItem { Content = l.Name + (l.HasPassword ? "  ·  password saved" : ""), Tag = l }).ToList();
+            ProfileList.ItemsSource = null; ProfileList.ItemsSource = savedLogins.Select(l => new ListBoxItem { Content = l.Name + (l.HasPassword ? "  ·  login password saved" : "") + (l.HasIdentityPassword ? "  ·  identity password saved" : ""), Tag = l }).ToList();
             SavedProfiles.SelectedItem = savedLogins.FirstOrDefault(l => l.Name.Equals(select, StringComparison.OrdinalIgnoreCase));
             SavedProfiles.IsEnabled = savedLogins.Count > 0;
         } finally { restoring = false; }
@@ -98,6 +98,7 @@ public partial class ConnectionWindow : Window
     private void UpdateProfileButtons()
     {
         var login = ListedLogin; LoadProfileButton.IsEnabled = DeleteProfileButton.IsEnabled = login != null; ForgetPasswordButton.IsEnabled = login?.HasPassword == true;
+        ForgetIdentityPasswordButton.IsEnabled = login?.HasIdentityPassword == true;
         if (deleteArmed != null && deleteArmed != login?.Name) { deleteArmed = null; DeleteProfileButton.Content = "Delete"; }
     }
     private void ProfileListChanged(object sender, SelectionChangedEventArgs e) => UpdateProfileButtons();
@@ -108,28 +109,46 @@ public partial class ConnectionWindow : Window
         if (login.Profile.SqlIniPath.Length > 0 && login.Profile.SqlIniPath != catalog?.SourcePath) TryLoadCatalog(login.Profile.SqlIniPath);
         RestoreProfile(login.Profile); ProfileName.Text = login.Name;
         Password.Password = login.Password ?? ""; RememberPassword.IsChecked = login.HasPassword;
+        IqIdentityPassword.Password = login.IdentityPassword ?? ""; RememberIdentityPassword.IsChecked = login.HasIdentityPassword;
         Feedback.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
         Feedback.Text = login.HasPassword ? "Profile " + login.Name + " loaded with its saved password." : "Profile " + login.Name + " loaded. Enter your password before connecting.";
+        if (login.Profile.IqIdentityFile.Length > 0 && !login.HasIdentityPassword) Feedback.Text += " Enter the client identity password.";
         if (!login.HasPassword) Password.Focus();
     }
-    // Saves the form under the profile name; the password is kept only when Remember password is on.
+    // Saves each secret independently, only when its own Remember checkbox is on.
     internal SavedLogin StoreCurrent(string? name = null)
     {
         ConnectionProfile profile = ReadProfile();
         name = (name ?? ProfileName.Text).Trim(); if (name.Length == 0) name = DefaultProfileName(profile);
         if (name.Length > 120) throw new ArgumentException("Profile names are limited to 120 characters.");
         string? password = RememberPassword.IsChecked == true && Password.Password.Length > 0 ? Password.Password : null;
-        var login = new SavedLogin(name, profile, password);
+        if (RememberIdentityPassword.IsChecked == true && IqIdentityPassword.Password.Length > 0 && profile.IqIdentityFile.Length == 0)
+            throw new ArgumentException("Select a client identity file before remembering its password.");
+        string? identityPassword = profile.Platform == ServerPlatform.Iq && profile.UseTls && profile.IqIdentityFile.Length > 0 && RememberIdentityPassword.IsChecked == true && IqIdentityPassword.Password.Length > 0 ? IqIdentityPassword.Password : null;
+        var login = new SavedLogin(name, profile, password, identityPassword);
         var current = ProfileStore.Load(ProfileStore.PathName);
         if (current.Count >= ProfileStore.MaxLogins && !current.Any(l => l.Name.Equals(name, StringComparison.OrdinalIgnoreCase))) throw new ArgumentException("Up to 200 profiles can be saved.");
         ProfileStore.Save(ProfileStore.PathName, ProfileStore.Upsert(current, login));
         ReloadSavedLogins(name); ProfileName.Text = name;
         return login;
     }
-    private void ForgetPasswordClick(object sender, RoutedEventArgs e)
+    private void ForgetPasswordClick(object sender, RoutedEventArgs e) => ForgetStoredPassword(false);
+    private void ForgetIdentityPasswordClick(object sender, RoutedEventArgs e) => ForgetStoredPassword(true);
+    private void ForgetStoredPassword(bool identity)
     {
-        if (ListedLogin is not { HasPassword: true } login) return;
-        try { ProfileStore.Save(ProfileStore.PathName, ProfileStore.Upsert(ProfileStore.Load(ProfileStore.PathName), login with { Password = null })); ReloadSavedLogins(login.Name); Feedback.Text = "Saved password removed from " + login.Name + "."; }
+        if (ListedLogin is not { } selected) return;
+        try {
+            var current = ProfileStore.Load(ProfileStore.PathName);
+            var login = current.FirstOrDefault(l => l.Name.Equals(selected.Name, StringComparison.OrdinalIgnoreCase));
+            if (login == null || (identity ? !login.HasIdentityPassword : !login.HasPassword)) return;
+            ProfileStore.Save(ProfileStore.PathName, ProfileStore.Upsert(current, identity ? login with { IdentityPassword = null } : login with { Password = null }));
+            if (SavedProfiles.SelectedItem is SavedLogin loaded && loaded.Name.Equals(login.Name, StringComparison.OrdinalIgnoreCase))
+            {
+                if (identity) { IqIdentityPassword.Clear(); RememberIdentityPassword.IsChecked = false; }
+                else { Password.Clear(); RememberPassword.IsChecked = false; }
+            }
+            ReloadSavedLogins(login.Name); Feedback.Text = "Saved " + (identity ? "identity " : "login ") + "password removed from " + login.Name + ".";
+        }
         catch (Exception ex) when (ex is IOException or JsonException or ArgumentException or UnauthorizedAccessException) { Feedback.Text = ex.Message; }
     }
     // Deleting asks for a second click on the same profile.
@@ -204,7 +223,7 @@ public partial class ConnectionWindow : Window
         var picker = new OpenFileDialog { Title = "Select the SAP IQ client identity file", Filter = "Client identity files|*.id;*.pem|All files|*.*" };
         if (picker.ShowDialog(this) == true) { IqIdentityFile.Text = picker.FileName; IqIdentityPassword.Clear(); EncryptData.IsChecked = true; }
     }
-    private void IdentityFileChanged(object sender, TextChangedEventArgs e) => IqIdentityPassword?.Clear();
+    private void IdentityFileChanged(object sender, TextChangedEventArgs e) { IqIdentityPassword?.Clear(); if (RememberIdentityPassword != null) RememberIdentityPassword.IsChecked = false; }
     private void SelectAlias(string? alias, string? host, int? port)
     {
         ServerAliases.SelectedItem = catalog?.Servers.SingleOrDefault(s => !s.Duplicate && s.Name.Equals(alias, StringComparison.OrdinalIgnoreCase));
@@ -217,7 +236,7 @@ public partial class ConnectionWindow : Window
         Server.Text = profile.Server; Port.Text = profile.Port.ToString(); Database.Text = profile.Database; UserName.Text = profile.User;
         Charset.Text = profile.EffectiveCharset; LoginLanguage.Text = profile.Language; Hostname.Text = profile.ClientHostname; EncryptPassword.IsChecked = profile.EncryptPassword;
         EncryptData.IsChecked = profile.UseTls; TrustedFile.Text = profile.TrustedFile;
-        IqIdentityFile.Text = profile.IqIdentityFile; IqCertificateName.Text = profile.IqCertificateName; IqIdentityPassword.Clear();
+        IqIdentityFile.Text = profile.IqIdentityFile; IqCertificateName.Text = profile.IqCertificateName; IqIdentityPassword.Clear(); RememberIdentityPassword.IsChecked = false;
         LoginTimeout.Text = profile.LoginTimeout.ToString(); QueryTimeout.Text = profile.QueryTimeout.ToString(); MaxRows.Text = profile.MaxRows.ToString();
         ManualMode.IsChecked = string.IsNullOrEmpty(profile.ServerAlias); SelectAlias(profile.ServerAlias, profile.Server, profile.Port);
         EncryptData.IsChecked = profile.UseTls || (ManualMode.IsChecked != true && (Endpoints.SelectedItem as SqlIniEndpoint)?.UseTls == true);
@@ -257,7 +276,7 @@ public partial class ConnectionWindow : Window
     }
     private void SaveProfile(object sender, RoutedEventArgs e)
     {
-        try { var login = StoreCurrent(); Feedback.SetResourceReference(TextBlock.ForegroundProperty, "Muted"); Feedback.Text = "Profile " + login.Name + " saved" + (login.HasPassword ? " with its password, encrypted for your Windows user." : " without a password."); }
+        try { var login = StoreCurrent(); Feedback.SetResourceReference(TextBlock.ForegroundProperty, "Muted"); Feedback.Text = "Profile " + login.Name + " saved" + (login.HasPassword || login.HasIdentityPassword ? " with the selected passwords, encrypted for your Windows user." : " without saved passwords."); }
         catch (Exception ex) when (ex is ArgumentException or IOException or JsonException or UnauthorizedAccessException) { Feedback.Text = ex.Message; }
     }
     private async Task ConnectAsync(bool testOnly)

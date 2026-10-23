@@ -6,10 +6,11 @@ using System.Text.Json.Serialization;
 
 namespace AseIsql.Desktop;
 
-// A saved login: connection settings plus, only when the user ticked "Remember password", the password.
-internal sealed record SavedLogin(string Name, ConnectionProfile Profile, string? Password = null)
+// Each secret is kept only through its own explicit Remember checkbox, inside the DPAPI-protected file.
+internal sealed record SavedLogin(string Name, ConnectionProfile Profile, string? Password = null, string? IdentityPassword = null)
 {
     public bool HasPassword => !string.IsNullOrEmpty(Password);
+    public bool HasIdentityPassword => !string.IsNullOrEmpty(IdentityPassword);
     public override string ToString() => Name;
 }
 

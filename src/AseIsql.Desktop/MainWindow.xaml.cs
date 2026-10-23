@@ -844,6 +844,33 @@ public partial class MainWindow : Window
                 dialog.AdvancedOptions.IsExpanded=true;dialog.UpdateLayout();dialog.IqIdentityRow.BringIntoView();dialog.UpdateLayout();
                 Require(dialog.IqIdentityPassword.Focus()&&dialog.IqIdentityPassword.IsKeyboardFocused,"IQ identity password accepts keyboard focus in the expanded login options");
                 CaptureSmokeVisual(dialog,"connection-iq-identity.png");
+                dialog.RememberIdentityPassword.IsChecked=true;var bothSaved=dialog.StoreCurrent("IQ TLS fixture");
+                var bothLoaded=ProfileStore.Load(iqStore).Single();
+                Require(bothLoaded.HasIdentityPassword&&bothLoaded.IdentityPassword=="fixture-key-password"&&bothLoaded.Password=="fixture-db-password","Remember identity password stores it independently alongside the database password");
+                dialog.UpdateLayout();CaptureSmokeVisual(dialog,"connection-iq-password-remembered.png");
+                dialog.Fields.SelectedIndex=1;dialog.UpdateLayout();CaptureSmokeVisual(dialog,"connection-iq-profile-passwords.png");dialog.Fields.SelectedIndex=0;
+                string encryptedIdentity=Encoding.UTF8.GetString(File.ReadAllBytes(iqStore))+Encoding.Unicode.GetString(File.ReadAllBytes(iqStore));
+                Require(!encryptedIdentity.Contains("fixture-key-password")&&!encryptedIdentity.Contains("fixture-db-password"),"Neither remembered password appears in the DPAPI profile bytes");
+                var identityReopened=new ConnectionWindow();
+                try{
+                    identityReopened.ApplySavedLogin(bothLoaded);
+                    Require(identityReopened.IqIdentityPassword.Password=="fixture-key-password"&&identityReopened.RememberIdentityPassword.IsChecked==true&&identityReopened.Password.Password=="fixture-db-password","A new login restores both saved passwords with independent remember controls");
+                }finally{identityReopened.Close();}
+                var iqProfileSelector=dialog.SavedProfiles??throw new InvalidOperationException("Saved profile selector is unavailable");
+                iqProfileSelector.SelectedIndex=0;dialog.ProfileList.SelectedIndex=0;
+                Require(dialog.ForgetIdentityPasswordButton.IsEnabled,"Profiles enables forgetting a saved identity password");
+                dialog.ForgetIdentityPasswordButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                var onlyDatabase=ProfileStore.Load(iqStore).Single();
+                Require(!onlyDatabase.HasIdentityPassword&&onlyDatabase.Password=="fixture-db-password"&&dialog.IqIdentityPassword.Password.Length==0&&dialog.RememberIdentityPassword.IsChecked==false,"Forget identity password clears only its stored and loaded secret");
+                dialog.IqIdentityPassword.Password="fixture-key-password";dialog.RememberIdentityPassword.IsChecked=true;dialog.StoreCurrent("IQ TLS fixture");
+                iqProfileSelector.SelectedIndex=0;dialog.ProfileList.SelectedIndex=0;dialog.ForgetPasswordButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                var onlyIdentity=ProfileStore.Load(iqStore).Single();
+                Require(onlyIdentity.HasIdentityPassword&&!onlyIdentity.HasPassword&&dialog.Password.Password.Length==0&&dialog.RememberPassword.IsChecked==false,"Forget login password preserves the remembered identity password");
+                dialog.RememberIdentityPassword.IsChecked=false;dialog.StoreCurrent("IQ TLS fixture");
+                Require(!ProfileStore.Load(iqStore).Single().HasIdentityPassword,"Saving with Remember identity password off removes its stored value");
+                var oldLogin=System.Text.Json.JsonSerializer.Deserialize<SavedLogin>("{\"Name\":\"Legacy\",\"Profile\":"+System.Text.Json.JsonSerializer.Serialize(iqSaved.Profile)+",\"Password\":\"fixture-db-password\"}")!;
+                Require(!oldLogin.HasIdentityPassword&&oldLogin.Password=="fixture-db-password","Legacy profiles without an identity password remain readable");
+                Require(!File.Exists(iqStore+".bak"),"Forgetting either password leaves no profile backup");
                 dialog.ApplySavedLogin(iqSaved);
                 Require(dialog.IqIdentityPassword.Password.Length==0,"Loading another profile clears the transient identity password");
                 dialog.IqIdentityPassword.Password="fixture-key-password";dialog.IqIdentityFile.Text=iqId+".changed";
