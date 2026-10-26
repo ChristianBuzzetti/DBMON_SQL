@@ -63,15 +63,7 @@ public partial class MainWindow
         detail.Click += (_,_) => { if (grid.CurrentCell.Item is DataRowView row) TextWindow("Row details", string.Join(Environment.NewLine + Environment.NewLine, row.Row.Table.Columns.Cast<DataColumn>().Select(c => c.Caption + " [" + c.DataType.Name + "]\n" + (row[c.Ordinal] is DBNull ? "NULL" : row[c.Ordinal] is byte[] bytes ? "0x" + Convert.ToHexString(bytes) : Convert.ToString(row[c.Ordinal],CultureInfo.InvariantCulture))))); };
         panel.Children.Add(detail);
         DockPanel.SetDock(panel, Dock.Top); body.Children.Insert(0,panel);
-        grid.SelectedCellsChanged += (_,_) => {
-            decimal sum=0, min=decimal.MaxValue, max=decimal.MinValue; int count=0;
-            try { foreach(var cell in grid.SelectedCells) if(cell.Item is DataRowView row) {
-                object value=row[grid.Columns.IndexOf(cell.Column)];
-                if(value is byte or sbyte or short or ushort or int or uint or long or ulong or decimal or float or double) { decimal n=Convert.ToDecimal(value,CultureInfo.InvariantCulture); sum+=n; min=Math.Min(min,n); max=Math.Max(max,n); count++; }
-            }
-            StatusText.Text=count==0 ? grid.SelectedCells.Count+" selected cells" : $"Numeric values: {count} · SUM {sum} · AVG {sum/count} · MIN {min} · MAX {max}";
-            } catch(OverflowException) { StatusText.Text="Aggregates exceed the decimal range; original values are preserved."; }
-        };
+        grid.SelectedCellsChanged += (_,_) => { if (!(bool)grid.GetValue(BulkResultSelectionProperty)) UpdateResultSelectionSummary(grid); };
         var menu=grid.ContextMenu;
         menu.Items.Add(new Separator());
         void Action(string name, System.Action execute) { var item=new MenuItem { Header=name }; item.Click+=(_,_)=> { try { execute(); } catch(Exception ex) when(ex is ArgumentException or IOException or UnauthorizedAccessException or InvalidOperationException or System.Text.Json.JsonException) { ShowError(ex.Message); } }; menu.Items.Add(item); }
@@ -83,6 +75,17 @@ public partial class MainWindow
         Action("Transpose result", ()=> { var origin=resultOrigins[(DataTable)tab.Tag]; AddResult(ResultFormats.Transpose(VisibleResult(grid)),Workspace.Items.Count,origin.Source,origin.Sql,ResultName(tab)+" · transposed"); Workspace.SelectedIndex=Workspace.Items.Count-1; });
         foreach(string format in new[]{"JSON","Markdown","HTML report","SQL IN list","SQL INSERT"})
             Action("Export "+format+"…", ()=>ExportResult(grid,tab,format));
+    }
+
+    private void UpdateResultSelectionSummary(DataGrid grid)
+    {
+            decimal sum=0, min=decimal.MaxValue, max=decimal.MinValue; int count=0;
+            try { foreach(var cell in grid.SelectedCells) if(cell.Item is DataRowView row) {
+                object value=row[grid.Columns.IndexOf(cell.Column)];
+                if(value is byte or sbyte or short or ushort or int or uint or long or ulong or decimal or float or double) { decimal n=Convert.ToDecimal(value,CultureInfo.InvariantCulture); sum+=n; min=Math.Min(min,n); max=Math.Max(max,n); count++; }
+            }
+            StatusText.Text=count==0 ? grid.SelectedCells.Count+" selected cells" : $"Numeric values: {count} · SUM {sum} · AVG {sum/count} · MIN {min} · MAX {max}";
+            } catch(OverflowException) { StatusText.Text="Aggregates exceed the decimal range; original values are preserved."; }
     }
     // The tab name is the user's label for the result; data, source SQL and provenance never change with it.
     private bool RenameResult(TabItem tab, string? name = null)

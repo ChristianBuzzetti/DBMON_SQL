@@ -27,6 +27,7 @@ public partial class MainWindow
     }
     private void ApplyAppearance(AppearanceSettings settings)
     {
+        CloseEditorCompletion();
         settings.Validate();appearance=settings;var palette=Themes.WithAccent(Themes.All.Single(p=>p.Id==settings.ThemeId),settings.AccentHex);Themes.Apply(palette,Editor);AppTypography.Apply(settings);Editor.FontSize=settings.EditorSize;
         ShowBobertoMenu.IsChecked=settings.BobertoVisible;
         BobertoPanel.Visibility=settings.BobertoVisible?Visibility.Visible:Visibility.Collapsed;

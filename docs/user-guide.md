@@ -88,8 +88,9 @@ The SQL editor is [AvalonEdit](https://github.com/icsharpcode/AvalonEdit) with S
 - **Files**: `Ctrl+N` new, `Ctrl+O` open, `Ctrl+S` save, `Ctrl+Shift+S` save as. Files are UTF-8; the previous version is kept as a backup when you overwrite. Unsaved changes are confirmed before they are discarded.
 - **History** `Ctrl+R`: the latest 100 queries across sessions, newest date/time first; double-click one to load its complete SQL. Stored as plaintext in `%LOCALAPPDATA%\DBMON_SQL\query-history.json` with atomic-write backups. Keep sensitive SQL out of history. Unreadable history files are preserved and a warning is shown instead of overwriting them.
 - **Command search** `Ctrl+K`: every command by name.
+- **SQL autocomplete** is always available: `Ctrl+Space` opens local keyword, Sybase system-object and known-database suggestions. Use `Up/Down` to choose, then `Tab` or `Enter` to accept; `Escape` closes the list. Keywords and system objects insert in lowercase. Outside the list, `Tab` indents and `Enter` inserts a newline. See [editor completion](editor-completion.md).
 
-Right-clicking an identifier (`orders`, `dbo.orders`, `sales..orders`, `[my table]`) offers **object actions** for it: on ASE, *Select TOP 100*, `sp_help`, `sp_depends`, `sp_helpindex`, `sp_spaceused` and *View code*; on IQ, *Select TOP 100*, `sp_iqcolumn`, `sp_iqindex` and `sp_iqtablesize`.
+Right-clicking an identifier (`orders`, `dbo.orders`, `sales..orders`, `[my table]`) checks its database, owner and type before offering **object actions**. Tables and views offer row inspection; procedures offer code inspection. ASE uses `sysobjects`; IQ uses its own catalogs. When offline, busy, ambiguous or unable to inspect safely, the menu explains why instead of guessing. See [object actions](object-actions.md).
 
 ## Running SQL
 
@@ -116,6 +117,8 @@ Every result set opens in its own tab: **Result 1**, **Result 2**…
 
 Right-click the grid for:
 
+- **Select all** (`Ctrl+A` with the grid focused) marks all result cells in the current filtered view. **Select entire rows** expands the selected cells to their complete rows.
+- **Copy as formatted table** copies a styled rich HTML table for Outlook, Teams and other rich-text editors, including headers, borders and alternating row colors. It includes a readable plain-text fallback, follows the visible column order and copies only selected cells; gaps stay empty. Select all first for the whole filtered result. HTML displays database NULL as `NULL`, distinct from empty strings. The receiving editor controls which styles it preserves; choose normal paste or keep source formatting to retain the table. This action creates no file and includes no SQL or server information. Escaped HTML is limited to 16 Mi characters.
 - **Copy**, *Copy with headers*, *Copy headers only*, *Copy all*, *Copy all with headers* and **Copy delimited** (tab, comma, semicolon, pipe). Ordinary Copy/Ctrl+C and Copy all preserve literal text, including SQL line breaks and double quotes, without CSV quoting. Columns are separated by tabs and result rows by newlines. Use Copy delimited or CSV export when you need escaped, unambiguous fields for a spreadsheet. Copies follow the visible column order and source values, not clipped cell text.
 - **View source SQL**, **Freeze first column**, **Bar chart…**, **Transpose result**.
 - **Export** to JSON, Markdown, an HTML report, a SQL `IN` list or `INSERT` statements. CSV export is under *Tools*.

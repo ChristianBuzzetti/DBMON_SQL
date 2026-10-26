@@ -40,6 +40,12 @@ public partial class MainWindow
         menu.Items.Add(CopyItem("Copy", ResultCopy.Selection));
         menu.Items.Add(CopyItem("Copy with headers", ResultCopy.WithHeaders));
         menu.Items.Add(CopyItem("Copy headers only", ResultCopy.HeadersOnly));
+        var formattedTable = new MenuItem {
+            Header = "Copy as formatted table",
+            ToolTip = "Copy selected cells with headers as a styled table for Outlook, Teams and other rich-text editors"
+        };
+        formattedTable.Click += (_, _) => CopyResultHtml(grid);
+        selectionActions.Add(formattedTable); menu.Items.Add(formattedTable);
         menu.Items.Add(new Separator());
         menu.Items.Add(CopyItem("Copy all", ResultCopy.All));
         menu.Items.Add(CopyItem("Copy all with headers", ResultCopy.AllWithHeaders));
@@ -53,6 +59,12 @@ public partial class MainWindow
             delimited.Items.Add(option);
         }
         menu.Items.Add(delimited); menu.Items.Add(new Separator());
+        var selectAll = new MenuItem { Header = "Select all", InputGestureText = "Ctrl+A" };
+        selectAll.Click += (_, _) => grid.SelectAllCells(); menu.Items.Add(selectAll);
+        var selectRows = new MenuItem { Header = "Select entire rows" };
+        selectRows.Click += (_, _) => SelectEntireResultRows(grid);
+        selectionActions.Add(selectRows); menu.Items.Add(selectRows);
+        menu.Items.Add(new Separator());
         var viewCell = new MenuItem { Header = "View cell text…" };
         viewCell.Click += (_, _) => OpenSelectedCellText(grid);
         selectionActions.Add(viewCell); menu.Items.Add(viewCell);
@@ -65,6 +77,7 @@ public partial class MainWindow
         menu.Opened += (_, _) => {
             bool selected = grid.SelectedCells.Count > 0;
             foreach (var item in selectionActions) item.IsEnabled = selected;
+            selectAll.IsEnabled = grid.Items.Count > 0 && grid.Columns.Any(column => column.Visibility == Visibility.Visible);
         };
         grid.ContextMenu = menu;
         grid.PreviewMouseRightButtonDown += (_, e) => {
@@ -75,7 +88,38 @@ public partial class MainWindow
         AttachRowResize(grid);
         grid.CommandBindings.Add(new CommandBinding(ApplicationCommands.Copy, (_, e) => { CopyResult(grid, ResultCopy.Selection, '\t'); e.Handled = true; },
             (_, e) => { e.CanExecute = grid.SelectedCells.Count > 0; e.Handled = true; }));
+        grid.CommandBindings.Add(new CommandBinding(ApplicationCommands.SelectAll, (_, e) => { grid.SelectAllCells(); e.Handled = true; },
+            (_, e) => { e.CanExecute = grid.Items.Count > 0; e.Handled = true; }));
+        grid.InputBindings.Add(new KeyBinding(ApplicationCommands.SelectAll, Key.A, ModifierKeys.Control));
     }
+
+    private void SelectEntireResultRows(DataGrid grid)
+    {
+        var rows = grid.SelectedCells.Where(cell => cell.IsValid).Select(cell => cell.Item).ToHashSet();
+        if (rows.Count == 0) return;
+        if ((long)grid.SelectedCells.Count == (long)rows.Count * grid.Columns.Count) return;
+        grid.SetValue(BulkResultSelectionProperty, true);
+        try
+        {
+            // Extend the cell selection directly. Selecting row items separately repeatedly reconciles
+            // the whole row selection in WPF; contiguous cell ranges remain compact in SelectedCells.
+            foreach (object row in grid.Items)
+                if (rows.Contains(row))
+                    foreach (var column in grid.Columns)
+                    {
+                        var cell = new DataGridCellInfo(row, column);
+                        if (!grid.SelectedCells.Contains(cell)) grid.SelectedCells.Add(cell);
+                    }
+        }
+        finally
+        {
+            grid.SetValue(BulkResultSelectionProperty, false);
+            UpdateResultSelectionSummary(grid);
+        }
+    }
+
+    private static readonly DependencyProperty BulkResultSelectionProperty =
+        DependencyProperty.RegisterAttached("BulkResultSelection", typeof(bool), typeof(MainWindow), new PropertyMetadata(false));
 
     private void OpenSelectedCellText(DataGrid grid)
     {
@@ -165,7 +209,9 @@ public partial class MainWindow
         if (Workspace.SelectedItem == QueryTab) { Editor.Focus(); StatusText.Text = "Result closed · Query · " + SourceLabel; }
     }
 
-    private static string BuildResultCopy(DataGrid grid, ResultCopy mode, char delimiter, bool delimited = false)
+    private sealed record ResultCopyData(string[] Headers, IEnumerable<IReadOnlyList<object?>> Rows);
+
+    private static ResultCopyData ResultCopyValues(DataGrid grid, ResultCopy mode)
     {
         bool all = mode is ResultCopy.All or ResultCopy.AllWithHeaders, headersOnly = mode == ResultCopy.HeadersOnly;
         var selected = all || headersOnly ? [] : grid.SelectedCells.Where(c => c.IsValid && c.Item is DataRowView).ToArray();
@@ -181,7 +227,29 @@ public partial class MainWindow
         var headers = columns.Select((column, index) => source != null ? source.Columns[ordinals[index]].Caption : column.Header?.ToString() ?? "").ToArray();
         var rows = headersOnly ? Enumerable.Empty<IReadOnlyList<object?>>() : items.Select(row => (IReadOnlyList<object?>)columns.Select((column, index) =>
             all || selectedPairs.Contains((row.Row, column)) ? row.Row[ordinals[index]] : null).ToArray());
-        return DelimitedText.Serialize(headers, rows, delimiter, includeHeaders: mode is ResultCopy.WithHeaders or ResultCopy.AllWithHeaders, headersOnly: headersOnly, quoteFields: delimited);
+        return new ResultCopyData(headers, rows);
+    }
+
+    private static string BuildResultCopy(DataGrid grid, ResultCopy mode, char delimiter, bool delimited = false)
+    {
+        var values = ResultCopyValues(grid, mode);
+        return DelimitedText.Serialize(values.Headers, values.Rows, delimiter, includeHeaders: mode is ResultCopy.WithHeaders or ResultCopy.AllWithHeaders, headersOnly: mode == ResultCopy.HeadersOnly, quoteFields: delimited);
+    }
+
+    private void CopyResultHtml(DataGrid grid)
+    {
+        try
+        {
+            var values = ResultCopyValues(grid, ResultCopy.WithHeaders);
+            string html = ResultHtmlClipboard.Table(values.Headers, values.Rows);
+            var data = new DataObject();
+            data.SetData(DataFormats.Html, ResultHtmlClipboard.Payload(html));
+            data.SetData(DataFormats.UnicodeText, BuildResultCopy(grid, ResultCopy.WithHeaders, '\t'));
+            Clipboard.SetDataObject(data, true);
+            StatusText.Text = "Copied formatted table · paste into a rich-text editor";
+        }
+        catch (Exception ex) when (ex is ArgumentException or ExternalException or InvalidOperationException)
+        { ShowError("Unable to copy: " + ex.Message); }
     }
 
     private void CopyResult(DataGrid grid, ResultCopy mode, char delimiter, bool delimited = false)

@@ -76,6 +76,7 @@ public partial class MainWindow
 
     private void RefreshConnection()
     {
+        CloseEditorCompletion();
         bool ownsSession = engine is OdbcSession;
         bool live = engine is OdbcSession { IsOpen: true };
         CancelButton.IsEnabled = running != null;

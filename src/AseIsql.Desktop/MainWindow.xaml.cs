@@ -44,6 +44,7 @@ public partial class MainWindow : Window
         search = SearchPanel.Install(Editor.TextArea);
         Editor.PreviewMouseWheel += EditorWheel;
         AttachEditorMenu();
+        AttachEditorCompletion();
         if(isSmoke) engine=ShowcaseDirectory!=null?new ShowcaseEngine():new DemoQueryEngine();
         Editor.Text = isSmoke && ShowcaseDirectory==null ? DemoSql : "";
         savedText = Editor.Text;
@@ -81,6 +82,7 @@ public partial class MainWindow : Window
     {
         Key key = e.Key == Key.System ? e.SystemKey : e.Key;
         ModifierKeys modifiers = Keyboard.Modifiers;
+        if (HandleEditorCompletionKey(key, modifiers, e)) return;
         if (key == Key.F9 && modifiers == ModifierKeys.None) { e.Handled = true; _ = RunPressedAsync(); }
         else if (key == Key.F9 && modifiers == ModifierKeys.Alt) { e.Handled = true; _ = ExecuteAsync(true); }
         else if (key == Key.F9 && modifiers == ModifierKeys.Shift) { e.Handled = true; MultiRunClick(this, e); }
@@ -468,6 +470,12 @@ public partial class MainWindow : Window
             Require(Editor.Text == savedText, "Execution preserves SQL buffer");
             Require(((TabItem)Workspace.Items[1]).Tag is DataTable table && table.Rows[0][2] is DBNull, "NULL preserved as DBNull");
             Require(log.Any(m => m.Text.Contains("Done")), "Execution messages separate from tables");
+            var htmlGrid = ((DockPanel)((TabItem)Workspace.Items[1]).Content).Children.OfType<DataGrid>().Single();
+            htmlGrid.SelectAllCells();
+            Require(!htmlGrid.ContextMenu.Items.OfType<MenuItem>().Any(item => item.Header.Equals("Copy as HTML")) && htmlGrid.ContextMenu.Items.OfType<MenuItem>().Count(item => item.Header.Equals("Copy as formatted table")) == 1, "Results offer one formatted-table action without a duplicate Copy as HTML");
+            htmlGrid.ContextMenu.Items.OfType<MenuItem>().Single(item => item.Header.Equals("Copy as formatted table")).RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+            Require(Clipboard.ContainsData(DataFormats.Html) && !Clipboard.GetText().Contains("<table"), "Formatted-table copy supplies rich HTML for Outlook, with readable text instead of markup as fallback");
+            htmlGrid.UnselectAllCells();
             await VerifyWorkspacePolish(Require);
             int tabsBefore = Workspace.Items.Count, historyBefore = history.Count;
             Editor.Select(0, 0); await ExecuteAsync(selectionOnly: true);
@@ -936,7 +944,7 @@ public partial class MainWindow : Window
             Require(ObjectHelperSql("help",helperTarget)=="exec [afilmed]..sp_help 'afiliados'"&&ObjectHelperSql("top",helperTarget)=="SELECT TOP 100 * FROM [afilmed]..[afiliados]"&&ObjectHelperSql("code",ParseObjectToken("dbo.sp_x")!).Contains("object_id('dbo.sp_x')"),"Object actions build read-only helper SQL in the object's database context");
             string editorBeforeMenu=Editor.Text;Editor.Text="select * from afiliados where 1=1";Editor.Select(0,0);Editor.TextArea.Caret.Offset=18;
             var editorMenu=(ContextMenu)Editor.TextArea.ContextMenu;BuildEditorMenu(editorMenu);var editorItems=editorMenu.Items.OfType<MenuItem>().ToList();
-            Require(editorItems[0].Header.Equals("Object · afiliados")&&editorItems.Any(i=>i.Header.Equals("View code"))&&editorItems.Any(i=>i.Header.Equals("Dependencies · sp_depends")&&!i.IsEnabled)&&editorItems.Any(i=>i.Header.Equals("Execute selection")&&!i.IsEnabled)&&editorItems.Any(i=>i.Header.Equals("Paste")),"Right-click in Query offers editing, execution and object actions for the identifier under the caret, gated by a live session");
+            Require(editorItems[0].Header.Equals("Object · afiliados")&&editorItems.Any(i=>i.Header.Equals("Checking database, owner and object type…")&&!i.IsEnabled)&&!editorItems.Any(i=>i.Header.Equals("View code"))&&editorItems.Any(i=>i.Header.Equals("Execute selection")&&!i.IsEnabled)&&editorItems.Any(i=>i.Header.Equals("Paste")),"Right-click preserves editing and execution while withholding object actions until catalog resolution");
             Editor.Text=editorBeforeMenu;
             Require(string.Concat(Wordmark.Children.OfType<TextBlock>().Select(letter=>letter.Text))=="DBMON SQL"&&Title.Contains("DBMON SQL")&&Icon!=null&&typeof(MainWindow).Assembly.GetName().Name=="DBMON SQL","The product is DBMON SQL: Boberto icon, DBMON-style letter wordmark and window title");
             Require(QueryTab.Template.FindName("Frame",QueryTab) is Border tabFrame&&tabFrame.CornerRadius==(CornerRadius)Application.Current.Resources["ControlRadius"]&&!appearance.Rounded==(tabFrame.CornerRadius.TopLeft==0)&&shellMotion==(appearance.BobertoMotion&&SystemParameters.ClientAreaAnimation)&&Application.Current.Resources[typeof(System.Windows.Controls.Primitives.ScrollBar)] is Style&&Application.Current.Resources.Contains("TabIcon"),"Tabs use the DBMON segmented format (square Neo Mirai by default), scrollbars the thin shared template and the topbar edge follows the motion setting"+$" (frame {(QueryTab.Template.FindName("Frame",QueryTab) as Border)?.CornerRadius}, resource {Application.Current.Resources["ControlRadius"]}, rounded {appearance.Rounded}, motion {shellMotion}/{appearance.BobertoMotion}/{SystemParameters.ClientAreaAnimation})");
@@ -967,9 +975,12 @@ public partial class MainWindow : Window
             SelectContextCell(copyGrid, copyGrid.Items[0], copyGrid.Columns[1]);
             Require(copyGrid.SelectedCells.Count == 1 && copyGrid.SelectedCells[0].Column == copyGrid.Columns[1], "Right click on unselected cell targets that cell");
             Require(copyGrid.ContextMenu.Items.OfType<MenuItem>().Any(item => item.Header.Equals("Copy delimited")), "Result context menu offers delimiter choices");
+            VerifyResultSelectionAndClipboard(copyGrid, Require);
             var filterPanel=((DockPanel)copyTab.Content).Children.OfType<DockPanel>().Single();
             var localFilter=filterPanel.Children.OfType<TextBox>().Single(); localFilter.Text="line,one";
             Require(copyGrid.Items.Count==1 && BuildResultCopy(copyGrid,ResultCopy.All,',', delimited: true).Contains("line two"), "Local filter and full-view copy share visible rows");
+            copyGrid.SelectAllCells();
+            Require(copyGrid.SelectedCells.Count == 2, "Select all respects the filtered result view");
             localFilter.Text="["; Require(copyGrid.Items.Count==0, "Local filter escapes bracket wildcards as literal values"); localFilter.Text="";
             TogglePin(copyTab); var preservedOrigin=resultOrigins[copyTable];
             Editor.Text="select 12 as recent"; await ExecuteAsync();
@@ -1119,7 +1130,7 @@ public partial class MainWindow : Window
                 engine=new PlatformSmokeEngine(ServerPlatform.Iq);RefreshConnection();
                 Require(DatabaseButton.Visibility==Visibility.Visible&&!DatabaseButton.IsEnabled&&DatabaseText.Text=="iqdb","SAP IQ sessions show their database without offering an ASE USE switch");
                 string iqMenuBefore=Editor.Text;Editor.Text="select * from app.orders";Editor.Select(0,0);Editor.TextArea.Caret.Offset=18;var iqMenu=(ContextMenu)Editor.TextArea.ContextMenu;BuildEditorMenu(iqMenu);var iqItems=iqMenu.Items.OfType<MenuItem>().Select(i=>i.Header.ToString()).ToList();
-                Require(iqItems[0]=="Object · app.orders"&&iqItems.Contains("Columns · sp_iqcolumn")&&iqItems.Contains("Size · sp_iqtablesize")&&!iqItems.Contains("Describe · sp_help"),"In an IQ session the editor offers sp_iq* object actions instead of ASE's sp_help");
+                Require(iqItems[0]=="Object · app.orders"&&iqItems.Contains("Checking database, owner and object type…")&&!iqItems.Contains("Columns · sp_iqcolumn")&&!iqItems.Contains("Size · sp_iqtablesize")&&!iqItems.Contains("Describe · sp_help"),"IQ editor actions also wait for catalog resolution instead of guessing the object type");
                 Editor.Text=iqMenuBefore;
             }finally{engine=platformEngine;RefreshConnection();}
             Exception? libraryFailure=null;
@@ -1158,7 +1169,28 @@ public partial class MainWindow : Window
             string completeCopy = BuildResultCopy(grid, ResultCopy.AllWithHeaders, ',', delimited: true);
             Require(completeCopy.StartsWith("id,description\r\n") && completeCopy.EndsWith("99999,Test row 99999\r\n") && completeCopy.Count(c => c == '\n') == 100001, "Copy all includes all 100k rows beyond the viewport");
             checks.Add($"PERF copy all 100k rows: {copyTimer.Elapsed.TotalMilliseconds:F1} ms; {completeCopy.Length} characters; serialization only, OS clipboard not measured");
+            // Keep routine selection stress within the publication smoke budget; full-view copy above still covers 100k rows.
+            large.DefaultView.RowFilter = "id < 10000";
+            copyTimer.Restart(); grid.SelectAllCells();
+            Require(grid.SelectedCells.Count == 20000, "Select all includes all 10k filtered rows beyond the viewport");
+            checks.Add($"PERF select all 10k rows: {copyTimer.Elapsed.TotalMilliseconds:F1} ms; 20000 selected cells including aggregate calculation");
+            copyTimer.Restart(); SelectEntireResultRows(grid);
+            Require(grid.SelectedCells.Count == 20000, "Expand rows preserves every cell of a fully selected 10k-row result");
+            checks.Add($"PERF expand selected rows 10k: {copyTimer.Elapsed.TotalMilliseconds:F1} ms including aggregate calculation");
+            grid.UnselectAllCells();
+            grid.SetValue(BulkResultSelectionProperty, true);
+            try {
+                foreach (object row in grid.Items) grid.SelectedCells.Add(new DataGridCellInfo(row, grid.Columns[0]));
+            } finally { grid.SetValue(BulkResultSelectionProperty, false); }
+            Require(grid.SelectedCells.Count == 10000, "Partial-row fixture selects one visible column of 10k rows");
+            copyTimer.Restart(); SelectEntireResultRows(grid);
+            Require(grid.SelectedCells.Count == 20000 && StatusText.Text.Contains("Numeric values: 10000"), "Expand 10k partial rows selects every cell and computes aggregates once");
+            checks.Add($"PERF expand partial rows 10k: {copyTimer.Elapsed.TotalMilliseconds:F1} ms including aggregate calculation");
+            Require(copyTimer.Elapsed < TimeSpan.FromSeconds(5), "Expanding 10k partial rows avoids per-row selection transactions");
+            grid.UnselectAllCells(); large.DefaultView.RowFilter = "";
             // Keep initial-render Boberto timing checks ahead of the longer session lifecycle fixtures.
+            await VerifyEditorCompletion(Require);
+            await VerifyEditorObjectResolution(Require);
             await VerifySessionWorkspaces(Require);
         }
         catch (Exception ex) { checks.Add("FAIL: " + ex); exitCode = 1; }

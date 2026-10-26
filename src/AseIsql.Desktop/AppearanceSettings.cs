@@ -6,8 +6,9 @@ using System.Windows.Media;
 
 namespace AseIsql.Desktop;
 
-public sealed record AppearanceSettings(string ThemeId="pergamino",string? AccentHex=null,string UiFont="inter",string EditorFont="consolas",double UiSize=13,double EditorSize=15,bool Compact=false,bool Rounded=false,bool ShowMessages=true,bool BobertoVisible=true,double BobertoSize=84,bool Motion=false,string BobertoBackground="theme",bool BobertoMotion=true)
+public sealed record AppearanceSettings(string ThemeId="pergamino",string? AccentHex=null,string UiFont="inter",string EditorFont="consolas",double UiSize=13,double EditorSize=15,bool Compact=false,bool Rounded=false,bool ShowMessages=true,bool BobertoVisible=true,double BobertoSize=84,bool Motion=false,string BobertoBackground="theme",bool BobertoMotion=true,bool SqlCompletion=true)
 {
+    // SqlCompletion is retained only to read older files under strict JSON validation. Completion is always available.
     // Motion, BobertoBackground and BobertoSize predate the live dock (the band height now decides Boberto's scale): Studio's engine now owns the scene background and BobertoMotion
     // owns animation. They stay readable so earlier files load under UnmappedMemberHandling.Disallow; nothing consumes them.
     private static readonly string[] LegacyBobertoBackdrops=["theme","aurora","ocean","dusk","paper"];

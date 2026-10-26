@@ -7,7 +7,7 @@ namespace AseIsql.Desktop;
 public partial class MainWindow
 {
     // Right-click in the Query editor: edit and run commands, plus object actions for the identifier selected or
-    // under the pointer (for example a table or procedure name). Nothing runs until a menu item is chosen.
+    // under the pointer. Opening the menu reads metadata only; SQL actions require an explicit choice.
     private void AttachEditorMenu()
     {
         var menu=new ContextMenu();
@@ -20,20 +20,18 @@ public partial class MainWindow
             if(Editor.SelectionLength==0||offset<Editor.SelectionStart||offset>Editor.SelectionStart+Editor.SelectionLength){Editor.Select(offset,0);Editor.TextArea.Caret.Offset=offset;}
             Editor.TextArea.Focus();
         };
-        menu.Opened+=(_,_)=>BuildEditorMenu(menu);
+        menu.Opened+=async (_,_)=> { BuildEditorMenu(menu); await ResolveEditorObjectMenu(menu); };
+        menu.Closed+=(_,_)=>CloseEditorObjectMenu(menu);
+        SessionTabs.SelectionChanged+=(_,e)=> { if(e.Source==SessionTabs){menu.IsOpen=false;CloseEditorObjectMenu(menu);} };
+        Closed+=(_,_)=>CloseEditorObjectMenu(menu);
     }
     private void BuildEditorMenu(ContextMenu menu)
     {
         menu.Items.Clear();
+        BeginEditorObjectMenu(menu);
         bool selected=Editor.SelectionLength>0;
         void Add(ItemsControl parent,string header,string? gesture,Action action,bool enabled=true){var item=new MenuItem {Header=header,InputGestureText=gesture??"",IsEnabled=enabled};item.Click+=(_,_)=>action();parent.Items.Add(item);}
-        var target=ParseObjectToken(selected?Editor.SelectedText:IdentifierAtCaret());
-        // ASE and IQ resolve identifiers under the caret; IQ takes owner.name only. Replication Server has no objects.
-        if(target!=null&&(CurrentPlatform==ServerPlatform.Ase||CurrentPlatform==ServerPlatform.Iq&&target.Database==null)){
-            menu.Items.Add(new MenuItem {Header="Object · "+target.Display,IsEnabled=false,FontWeight=FontWeights.SemiBold});
-            if(CurrentPlatform==ServerPlatform.Iq)AddIqObjectActions(menu,target,null);else AddObjectActions(menu,target);
-            menu.Items.Add(new Separator());
-        }
+        AddEditorObjectPlaceholder(menu,editorObjectRequest?.Target);
         Add(menu,"Execute selection","Ctrl+E",()=>_=ExecuteAsync(selectionOnly:true),selected&&running==null);
         Add(menu,"Execute current line","Alt+F9",()=>_=ExecuteAsync(lineOnly:true),running==null);
         Add(menu,"Execute query","F9",()=>_=ExecuteAsync(),running==null);

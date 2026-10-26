@@ -8,6 +8,29 @@ int passed = 0;
 void Check(string name, Action body) { body(); Console.WriteLine("PASS " + name); passed++; }
 void Assert(bool value) { if (!value) throw new Exception("Assertion failed"); }
 var engine = new DemoQueryEngine();
+Check("HTML clipboard table encodes values, preserves types and bounds escaped output", () => {
+    string html = ResultHtmlClipboard.Table(["<name>", "Value"], [
+        new object?[] { "José 🐱<&\"\r\nnext", DBNull.Value },
+        new object?[] { new byte[] { 0, 255 }, 12.5m },
+        new object?[] { "", new DateTime(2026, 10, 26) }]);
+    Assert(html.Contains("&lt;name&gt;") && !html.Contains("<name>"));
+    Assert(html.Contains("José 🐱&lt;&amp;&quot;<br>next") && html.Contains(">NULL</span>"));
+    Assert(html.Contains("0x00FF") && html.Contains("12.5") && html.Contains("2026-10-26T00:00:00.0000000"));
+    Assert(html.Contains("style=") && html.Contains("<thead>") && html.Contains("<tbody>"));
+    try { ResultHtmlClipboard.Table(["x"], [new object?[] { new string('&', 1000) }], maxCharacters: 2000); Assert(false); } catch (ArgumentException) { }
+    try { ResultHtmlClipboard.Table(["x"], [new object?[] { 1, 2 }]); Assert(false); } catch (ArgumentException) { }
+    Assert(ResultHtmlClipboard.Table(["x"], []).Contains("<tbody></tbody>"));
+});
+Check("HTML clipboard offsets count UTF-8 bytes around the complete table fragment", () => {
+    string table = ResultHtmlClipboard.Table(["País"], [new object?[] { "日本 🐱" }]);
+    string payload = ResultHtmlClipboard.Payload(table);
+    int Offset(string name) => int.Parse(payload.Split("\r\n").Single(line => line.StartsWith(name + ":"))[(name.Length + 1)..], CultureInfo.InvariantCulture);
+    byte[] bytes = System.Text.Encoding.UTF8.GetBytes(payload);
+    string Slice(int start, int end) => System.Text.Encoding.UTF8.GetString(bytes, start, end - start);
+    Assert(Slice(Offset("StartFragment"), Offset("EndFragment")) == table);
+    Assert(Slice(Offset("StartHTML"), Offset("EndHTML")).StartsWith("<!DOCTYPE html>"));
+    Assert(Offset("EndHTML") == bytes.Length);
+});
 Check("Query history survives reload with exact SQL and newest dates first", () => {
     string directory = Path.Combine(Path.GetTempPath(), "dbmon-history-" + Guid.NewGuid().ToString("N"));
     string path = Path.Combine(directory, "history.json");
