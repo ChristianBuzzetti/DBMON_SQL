@@ -18,11 +18,11 @@ NuGet restores use lock files (`packages.lock.json`), so builds are repeatable.
 ./build.ps1 -Test -Publish   # + self-contained win-x64 package and UI smoke checks
 ```
 
-`-Publish` writes a self-contained package to `artifacts/DBMON_SQL`, then runs the packaged app with `--smoke` and stops if any UI check fails. It refuses to overwrite a package that is running. `build-info.json` in the package records the version, build time, check counts and assembly hashes.
+`-Publish` writes a self-contained development package to `C:\DBMON_SQL`, then runs the packaged app with `--smoke` and stops if any UI check fails. This is the stable local execution directory selected by the maintainer. Close DBMON SQL before rebuilding: the script refuses to overwrite a package that is running. `build-info.json` in the package records the version, build time, check counts and assembly hashes.
 
 ### Share the app
 
-Use **`artifacts/DBMON_SQL`** as the single development distribution folder. After successful publication, the build script removes generated `UiSmoke/` and `BobertoSmoke/` output, root debug symbols (`*.pdb`) and WebView2 API documentation (`Microsoft.Web.WebView2.*.xml`). Application DLLs, runtime files, language folders, assets and font licenses stay in place. `README.txt` explains recipient requirements and `LICENSE.txt` includes the MIT license.
+Use **`C:\DBMON_SQL`** as the single development distribution folder. After successful publication, the build script removes generated `UiSmoke/` and `BobertoSmoke/` output, root debug symbols (`*.pdb`) and WebView2 API documentation (`Microsoft.Web.WebView2.*.xml`). Application DLLs, runtime files, language folders, assets and font licenses stay in place. `README.txt` explains recipient requirements and `LICENSE.txt` includes the MIT license.
 
 Zip that entire folder. Recipients extract it and run `DBMON SQL.exe`; sending only the executable is insufficient. They need Windows x64, their own SAP ODBC x64 driver, server access and credentials. WebView2 is required for Boberto; .NET is included. Do not share `%LOCALAPPDATA%/DBMON_SQL`, which contains personal settings and profiles. See the [requirements](../README.md#requirements).
 
@@ -31,6 +31,7 @@ To clean an existing verified package without rebuilding:
 ```powershell
 ./scripts/prepare-distribution.ps1
 ./tests/verify-distribution.ps1   # Isolated packaging regression checks
+./tests/verify-build-path.ps1     # Default paths, overrides and running-package guard
 ```
 
 The preparation script checks recorded assembly hashes before making changes and refuses a running package. It does not publish a second copy or change the product version. The optional `-PackageDirectory PATH` accepts an existing verified package, including a formal release directory. Unknown files are preserved; this is targeted cleanup, not a full audit of arbitrary files added manually.

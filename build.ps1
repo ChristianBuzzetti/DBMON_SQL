@@ -5,13 +5,13 @@ if ($Release -and -not $Publish) { throw 'A formal release requires -Test -Publi
 [xml]$taskBuildProperties = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'Directory.Build.props') -Raw
 $taskVersion = [version]$taskBuildProperties.Project.PropertyGroup.Version
 if ([string]::IsNullOrWhiteSpace($PublishDirectory)) {
-    $PublishDirectory = if($Release) { 'artifacts/windows-x64-v' + $taskVersion.ToString(3) + '-final' } else { 'artifacts/DBMON_SQL' }
+    $PublishDirectory = if($Release) { 'artifacts/windows-x64-v' + $taskVersion.ToString(3) + '-final' } else { 'C:\DBMON_SQL' }
 }
 if ($Publish) {
     $taskOutputPath = if([IO.Path]::IsPathRooted($PublishDirectory)) { [IO.Path]::GetFullPath($PublishDirectory) } else { [IO.Path]::GetFullPath((Join-Path $PSScriptRoot $PublishDirectory)) }
     $taskPublishPrefix = $taskOutputPath + [IO.Path]::DirectorySeparatorChar
     $taskOpenRelease = @(Get-Process | ForEach-Object { try { if ($_.Path -and $_.Path.StartsWith($taskPublishPrefix,[StringComparison]::OrdinalIgnoreCase)) { $_ } } catch { } })
-    if ($taskOpenRelease.Count) { throw "The target build is running. Close it or choose another output directory without changing the product version: $taskOutputPath" }
+    if ($taskOpenRelease.Count) { throw "The target build is running. Close DBMON SQL before rebuilding this package: $taskOutputPath" }
 }
 $taskDotnet = Join-Path $PSScriptRoot '.tools/dotnet/dotnet.exe'
 if (-not (Test-Path -LiteralPath $taskDotnet)) { $taskDotnet = 'dotnet' }

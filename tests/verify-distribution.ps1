@@ -52,14 +52,21 @@ try {
     Assert-Distribution ((Get-Snapshot $taskPackage) -eq $taskSnapshot) 'Repeated preparation must be idempotent.'
 
     # The default command must prepare the canonical package without a path override.
-    $taskDefaultPackage = New-Package 'default-layout/artifacts/DBMON_SQL'
+    $taskDefaultPackage = New-Package 'default-layout/package'
     $taskDefaultRoot = Join-Path $taskScratch 'default-layout'
     $taskDefaultScripts = Join-Path $taskDefaultRoot 'scripts'
     New-Item -ItemType Directory -Path $taskDefaultScripts | Out-Null
-    Copy-Item -LiteralPath $taskScript -Destination $taskDefaultScripts
+    $taskPreparationSource = [IO.File]::ReadAllText($taskScript)
+    $taskPreparationAst = [Management.Automation.Language.Parser]::ParseInput($taskPreparationSource, [ref]$null, [ref]$null)
+    $taskDefaultNode = ($taskPreparationAst.ParamBlock.Parameters | Where-Object { $_.Name.VariablePath.UserPath -eq 'PackageDirectory' }).DefaultValue
+    Assert-Distribution ($taskDefaultNode.SafeGetValue() -eq 'C:\DBMON_SQL') 'The canonical package directory must be C:\DBMON_SQL.'
+    # Redirect only the default parameter in this isolated copy; never prepare the user's actual package in a fixture test.
+    $taskIsolatedDefault = "'" + $taskDefaultPackage.Replace("'", "''") + "'"
+    $taskPreparationSource = $taskPreparationSource.Remove($taskDefaultNode.Extent.StartOffset, $taskDefaultNode.Extent.EndOffset - $taskDefaultNode.Extent.StartOffset).Insert($taskDefaultNode.Extent.StartOffset, $taskIsolatedDefault)
+    Set-Content -LiteralPath (Join-Path $taskDefaultScripts 'prepare-distribution.ps1') -Value $taskPreparationSource -Encoding utf8
     Copy-Item -LiteralPath (Join-Path $taskRepository 'LICENSE') -Destination $taskDefaultRoot
     & (Join-Path $taskDefaultScripts 'prepare-distribution.ps1')
-    Assert-Distribution (Test-Path -LiteralPath (Join-Path $taskDefaultPackage 'README.txt')) 'The default command must prepare artifacts/DBMON_SQL.'
+    Assert-Distribution (Test-Path -LiteralPath (Join-Path $taskDefaultPackage 'README.txt')) 'The default command must prepare its configured package directory.'
     Assert-Distribution (-not (Test-Path -LiteralPath (Join-Path $taskDefaultPackage 'UiSmoke'))) 'The default package must be cleaned.'
     Assert-Distribution (-not (Test-Path -LiteralPath (Join-Path $taskDefaultRoot 'artifacts/windows-x64-dev'))) 'Preparation must not create a second development package.'
 

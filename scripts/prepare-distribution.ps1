@@ -1,5 +1,5 @@
 # Prepare an already verified package; this script does not build or publish.
-param([string]$PackageDirectory = (Join-Path $PSScriptRoot '../artifacts/DBMON_SQL'))
+param([string]$PackageDirectory = 'C:\DBMON_SQL')
 $ErrorActionPreference = 'Stop'
 $taskPackage = [IO.Path]::GetFullPath($PackageDirectory).TrimEnd('\', '/')
 $taskPackageInfo = Get-Item -LiteralPath $taskPackage
