@@ -7,6 +7,47 @@ namespace AseIsql;
 // A portable table fragment: inline styles survive rich-text clipboard consumers better than a stylesheet.
 public static class ResultHtmlClipboard
 {
+    public static string QueryAndTable(string query, IReadOnlyList<string> headers, IEnumerable<IReadOnlyList<object?>> rows,
+        int maxCharacters = DelimitedText.ClipboardCharacterLimit)
+    {
+        if (string.IsNullOrWhiteSpace(query)) throw new ArgumentException("The executed query is not available for this result.");
+        if (maxCharacters < 1) throw new ArgumentException("Invalid clipboard limit.");
+        var output = new StringBuilder();
+        void Append(string text)
+        {
+            if (text.Length > maxCharacters - output.Length) throw new ArgumentException("The query and result exceed the clipboard text limit.");
+            output.Append(text);
+        }
+        Append("<div style=\"font:13px 'Segoe UI',Arial,sans-serif;color:#1e293b\"><div style=\"font-weight:600;margin-bottom:6px\">Query</div><pre style=\"font-family:Consolas,'Courier New',monospace;font-size:12px;white-space:pre-wrap;background:#f1f5f9;border:1px solid #cbd5e1;padding:12px;margin:0 0 16px\">");
+        AppendEncoded(query, Append);
+        Append("</pre><div style=\"font-weight:600;margin-bottom:6px\">Results</div>");
+        const string suffix = "</div>";
+        Append(Table(headers, rows, maxCharacters - output.Length - suffix.Length));
+        Append(suffix);
+        return output.ToString();
+    }
+
+    public static string QueryAndText(string query, string result,
+        int maxCharacters = DelimitedText.ClipboardCharacterLimit)
+    {
+        if (string.IsNullOrWhiteSpace(query)) throw new ArgumentException("The executed query is not available for this result.");
+        const string prefix = "Query:\r\n", separator = "\r\n\r\nResults:\r\n";
+        if ((long)prefix.Length + query.Length + separator.Length + result.Length > maxCharacters)
+            throw new ArgumentException("The query and result exceed the clipboard text limit.");
+        return prefix + query + separator + result;
+    }
+
+    private static void AppendEncoded(string text, Action<string> append)
+    {
+        // Bound escaped expansion incrementally before allocating the whole result.
+        for (int index = 0; index < text.Length; index++)
+        {
+            char c = text[index];
+            if (c == '\r' && index + 1 < text.Length && text[index + 1] == '\n') index++;
+            append(c switch { '&' => "&amp;", '<' => "&lt;", '>' => "&gt;", '"' => "&quot;", '\'' => "&#39;", '\r' or '\n' => "<br>", '\0' => "&#xfffd;", _ => c.ToString() });
+        }
+    }
+
     public static string Table(IReadOnlyList<string> headers, IEnumerable<IReadOnlyList<object?>> rows,
         int maxCharacters = DelimitedText.ClipboardCharacterLimit)
     {
@@ -28,13 +69,7 @@ public static class ResultHtmlClipboard
                 DateTime date => date.ToString("O", CultureInfo.InvariantCulture),
                 _ => Convert.ToString(value, CultureInfo.InvariantCulture) ?? ""
             };
-            // Encode incrementally so escaped expansion is bounded before allocating the whole result.
-            for (int index = 0; index < text.Length; index++)
-            {
-                char c = text[index];
-                if (c == '\r' && index + 1 < text.Length && text[index + 1] == '\n') index++;
-                Append(c switch { '&' => "&amp;", '<' => "&lt;", '>' => "&gt;", '"' => "&quot;", '\'' => "&#39;", '\r' or '\n' => "<br>", '\0' => "&#xfffd;", _ => c.ToString() });
-            }
+            AppendEncoded(text, Append);
         }
         const string cellStyle = "padding:7px 12px;border:1px solid #cbd5e1;text-align:left;vertical-align:top;white-space:pre-wrap;";
         Append("<table style=\"border-collapse:collapse;font:13px 'Segoe UI',Arial,sans-serif;color:#1e293b;background:#ffffff\"><thead><tr>");

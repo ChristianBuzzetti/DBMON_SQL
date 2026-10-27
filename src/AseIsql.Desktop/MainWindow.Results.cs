@@ -30,6 +30,14 @@ public partial class MainWindow
             { e.Handled = true; Dispatcher.BeginInvoke(() => RenameResult(tab)); }
         };
         var menu = new ContextMenu();
+        grid.SetValue(ResultCopyTabProperty, tab);
+        var includeQuery = new MenuItem {
+            Header = "Include executed query", IsCheckable = true, StaysOpenOnClick = true,
+            ToolTip = "Include this result's submitted SQL above the output in every copy format, including Ctrl+C"
+        };
+        includeQuery.Checked += (_, _) => grid.SetValue(IncludeResultQueryProperty, true);
+        includeQuery.Unchecked += (_, _) => grid.SetValue(IncludeResultQueryProperty, false);
+        menu.Items.Add(includeQuery); menu.Items.Add(new Separator());
         var selectionActions = new List<MenuItem>();
         MenuItem CopyItem(string header, ResultCopy mode, char delimiter = '\t', bool delimited = false)
         {
@@ -75,6 +83,7 @@ public partial class MainWindow
         var closeFromGrid = new MenuItem { Header = "Close resultset" };
         closeFromGrid.Click += (_, _) => CloseResult(tab); menu.Items.Add(closeFromGrid);
         menu.Opened += (_, _) => {
+            includeQuery.IsEnabled = ResultQuery(grid) != null;
             bool selected = grid.SelectedCells.Count > 0;
             foreach (var item in selectionActions) item.IsEnabled = selected;
             selectAll.IsEnabled = grid.Items.Count > 0 && grid.Columns.Any(column => column.Visibility == Visibility.Visible);
@@ -120,6 +129,22 @@ public partial class MainWindow
 
     private static readonly DependencyProperty BulkResultSelectionProperty =
         DependencyProperty.RegisterAttached("BulkResultSelection", typeof(bool), typeof(MainWindow), new PropertyMetadata(false));
+
+    private static readonly DependencyProperty IncludeResultQueryProperty =
+        DependencyProperty.RegisterAttached("IncludeResultQuery", typeof(bool), typeof(MainWindow), new PropertyMetadata(false));
+    private static readonly DependencyProperty ResultCopyTabProperty =
+        DependencyProperty.RegisterAttached("ResultCopyTab", typeof(TabItem), typeof(MainWindow));
+
+    private string? ResultQuery(DataGrid grid)
+    {
+        if (grid.GetValue(ResultCopyTabProperty) is not TabItem { Tag: DataTable table } tab ||
+            (grid.ItemsSource as DataView)?.Table != table || OwnerOf(tab) is not { } owner ||
+            !owner.Origins.TryGetValue(table, out var origin) || string.IsNullOrWhiteSpace(origin.Sql)) return null;
+        return origin.Sql;
+    }
+
+    private string? ResultQueryToCopy(DataGrid grid) => !(bool)grid.GetValue(IncludeResultQueryProperty) ? null :
+        ResultQuery(grid) ?? throw new ArgumentException("The executed query is not available for this result.");
 
     private void OpenSelectedCellText(DataGrid grid)
     {
@@ -230,10 +255,11 @@ public partial class MainWindow
         return new ResultCopyData(headers, rows);
     }
 
-    private static string BuildResultCopy(DataGrid grid, ResultCopy mode, char delimiter, bool delimited = false)
+    private string BuildResultCopy(DataGrid grid, ResultCopy mode, char delimiter, bool delimited = false)
     {
         var values = ResultCopyValues(grid, mode);
-        return DelimitedText.Serialize(values.Headers, values.Rows, delimiter, includeHeaders: mode is ResultCopy.WithHeaders or ResultCopy.AllWithHeaders, headersOnly: mode == ResultCopy.HeadersOnly, quoteFields: delimited);
+        string text = DelimitedText.Serialize(values.Headers, values.Rows, delimiter, includeHeaders: mode is ResultCopy.WithHeaders or ResultCopy.AllWithHeaders, headersOnly: mode == ResultCopy.HeadersOnly, quoteFields: delimited);
+        return ResultQueryToCopy(grid) is { } query ? ResultHtmlClipboard.QueryAndText(query, text) : text;
     }
 
     private void CopyResultHtml(DataGrid grid)
@@ -241,7 +267,9 @@ public partial class MainWindow
         try
         {
             var values = ResultCopyValues(grid, ResultCopy.WithHeaders);
-            string html = ResultHtmlClipboard.Table(values.Headers, values.Rows);
+            string html = ResultQueryToCopy(grid) is { } query
+                ? ResultHtmlClipboard.QueryAndTable(query, values.Headers, values.Rows)
+                : ResultHtmlClipboard.Table(values.Headers, values.Rows);
             var data = new DataObject();
             data.SetData(DataFormats.Html, ResultHtmlClipboard.Payload(html));
             data.SetData(DataFormats.UnicodeText, BuildResultCopy(grid, ResultCopy.WithHeaders, '\t'));

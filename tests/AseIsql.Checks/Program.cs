@@ -8,6 +8,28 @@ int passed = 0;
 void Check(string name, Action body) { body(); Console.WriteLine("PASS " + name); passed++; }
 void Assert(bool value) { if (!value) throw new Exception("Assertion failed"); }
 var engine = new DemoQueryEngine();
+Check("Query clipboard report preserves submitted SQL and escapes it before the table", () => {
+    const string query = "select '<script>José & 🐱</script>'\r\nfrom t;";
+    string report = ResultHtmlClipboard.QueryAndTable(query, ["n"], [new object?[] { 1 }]);
+    Assert(report.IndexOf("Query", StringComparison.Ordinal) < report.IndexOf("<table", StringComparison.Ordinal));
+    Assert(report.Contains("&lt;script&gt;José &amp; 🐱&lt;/script&gt;") && !report.Contains("<script>"));
+    Assert(report.Contains("<br>from t;") && report.Contains("font-family:") && report.Contains("Results"));
+    string payload = ResultHtmlClipboard.Payload(report);
+    int Offset(string key) => int.Parse(payload.Split("\r\n").Single(line => line.StartsWith(key + ":"))[(key.Length + 1)..], CultureInfo.InvariantCulture);
+    byte[] bytes = System.Text.Encoding.UTF8.GetBytes(payload);
+    Assert(System.Text.Encoding.UTF8.GetString(bytes, Offset("StartFragment"), Offset("EndFragment") - Offset("StartFragment")) == report);
+    Assert(Offset("EndHTML") == bytes.Length);
+});
+Check("Query clipboard text preserves exact SQL, separates output and bounds the entire report", () => {
+    const string query = "select 1;\r\n-- exact SQL\n";
+    Assert(ResultHtmlClipboard.QueryAndText(query, "n\r\n1\r\n") == "Query:\r\n" + query + "\r\n\r\nResults:\r\nn\r\n1\r\n");
+    try { ResultHtmlClipboard.QueryAndText(query, new string('x', 100), maxCharacters: 110); Assert(false); } catch (ArgumentException) { }
+    try { ResultHtmlClipboard.QueryAndTable(new string('&', 500), ["n"], [], maxCharacters: 2200); Assert(false); } catch (ArgumentException) { }
+    foreach (string missing in new[] { "", " \r\n" }) {
+        try { ResultHtmlClipboard.QueryAndText(missing, "output"); Assert(false); } catch (ArgumentException) { }
+        try { ResultHtmlClipboard.QueryAndTable(missing, ["n"], []); Assert(false); } catch (ArgumentException) { }
+    }
+});
 Check("HTML clipboard table encodes values, preserves types and bounds escaped output", () => {
     string html = ResultHtmlClipboard.Table(["<name>", "Value"], [
         new object?[] { "José 🐱<&\"\r\nnext", DBNull.Value },
