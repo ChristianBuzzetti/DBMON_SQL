@@ -941,7 +941,7 @@ public partial class MainWindow : Window
             Require(pagedObjects.Page.Count==100&&pagedObjects.More&&!PageObjects(manyObjects.Take(100).ToList()).More,"Explorer shows 100 objects and offers more only when the server returned a 101st");
             Require(ParseObjectToken("afiliados") is {Database:null,Owner:null,Name:"afiliados"}&&ParseObjectToken("dbo.afiliados") is {Owner:"dbo",Name:"afiliados"}&&ParseObjectToken("afilmed..afiliados") is {Database:"afilmed",Owner:null,Name:"afiliados"}&&ParseObjectToken("[my db].dbo.[a.b]") is {Database:"my db",Name:"a.b"}&&ParseObjectToken("select *")==null&&ParseObjectToken("@var")==null&&ParseObjectToken("42")==null,"Editor identifiers resolve name, owner, database and bracketed parts; expressions and variables are not objects");
             var helperTarget=ParseObjectToken("afilmed..afiliados")!;
-            Require(ObjectHelperSql("help",helperTarget)=="exec [afilmed]..sp_help 'afiliados'"&&ObjectHelperSql("top",helperTarget)=="SELECT TOP 100 * FROM [afilmed]..[afiliados]"&&ObjectHelperSql("code",ParseObjectToken("dbo.sp_x")!).Contains("object_id('dbo.sp_x')"),"Object actions build read-only helper SQL in the object's database context");
+            Require(ObjectHelperSql("help",helperTarget)=="exec afilmed..sp_help 'afiliados'"&&ObjectHelperSql("top",helperTarget)=="SELECT TOP 100 * FROM [afilmed]..[afiliados]"&&ObjectHelperSql("code",ParseObjectToken("dbo.sp_x")!).Contains("object_id('dbo.sp_x')"),"Object actions build read-only helper SQL in the object's database context");
             string editorBeforeMenu=Editor.Text;Editor.Text="select * from afiliados where 1=1";Editor.Select(0,0);Editor.TextArea.Caret.Offset=18;
             var editorMenu=(ContextMenu)Editor.TextArea.ContextMenu;BuildEditorMenu(editorMenu);var editorItems=editorMenu.Items.OfType<MenuItem>().ToList();
             Require(editorItems[0].Header.Equals("Object · afiliados")&&editorItems.Any(i=>i.Header.Equals("Checking database, owner and object type…")&&!i.IsEnabled)&&!editorItems.Any(i=>i.Header.Equals("View code"))&&editorItems.Any(i=>i.Header.Equals("Execute selection")&&!i.IsEnabled)&&editorItems.Any(i=>i.Header.Equals("Paste")),"Right-click preserves editing and execution while withholding object actions until catalog resolution");
@@ -1190,6 +1190,7 @@ public partial class MainWindow : Window
             grid.UnselectAllCells(); large.DefaultView.RowFilter = "";
             // Keep initial-render Boberto timing checks ahead of the longer session lifecycle fixtures.
             await VerifyEditorCompletion(Require);
+            await VerifyTableCompletion(Require);
             await VerifyEditorObjectResolution(Require);
             await VerifySessionWorkspaces(Require);
         }

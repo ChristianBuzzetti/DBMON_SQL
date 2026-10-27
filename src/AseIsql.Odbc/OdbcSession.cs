@@ -258,7 +258,8 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
                 }
                 if (userRun && profile.Platform == ServerPlatform.Ase && CaptureExecutionIo && !cancellation.IsCancellationRequested)
                     CollectExecutionIo(output, ioPlans, batch, cancellation);
-                if (profile.Platform == ServerPlatform.Ase) database = connection.Database;
+                // SQL_ATTR_CURRENT_CATALOG can remain at the login database after a T-SQL USE.
+                // Keep the server's db_name() facts; the guarded probe below refreshes them after USE.
             }
             if (ioPlans.Any(p => p.Scans.Count > 0))
                 output.Tables.Add(ExecutionIo.ToTable(ioPlans));

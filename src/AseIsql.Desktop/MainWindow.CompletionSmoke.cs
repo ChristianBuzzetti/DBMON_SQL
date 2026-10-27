@@ -86,6 +86,8 @@ public partial class MainWindow
                 Press(Key.Enter);
                 require(Editor.Text == name, "System object completion inserts " + name);
             }
+            // The offline vocabulary remains available without pretending it is a live catalog.
+            engine = new DisconnectedQueryEngine();
             foreach (var sample in new[] {
                 ("select * from master..sys", "sysobjects", Key.Tab),
                 ("select * from master..mon", "mon_dbs", Key.Enter),
@@ -107,6 +109,7 @@ public partial class MainWindow
                 Editor.Undo();
                 require(Editor.Text == sample.Item1, "Undo restores the original qualified object prefix");
             }
+            engine = fixture;
             Buffer("sys"); Invoke();
             var firstItem = editorCompletion!.CompletionList.SelectedItem;
             Press(Key.Down); var nextItem = editorCompletion.CompletionList.SelectedItem;

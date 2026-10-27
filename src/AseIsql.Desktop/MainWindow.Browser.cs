@@ -22,8 +22,8 @@ public partial class MainWindow
     public sealed record ObjectTarget(string? Database, string? Owner, string Name)
     {
         public string Display => Database != null ? Database + "." + (Owner ?? "") + "." + Name : Owner != null ? Owner + "." + Name : Name;
-        public string ProcedurePrefix => Database != null ? ResultFormats.Identifier(Database) + ".." : "";
-        public string ProcedureArgument => ResultFormats.Literal(Owner != null ? Owner + "." + Name : Name);
+        public string ProcedurePrefix => Database != null ? UseTarget(Database) + ".." : "";
+        public string ProcedureArgument => ResultFormats.Literal(Owner != null ? UseTarget(Owner) + "." + UseTarget(Name) : UseTarget(Name));
         public string ObjectIdArgument => ResultFormats.Literal(Display);
         public string From => Database != null ? ResultFormats.Identifier(Database) + "." + (Owner != null ? ResultFormats.Identifier(Owner) : "") + "." + ResultFormats.Identifier(Name) :
             Owner != null ? ResultFormats.Identifier(Owner) + "." + ResultFormats.Identifier(Name) : ResultFormats.Identifier(Name);

@@ -95,28 +95,34 @@ public partial class MainWindow
     {
         if (!EditorObjectCurrent(request)) return new(null, "", "Object lookup cancelled.");
         if (EditorObjectUnavailable(request) is { } reason) return new(null, "", reason);
-        var owner = request.Owner;
-        owner.CatalogActions++;
-        owner.Running = request.Cancellation;
-        request.Cancellation.CancelAfter(TimeSpan.FromSeconds(5));
-        RefreshFor(owner);
         try
         {
-            string sql = EditorObjectLookupSql(PlatformOf(owner), request.Target!);
-            var output = await Task.Run(() => request.Engine is OdbcSession session
-                ? session.Execute(sql, request.Cancellation.Token, userRun: false)
-                : request.Engine.Execute(sql, request.Cancellation.Token));
+            var output = await ReadEditorMetadata(request.Owner, request.Engine,
+                EditorObjectLookupSql(PlatformOf(request.Owner), request.Target!), request.Cancellation);
             request.Cancellation.Token.ThrowIfCancellationRequested();
-            return ParseEditorObjectResult(output, request.Target!, PlatformOf(owner));
+            return ParseEditorObjectResult(output, request.Target!, PlatformOf(request.Owner));
         }
         catch (Exception ex) when (ex is OperationCanceledException or OdbcException or InvalidOperationException or ArgumentException or FormatException or InvalidCastException or OverflowException)
         { return new(null, "", request.Cancellation.IsCancellationRequested ? "Object lookup cancelled or timed out." : "Object metadata unavailable; check catalog access and session state."); }
+    }
+    private async Task<QueryOutput> ReadEditorMetadata(SessionWorkspace owner, IQueryEngine source, string sql, CancellationTokenSource cancellation, bool preserveCompletion = false)
+    {
+        if (owner.Busy || !ReferenceEquals(owner.Engine, source)) throw new InvalidOperationException("The session is busy or changed.");
+        owner.CatalogActions++;
+        owner.Running = cancellation;
+        cancellation.CancelAfter(TimeSpan.FromSeconds(5));
+        RefreshFor(owner, preserveCompletion);
+        try
+        {
+            return await Task.Run(() => source is OdbcSession session
+                ? session.Execute(sql, cancellation.Token, userRun: false) : source.Execute(sql, cancellation.Token));
+        }
         finally
         {
-            request.Cancellation.CancelAfter(Timeout.InfiniteTimeSpan);
-            if (ReferenceEquals(owner.Running, request.Cancellation)) owner.Running = null;
+            cancellation.CancelAfter(Timeout.InfiniteTimeSpan);
+            if (ReferenceEquals(owner.Running, cancellation)) owner.Running = null;
             owner.CatalogActions--;
-            RefreshFor(owner);
+            RefreshFor(owner, preserveCompletion);
         }
     }
     private static string EditorObjectLookupSql(ServerPlatform platform, ObjectTarget target)
@@ -135,8 +141,10 @@ public partial class MainWindow
         else throw new ArgumentException("This platform or object qualification has no supported catalog lookup.");
         // IF is evaluated before SELECT, which could otherwise start a transaction in chained mode.
         // IQ's @@trancount alone does not detect implicit transactions: require unchained mode too.
-        return "/* dbmon_execio: object metadata only */\nif @@tranchained = 0 and @@trancount = 0 begin\nselect db_name() as context_database;\n" + candidates + ";\nend";
+        return GuardedEditorMetadataSql(candidates);
     }
+    private static string GuardedEditorMetadataSql(string candidates) =>
+        "/* dbmon_execio: object metadata only */\nif @@tranchained = 0 and @@trancount = 0 begin\nselect db_name() as context_database;\n" + candidates + ";\nend";
     private static EditorObjectResult ParseEditorObjectResult(QueryOutput output, ObjectTarget target, ServerPlatform platform)
     {
         if (output.Error != null || output.OmittedMessages != 0 || output.Tables.Count != 2)
@@ -208,7 +216,6 @@ public partial class MainWindow
             return action == "size" ? "sp_iqtablesize " + ResultFormats.Literal(target.From) : IqObjectHelperSql(action, target);
         if (action == "code") return "select c.text from " + target.ProcedurePrefix + "syscomments c where c.id = " + item.Id.ToString(CultureInfo.InvariantCulture) + " order by c.number, c.colid";
         if (action == "top") return ObjectHelperSql(action, target);
-        string procedure = action switch { "help" => "sp_help", "depends" => "sp_depends", "indexes" => "sp_helpindex", "space" => "sp_spaceused", _ => throw new ArgumentException("Unknown object action.") };
-        return "exec " + target.ProcedurePrefix + procedure + " " + ResultFormats.Literal(ResultFormats.Identifier(item.Owner!) + "." + ResultFormats.Identifier(item.Name));
+        return ObjectHelperSql(action, target);
     }
 }

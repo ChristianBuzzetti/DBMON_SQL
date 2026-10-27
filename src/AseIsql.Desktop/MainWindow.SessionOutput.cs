@@ -34,9 +34,9 @@ public partial class MainWindow
     private void ShowMessages(SessionWorkspace owner) { if (IsOnScreen(owner)) SetLogVisible(true); }
 
     // The toolbar reflects the active session; any other session only updates its own tab in the strip.
-    private void RefreshFor(SessionWorkspace owner)
+    private void RefreshFor(SessionWorkspace owner, bool preserveCompletion = false)
     {
-        if (IsOnScreen(owner)) RefreshConnection(); else RefreshSessionHeader(owner);
+        if (IsOnScreen(owner)) RefreshConnection(preserveCompletion); else RefreshSessionHeader(owner);
     }
 
     private static string SourceLabelOf(SessionWorkspace owner) =>

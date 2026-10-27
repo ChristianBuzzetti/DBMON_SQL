@@ -17,11 +17,13 @@ public partial class MainWindow
         public int Calls;
         public string LastSql = "";
         public ManualResetEventSlim? Gate;
+        public bool IgnoreCancellation;
         public readonly TaskCompletionSource Started = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public QueryOutput Execute(string sql, CancellationToken cancellation = default)
         {
             Interlocked.Increment(ref Calls); LastSql = sql; Started.TrySetResult();
-            Gate?.Wait(cancellation); cancellation.ThrowIfCancellationRequested();
+            if (IgnoreCancellation) Gate?.Wait(TimeSpan.FromSeconds(3));
+            else { Gate?.Wait(cancellation); cancellation.ThrowIfCancellationRequested(); }
             return response;
         }
     }
@@ -62,6 +64,14 @@ public partial class MainWindow
             require(Has(menu, "Checking database, owner and object type…") && !Has(menu, "Select TOP 100 rows") && Has(menu, "Copy"),
                 "Unresolved editor object menus preserve editing and expose no guessed object commands");
             var tableResult = await Lookup(); var tableActions = Actions(tableResult);
+            foreach (var helper in new[] { ("help", "sp_help"), ("depends", "sp_depends"), ("indexes", "sp_helpindex"), ("space", "sp_spaceused") })
+            {
+                var target = new ObjectTarget("mon_db", "dbo", "mon_table");
+                string expected = "exec mon_db.." + helper.Item2 + " 'dbo.mon_table'";
+                require(ObjectHelperSql(helper.Item1, target) == expected &&
+                    ResolvedEditorHelperSql(helper.Item1, new CatalogObject("mon_db", "dbo", "mon_table", "U", 7)) == expected,
+                    "Editor and explorer " + helper.Item2 + " preserve ASE procedure and object boundaries without unnecessary delimiters");
+            }
             require(tableActions.Items.OfType<MenuItem>().All(item => ReferenceEquals(item.Style, FindResource(typeof(MenuItem)))),
                 "Resolved object commands inherit the application MenuItem style");
             require(tableResult.Object is { Database: "live_db", Owner: "sales", Type: "U" } && Has(tableActions, "Select TOP 100 rows") && Has(tableActions, "Indexes · sp_helpindex") && !Has(tableActions, "View code"),
