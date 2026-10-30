@@ -249,7 +249,7 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
                     });
                     using var reader = command.ExecuteReader();
                     try { ResultReader.Read(reader, output, budget, cancellation); }
-                    catch (Exception ex) when (ex is ResultLimitException or OperationCanceledException)
+                    catch (Exception ex) when (ex is ResultLimitException or ResultValueException or OperationCanceledException)
                     {
                         try { command.Cancel(); } catch (OdbcException cancelError) { output.Messages.Add(new QueryMessage(0, "ODBC", "Cancellation was not confirmed. Open the original diagnostic for details.", RedactSecrets(cancelError.Message))); }
                         throw;
@@ -286,7 +286,7 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
             output.ErrorRawText = RedactSecrets(ex.Message);
             output.Error = cancellation.IsCancellationRequested ? "Cancellation requested. Review server messages and verify the session state." : "Query failed. Review server messages or open the original diagnostic for details.";
         }
-        catch (Exception ex) when (ex is FormatException or ResultLimitException or InvalidOperationException or OverflowException or NotSupportedException or InvalidCastException or ArgumentException)
+        catch (Exception ex) when (ex is FormatException or ResultLimitException or ResultValueException or InvalidOperationException or OverflowException or NotSupportedException or InvalidCastException or ArgumentException)
         { output.Error = RedactSecrets(ex.Message); }
         catch (OperationCanceledException) { output.Error = "Cancellation requested. Received results are partial; verify the session before continuing."; }
         finally
@@ -334,7 +334,7 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
             RunInternalBatch("set textsize 16777216", cancellation);
             RunInternalBatch("set plan for show_execio_xml to message on", cancellation);
         }
-        catch (Exception ex) when (ex is OdbcException or InvalidOperationException or FormatException or InvalidCastException or OverflowException or ResultLimitException) { }
+        catch (Exception ex) when (ex is OdbcException or InvalidOperationException or FormatException or InvalidCastException or OverflowException or ResultLimitException or ResultValueException) { }
         finally
         {
             lock (messagesGate) suppressMessages = false;
@@ -362,7 +362,7 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
                 RunInternalBatch("set statistics time on", cancellation);
             }
         }
-        catch (Exception ex) when (ex is OdbcException or InvalidOperationException or FormatException or InvalidCastException or OverflowException or ResultLimitException)
+        catch (Exception ex) when (ex is OdbcException or InvalidOperationException or FormatException or InvalidCastException or OverflowException or ResultLimitException or ResultValueException)
         {
             output.Messages.Add(new QueryMessage(0, "CLIENT", "Statistics IO plan read failed: " + RedactSecrets(ex.Message)));
             return;

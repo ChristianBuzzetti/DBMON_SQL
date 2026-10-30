@@ -1276,6 +1276,6 @@ public sealed record LogMessage(string Time, int Number, string Source, string T
 public sealed class NullDisplayConverter : IValueConverter
 {
     public static readonly NullDisplayConverter Instance = new();
-    public object Convert(object value, Type targetType, object parameter, CultureInfo culture) => value switch { null or DBNull => "", byte[] bytes => "0x" + System.Convert.ToHexString(bytes.AsSpan(0, Math.Min(bytes.Length, 128))) + (bytes.Length > 128 ? $" … ({bytes.Length} bytes)" : ""), _ => System.Convert.ToString(value, CultureInfo.InvariantCulture) ?? "" };
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture) => value switch { byte[] bytes => "0x" + System.Convert.ToHexString(bytes.AsSpan(0, Math.Min(bytes.Length, 128))) + (bytes.Length > 128 ? $" … ({bytes.Length} bytes)" : ""), _ => ResultFormats.Cell(value) };
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) => throw new NotSupportedException();
 }

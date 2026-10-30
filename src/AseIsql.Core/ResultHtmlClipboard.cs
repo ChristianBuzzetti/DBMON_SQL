@@ -67,6 +67,7 @@ public static class ResultHtmlClipboard
             string text = value switch {
                 null => "", byte[] binary => "0x" + Convert.ToHexString(binary),
                 DateTime date => date.ToString("O", CultureInfo.InvariantCulture),
+                bool bit => bit ? "1" : "0",
                 _ => Convert.ToString(value, CultureInfo.InvariantCulture) ?? ""
             };
             AppendEncoded(text, Append);

@@ -8,7 +8,25 @@ namespace AseIsql;
 
 public static class ResultFormats
 {
-    private static string Display(object? value) => value switch { null or DBNull => "", byte[] bytes => "0x"+Convert.ToHexString(bytes), DateTime date => date.ToString("O",CultureInfo.InvariantCulture), _=>Convert.ToString(value,CultureInfo.InvariantCulture)??"" };
+    private static string Display(object? value) => value switch { null or DBNull => "", byte[] bytes => "0x"+Convert.ToHexString(bytes), DateTime date => date.ToString("O",CultureInfo.InvariantCulture), bool bit => bit ? "1" : "0", _=>Convert.ToString(value,CultureInfo.InvariantCulture)??"" };
+    // What a result cell shows on screen. Dates keep every digit the value carries: ASE datetime holds 1/300 of a
+    // second and bigdatetime microseconds, and a cell that hides them makes two different rows look identical.
+    public static string Cell(object? value) => value switch {
+        null or DBNull => "", byte[] bytes => "0x" + Convert.ToHexString(bytes),
+        // ASE bit columns hold 1 and 0; True/False is .NET's spelling, not the server's.
+        bool bit => bit ? "1" : "0",
+        DateTime date => date.TimeOfDay == TimeSpan.Zero ? date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) : Moment(date, " "),
+        TimeSpan time => time.ToString("c", CultureInfo.InvariantCulture),
+        _ => Convert.ToString(value, CultureInfo.InvariantCulture) ?? ""
+    };
+    // Seconds and the fraction are built separately: trimming the trailing zeros of the whole text would eat the
+    // zero of a second such as 13:46:30.
+    private static string Moment(DateTime date, string separator)
+    {
+        string text = date.ToString("yyyy-MM-dd" + separator + "HH:mm:ss", CultureInfo.InvariantCulture);
+        long fraction = date.Ticks % TimeSpan.TicksPerSecond;
+        return fraction == 0 ? text : text + "." + fraction.ToString("D7", CultureInfo.InvariantCulture).TrimEnd('0');
+    }
     public static string Identifier(string name) => "[" + name.Replace("]", "]]") + "]";
     public static string Literal(object? value) => value switch {
         null or DBNull => "NULL", bool b => b ? "1" : "0", byte[] bytes => "0x" + Convert.ToHexString(bytes),
@@ -16,7 +34,7 @@ public static class ResultFormats
         float f when float.IsFinite(f) => f.ToString("R", CultureInfo.InvariantCulture),
         double d when double.IsFinite(d) => d.ToString("R", CultureInfo.InvariantCulture),
         float or double => throw new ArgumentException("SQL literals cannot represent non-finite numbers."),
-        DateTime date => "'" + date.ToString("yyyy-MM-ddTHH:mm:ss.fffffff", CultureInfo.InvariantCulture).TrimEnd('0').TrimEnd('.') + "'",
+        DateTime date => "'" + Moment(date, "T") + "'",
         _ => "'" + (Convert.ToString(value, CultureInfo.InvariantCulture) ?? "").Replace("'", "''") + "'"
     };
     public static string Json(DataTable table) => JsonSerializer.Serialize(new {

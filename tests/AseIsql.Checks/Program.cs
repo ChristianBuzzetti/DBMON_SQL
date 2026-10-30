@@ -190,6 +190,72 @@ Check("Production reader rejects oversized cells without fake truncation", () =>
     try { ResultReader.Read(reader, output, new ResultBudget(10), CancellationToken.None); throw new Exception("Cell limit ignored"); } catch (ResultLimitException) { }
     Assert(output.Tables[0].Rows.Count == 0);
 });
+Check("Production reader keeps server numerics wider than System.Decimal as text", () => {
+    const string wide = "261669575803947255606802382848";
+    using var reader = new WideNumericTestReader("identburnmax", 38, [wide]); var output = new QueryOutput();
+    ResultReader.Read(reader, output, new ResultBudget(10), CancellationToken.None);
+    var table = output.Tables[0];
+    Assert(table.Columns[0].DataType == typeof(string) && table.Columns[0].Caption == "identburnmax" && (string)table.Rows[0][0] == wide);
+    Assert(reader.ValueCalls == 0 && (string?)table.Columns[0].ExtendedProperties["ReadAsText"] == "Decimal");
+});
+Check("Wide numerics fall back to the driver string when chars access is refused", () => {
+    using var reader = new WideNumericTestReader("identburnmax", 38, ["123456789012345678901234567890"], chars: false); var output = new QueryOutput();
+    ResultReader.Read(reader, output, new ResultBudget(10), CancellationToken.None);
+    Assert((string)output.Tables[0].Rows[0][0] == "123456789012345678901234567890");
+});
+Check("A wide value the driver never described is still recovered as text", () => {
+    const string wide = "99999999999999999999999999999999";
+    using var reader = new WideNumericTestReader("saldo", 0, [wide]); var output = new QueryOutput();
+    ResultReader.Read(reader, output, new ResultBudget(10), CancellationToken.None);
+    var table = output.Tables[0];
+    Assert(table.Columns[0].DataType == typeof(string) && (string)table.Rows[0][0] == wide && table.Columns[0].Caption == "saldo");
+});
+Check("Promoting an undescribed column to text keeps the rows already read, with NULL", () => {
+    using var reader = new WideNumericTestReader("saldo", 0, ["10.13", null, "99999999999999999999999999999999", "2"]); var output = new QueryOutput();
+    ResultReader.Read(reader, output, new ResultBudget(10), CancellationToken.None);
+    var table = output.Tables[0];
+    Assert(table.Columns[0].DataType == typeof(string) && table.Columns[0].Caption == "saldo" && table.Columns.Count == 1);
+    Assert((string)table.Rows[0][0] == "10.13" && table.Rows[1][0] is DBNull && (string)table.Rows[2][0] == "99999999999999999999999999999999" && (string)table.Rows[3][0] == "2");
+});
+Check("A value no conversion can deliver names its column and row", () => {
+    using var reader = new WideNumericTestReader("saldo", 0, ["99999999999999999999999999999999"], chars: false, strings: false); var output = new QueryOutput();
+    try { ResultReader.Read(reader, output, new ResultBudget(10), CancellationToken.None); throw new Exception("Overflow ignored"); }
+    catch (ResultValueException ex) { Assert(ex.Message.Contains("'saldo'") && ex.Message.Contains("row 1") && ex.Message.Contains("Decimal")); }
+    Assert(output.Tables[0].Rows.Count == 0);
+});
+Check("A numeric the driver would round is kept whole as text", () => {
+    const string scaled = "1234567890123456789012345678.0123456789";
+    using var reader = new WideNumericTestReader("wide_scale", 38, [scaled]); var output = new QueryOutput();
+    ResultReader.Read(reader, output, new ResultBudget(10), CancellationToken.None);
+    var table = output.Tables[0];
+    Assert(table.Columns[0].DataType == typeof(string) && (string)table.Rows[0][0] == scaled);
+});
+Check("Numerics that fit stay typed, with their own scale", () => {
+    using var reader = new WideNumericTestReader("amount", 18, ["10.13", "-0.500", "0", null, "123456789012.345678"]); var output = new QueryOutput();
+    ResultReader.Read(reader, output, new ResultBudget(10), CancellationToken.None);
+    var table = output.Tables[0];
+    Assert(table.Columns[0].DataType == typeof(decimal) && (decimal)table.Rows[0][0] == 10.13m && (decimal)table.Rows[1][0] == -0.5m);
+    Assert((decimal)table.Rows[2][0] == 0m && table.Rows[3][0] is DBNull && (decimal)table.Rows[4][0] == 123456789012.345678m);
+});
+Check("A time keeps the fraction of a second the driver drops", () => {
+    using var reader = new WideNumericTestReader("bigtime_value", 0, ["16:30:45.123456", "00:00:00"], fieldType: typeof(TimeSpan)); var output = new QueryOutput();
+    ResultReader.Read(reader, output, new ResultBudget(10), CancellationToken.None);
+    var table = output.Tables[0];
+    Assert(table.Columns[0].DataType == typeof(TimeSpan) && (TimeSpan)table.Rows[0][0] == TimeSpan.Parse("16:30:45.123456", CultureInfo.InvariantCulture));
+    Assert((TimeSpan)table.Rows[1][0] == TimeSpan.Zero && ResultFormats.Cell(table.Rows[0][0]) == "16:30:45.1234560");
+});
+Check("Bit columns read as the server writes them", () => Assert(ResultFormats.Cell(true) == "1" && ResultFormats.Cell(false) == "0"));
+Check("A verified column is never converted before its text is read", () => {
+    const string scaled = "1234567890123456789012345678.0123456789";
+    using var reader = new WideNumericTestReader("wide_scale", 0, [scaled]); var output = new QueryOutput();
+    ResultReader.Read(reader, output, new ResultBudget(10), CancellationToken.None);
+    Assert((string)output.Tables[0].Rows[0][0] == scaled && reader.NullCalls == 0 && reader.ValueCalls == 0);
+});
+Check("Bit columns copy as the server writes them", () => {
+    var table = new DataTable(); table.Columns.Add("flag", typeof(bool)); table.Rows.Add(true); table.Rows.Add(false);
+    string text = DelimitedText.Serialize(["flag"], table.Rows.Cast<DataRow>().Select(r => (IReadOnlyList<object?>)r.ItemArray), includeHeaders: true);
+    Assert(text.Contains("1") && text.Contains("0") && !text.Contains("True") && !text.Contains("False"));
+});
 Check("sql.ini reads ordered query endpoints and preserves client alias", () => {
     var catalog = SqlIniParser.Parse(";comment\n[ASE_QA]\nmaster=TCP,listener,9999\nquery=NLWNSCK,host,5005\nQUERY=TCP,second,5010,SSL\n", "fixture.ini");
     var server = catalog.Servers.Single();
@@ -311,6 +377,19 @@ Check("JSON exports duplicate captions without losing numeric types or NULL",()=
     var table=new DataTable(); table.Columns.Add("a",typeof(decimal)).Caption="same"; table.Columns.Add("b",typeof(string)).Caption="same"; table.Rows.Add(10.13m,DBNull.Value);
     using var json=System.Text.Json.JsonDocument.Parse(ResultFormats.Json(table));
     Assert(json.RootElement.GetProperty("columns").GetArrayLength()==2 && json.RootElement.GetProperty("rows")[0][0].GetDecimal()==10.13m && json.RootElement.GetProperty("rows")[0][1].ValueKind==System.Text.Json.JsonValueKind.Null);
+});
+Check("Result cells keep every digit a date and time carries", () => {
+    Assert(ResultFormats.Cell(new DateTime(2008, 9, 15, 13, 46, 36, 596)) == "2008-09-15 13:46:36.596");
+    Assert(ResultFormats.Cell(new DateTime(2008, 9, 15, 13, 46, 30)) == "2008-09-15 13:46:30");
+    Assert(ResultFormats.Cell(new DateTime(2026, 2, 3, 0, 0, 0)) == "2026-02-03");
+    Assert(ResultFormats.Cell(new DateTime(2026, 2, 3, 16, 30, 45, 123).AddTicks(4567)) == "2026-02-03 16:30:45.1234567");
+    Assert(ResultFormats.Cell(new TimeSpan(0, 13, 46, 36, 596)) == "13:46:36.5960000" || ResultFormats.Cell(new TimeSpan(0, 13, 46, 36, 596)) == "13:46:36.596");
+    Assert(ResultFormats.Cell(DBNull.Value) == "" && ResultFormats.Cell(null) == "" && ResultFormats.Cell(10.13m) == "10.13");
+});
+Check("SQL literals keep a whole second that ends in zero", () => {
+    Assert(ResultFormats.Literal(new DateTime(2008, 9, 15, 13, 46, 30)) == "'2008-09-15T13:46:30'");
+    Assert(ResultFormats.Literal(new DateTime(2008, 9, 15, 13, 46, 36, 596)) == "'2008-09-15T13:46:36.596'");
+    Assert(ResultFormats.Literal(new DateTime(2026, 2, 3, 10, 20, 0)) == "'2026-02-03T10:20:00'");
 });
 Check("SQL generation quotes identifiers apostrophes binary and NULL without execution",()=>{
     var table=new DataTable();table.Columns.Add("display]name",typeof(string));table.Columns.Add("binary",typeof(byte[]));table.Rows.Add("O'Brien",new byte[]{0,255});

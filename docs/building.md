@@ -80,3 +80,28 @@ The showcase types a query, runs it, inserts a recipe with a parameter, repeats 
 ## Continuous integration
 
 [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) builds the solution and runs the core checks on `windows-latest`. The UI smoke checks need the SAP ODBC driver and a desktop session, so they run locally through `-Publish`.
+
+## Type fidelity against the server
+
+[`docs/type-fidelity-sweep.sql`](type-fidelity-sweep.sql) asks the server for the boundary value of every ASE
+type: numerics wider than `decimal`, unsigned integers above the signed maximum, fractions of a second, padded
+characters, binary with leading zero bytes and NULL in each type. Run it in DBMON SQL and in ASE ISQL and compare
+the two outputs cell by cell; anything rounded, blank, shortened or shown as a repeated value on one side is a
+finding. The sweep reads constants and the system catalog only, and writes nothing.
+
+The core checks cover the client half of this with fixtures (`ResultReader`, `ResultFormats`), but only the sweep
+shows what the SAP driver actually hands over for a given server version.
+
+### A known limit: the fraction of a second of `time`
+
+Measured on 30/10/2026 against ASEDB1 with the SAP ASE ODBC driver: `datepart(ms, convert(time, '16:30:45.123'))`
+returns 123, so the server holds the fraction, while the column itself arrives as `16:30:45`. The reader asks the
+driver for that column's own text before anything converts the cell, and the text has no fraction either, so the
+fraction is already gone when the driver answers. `bigtime` keeps its microseconds through the same path, which
+points at the described type rather than at the driver's conversion: ODBC's `SQL_TYPE_TIME` has no
+fractional-seconds field, so neither its typed value nor its character conversion can carry one.
+
+That reading is not proven. Running the same batch in ASE ISQL, which reaches the server through CT-Lib instead of
+ODBC, settles it: a fraction there confirms the loss belongs to the ODBC layer, and no fraction moves it into the
+server's own `time` handling. Nothing in the client can recover a fraction the driver never delivers; when it
+matters, read the column as `bigtime` or have the server render it, as the sweep's `datepart` columns do.

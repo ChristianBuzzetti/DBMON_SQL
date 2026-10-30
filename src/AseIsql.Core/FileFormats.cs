@@ -43,7 +43,9 @@ public static class DelimitedText
         {
             if (value is byte[] bytes && 2L + 2L * bytes.Length > maxCharacters - written) Check(2L + 2L * bytes.Length);
             string text = value switch { null or DBNull => "", byte[] binary => "0x" + Convert.ToHexString(binary),
-                DateTime time => time.ToString("O", CultureInfo.InvariantCulture), _ => Convert.ToString(value, CultureInfo.InvariantCulture) ?? "" };
+                DateTime time => time.ToString("O", CultureInfo.InvariantCulture),
+                // ASE bit columns hold 1 and 0; True/False is .NET's spelling, not a value the server ever sent.
+                bool bit => bit ? "1" : "0", _ => Convert.ToString(value, CultureInfo.InvariantCulture) ?? "" };
             // Ordinary clipboard text must preserve generated SQL; explicit delimited formats retain CSV escaping.
             bool quote = forceQuotes || (quoteFields && text.IndexOfAny([delimiter, '\r', '\n', '"']) >= 0);
             Check((long)text.Length + (quote ? 2L + text.Count(c => c == '"') : 0));
