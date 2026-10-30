@@ -57,6 +57,9 @@ public partial class MainWindow
         menu.Items.Add(new Separator());
         menu.Items.Add(CopyItem("Copy all", ResultCopy.All));
         menu.Items.Add(CopyItem("Copy all with headers", ResultCopy.AllWithHeaders));
+        var everyResult = new MenuItem { Header = "Copy every result set", ToolTip = "Copy every open result of this session, with headers and a label per set" };
+        everyResult.Click += (_, _) => CopyEveryResult();
+        menu.Items.Add(everyResult);
         var delimited = new MenuItem { Header = "Copy delimited" };
         foreach (var (name, delimiter) in new[] { ("Tab", '\t'), ("Comma (CSV)", ','), ("Semicolon", ';'), ("Pipe", '|') })
         {
@@ -275,6 +278,27 @@ public partial class MainWindow
             data.SetData(DataFormats.UnicodeText, BuildResultCopy(grid, ResultCopy.WithHeaders, '\t'));
             Clipboard.SetDataObject(data, true);
             StatusText.Text = "Copied formatted table · paste into a rich-text editor";
+        }
+        catch (Exception ex) when (ex is ArgumentException or ExternalException or InvalidOperationException)
+        { ShowError("Unable to copy: " + ex.Message); }
+    }
+
+    // A script that returns sixteen results is sixteen copies by hand; this takes the lot in one action.
+    private const int MaxEveryResultChars = 4 * 1024 * 1024;
+    private void CopyEveryResult()
+    {
+        try
+        {
+            var sets = Workspace.Items.OfType<TabItem>()
+                .Where(tab => tab.Tag is DataTable && tab.Content is DockPanel)
+                .Select(tab => (Tab: tab, Grid: ((DockPanel)tab.Content).Children.OfType<DataGrid>().FirstOrDefault()))
+                .Where(entry => entry.Grid != null)
+                .Select(entry => (Label: ResultName(entry.Tab) + " · " + Counts.Of(((DataTable)entry.Tab.Tag).Rows.Count, "row"),
+                                  Text: BuildResultCopy(entry.Grid!, ResultCopy.AllWithHeaders, '	')));
+            var copy = ResultFormats.Sets(sets, MaxEveryResultChars);
+            if (copy.Sets == 0) { ShowError("No result sets are open."); return; }
+            Clipboard.SetText(copy.Text);
+            StatusText.Text = "Copied " + Counts.Of(copy.Sets, "result set") + " to clipboard" + (copy.Complete ? "" : " · stopped at 4 MiB; later results were not copied");
         }
         catch (Exception ex) when (ex is ArgumentException or ExternalException or InvalidOperationException)
         { ShowError("Unable to copy: " + ex.Message); }

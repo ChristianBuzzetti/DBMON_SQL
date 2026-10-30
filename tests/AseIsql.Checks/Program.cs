@@ -245,6 +245,14 @@ Check("A time keeps the fraction of a second the driver drops", () => {
     Assert((TimeSpan)table.Rows[1][0] == TimeSpan.Zero && ResultFormats.Cell(table.Rows[0][0]) == "16:30:45.1234560");
 });
 Check("Bit columns read as the server writes them", () => Assert(ResultFormats.Cell(true) == "1" && ResultFormats.Cell(false) == "0"));
+Check("Every result set copies under its own label, bounded", () => {
+    var sets = new[] { ("Result 1 · 1 row", "a\tb\n1\t2\n"), ("Result 2 · 1 row", "c\n3") };
+    var copy = ResultFormats.Sets(sets, 4096);
+    Assert(copy.Sets == 2 && copy.Complete);
+    Assert(copy.Text.Contains("-- Result 1 · 1 row") && copy.Text.Contains("-- Result 2 · 1 row") && copy.Text.Contains("1\t2") && copy.Text.Contains("3"));
+    var bounded = ResultFormats.Sets(sets, 30);
+    Assert(bounded.Sets == 1 && !bounded.Complete && !bounded.Text.Contains("Result 2"));
+});
 Check("A verified column is never converted before its text is read", () => {
     const string scaled = "1234567890123456789012345678.0123456789";
     using var reader = new WideNumericTestReader("wide_scale", 0, [scaled]); var output = new QueryOutput();

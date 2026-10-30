@@ -27,6 +27,20 @@ public static class ResultFormats
         long fraction = date.Ticks % TimeSpan.TicksPerSecond;
         return fraction == 0 ? text : text + "." + fraction.ToString("D7", CultureInfo.InvariantCulture).TrimEnd('0');
     }
+    private static readonly char[] TextEnd = ['\r', '\n'];
+    // Several result sets as one block of text, each under its own label. Bounded: a run can hold far more than a
+    // clipboard takes, so the caller is told how many sets fit rather than handing over a silently cut copy.
+    public static (string Text, int Sets, bool Complete) Sets(IEnumerable<(string Label, string Text)> sets, int maxChars)
+    {
+        var output = new StringBuilder(); int count = 0; bool complete = true;
+        foreach (var (label, text) in sets)
+        {
+            string block = (output.Length == 0 ? "" : Environment.NewLine) + "-- " + label + Environment.NewLine + text.TrimEnd(TextEnd) + Environment.NewLine;
+            if (output.Length + block.Length > maxChars) { complete = false; break; }
+            output.Append(block); count++;
+        }
+        return (output.ToString(), count, complete);
+    }
     public static string Identifier(string name) => "[" + name.Replace("]", "]]") + "]";
     public static string Literal(object? value) => value switch {
         null or DBNull => "NULL", bool b => b ? "1" : "0", byte[] bytes => "0x" + Convert.ToHexString(bytes),
