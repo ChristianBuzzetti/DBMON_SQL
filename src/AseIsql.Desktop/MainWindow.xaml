@@ -164,6 +164,18 @@
       </ContentControl>
       <ContentControl Grid.Column="1" Style="{StaticResource NeoCard}">
         <TabControl x:Name="Workspace" BorderThickness="0" SelectionChanged="TabChanged">
+          <!-- One row of result tabs that scrolls sideways: the default panel wraps them into stacked rows,
+               which moves the grid down the more results a script returns. -->
+          <TabControl.Template><ControlTemplate TargetType="TabControl">
+            <DockPanel>
+              <ScrollViewer DockPanel.Dock="Top" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" Focusable="False" PanningMode="HorizontalOnly">
+                <StackPanel Orientation="Horizontal" IsItemsHost="True"/>
+              </ScrollViewer>
+              <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}">
+                <ContentPresenter x:Name="PART_SelectedContentHost" ContentSource="SelectedContent" Margin="{TemplateBinding Padding}"/>
+              </Border>
+            </DockPanel>
+          </ControlTemplate></TabControl.Template>
           <TabItem x:Name="QueryTab" Header="Query">
             <Grid><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition/></Grid.RowDefinitions>
               <!-- Offline: SQL can be written, opened and saved; nothing executes until a session exists. -->

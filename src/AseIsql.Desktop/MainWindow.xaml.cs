@@ -444,7 +444,13 @@ public partial class MainWindow : Window
         logVisible = show;
         ShowLogMenu.IsChecked = show;
     }
-    private void TabChanged(object sender, SelectionChangedEventArgs e) { if (ready && e.Source == Workspace && Workspace.SelectedItem is TabItem { Tag: DataTable table } tab) StatusText.Text = $"{ResultName(tab)} · {resultOrigins.GetValueOrDefault(table).Source} · {Counts.Of(table.Rows.Count, "row")} · {Counts.Of(table.Columns.Count, "column")}"; }
+    private void TabChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!ready || e.Source != Workspace) return;
+        // The tab strip is one scrolling row, so a tab selected from the keyboard or from code can sit off-screen.
+        if (Workspace.SelectedItem is TabItem selected) selected.BringIntoView();
+        if (Workspace.SelectedItem is TabItem { Tag: DataTable table } tab) StatusText.Text = $"{ResultName(tab)} · {resultOrigins.GetValueOrDefault(table).Source} · {Counts.Of(table.Rows.Count, "row")} · {Counts.Of(table.Columns.Count, "column")}";
+    }
     private void ExportClick(object sender, RoutedEventArgs e)
     {
         if (Workspace.SelectedItem is not TabItem { Tag: DataTable table }) { ShowError("Select a Result tab to export."); return; }
