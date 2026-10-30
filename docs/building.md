@@ -92,6 +92,15 @@ finding. The sweep reads constants and the system catalog only, and writes nothi
 The core checks cover the client half of this with fixtures (`ResultReader`, `ResultFormats`), but only the sweep
 shows what the SAP driver actually hands over for a given server version.
 
+### Characters, and where they are lost
+
+Character data is converted to the session's charset on its way back from the server, and a console applies its
+own codepage after that, so a row of question marks does not say who lost the characters. The sweep's
+`unicode as bytes` batch settles it: binary is converted by nobody, so its hex is what the server holds. If the
+hex carries the characters and the text column does not, the loss is in the charset conversion and the Charset
+field at login decides it; if the hex does not carry them either, they never reached the server and the fault is
+on the way in.
+
 ### A known limit: the fraction of a second of `time`
 
 Measured on 30/10/2026 against ASEDB1 with the SAP ASE ODBC driver: `datepart(ms, convert(time, '16:30:45.123'))`

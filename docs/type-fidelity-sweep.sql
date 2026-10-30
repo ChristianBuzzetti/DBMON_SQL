@@ -105,6 +105,17 @@ select 'unicode and accents' as sweep_case,
        datalength(convert(univarchar(40), '漢字')) as unicode_bytes
 go
 
+-- The same characters as bytes. Character data is converted to the session's charset on its way back, and a
+-- console has a codepage of its own on top of that, so a row of question marks says nothing about where the
+-- characters were lost. Binary is converted by nobody: the hex below is what the server holds. 漢 is U+6F22 and
+-- 字 is U+5B57, so cjk_as_bytes carries 6F22 5B57 or its byte-swapped form, in whichever order the server keeps
+-- UTF-16. Any other value, or a short one, means the characters never reached the server.
+select 'unicode as bytes' as sweep_case,
+       convert(varbinary(8), convert(univarchar(4), '漢字')) as cjk_as_bytes,
+       convert(varbinary(16), convert(univarchar(8), 'кирилл')) as cyrillic_as_bytes,
+       convert(varbinary(90), convert(univarchar(40), 'áéíóú 漢字 кириллица')) as whole_string_as_bytes
+go
+
 select 'binary' as sweep_case,
        convert(binary(8), 0x0001020304050607) as binary_with_leading_zero,
        convert(varbinary(8), 0xff00ff00) as varbinary_value,
