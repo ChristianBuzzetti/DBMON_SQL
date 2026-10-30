@@ -96,10 +96,24 @@ shows what the SAP driver actually hands over for a given server version.
 
 Character data is converted to the session's charset on its way back from the server, and a console applies its
 own codepage after that, so a row of question marks does not say who lost the characters. The sweep's
-`unicode as bytes` batch settles it: binary is converted by nobody, so its hex is what the server holds. If the
-hex carries the characters and the text column does not, the loss is in the charset conversion and the Charset
-field at login decides it; if the hex does not carry them either, they never reached the server and the fault is
-on the way in.
+`unicode as bytes` batch settles it: binary is converted by nobody, so its hex is what the server holds.
+
+Measured on 30/10/2026 against ASEDB1, with the same batch in DBMON SQL and in ASE ISQL started with `-J utf8`.
+Neither client is at fault, and the loss is not on the way back: `convert(varbinary(8), convert(univarchar(4),
+'漢字'))` returns `0x001A001A` through the ODBC driver and `0x003f003f` through ISQL, which are the substitution
+characters of each path. The accented Latin characters of the same string came through intact in both. So the
+ideographs were already replaced before the server stored them, and the counts that looked reassuring —
+`char_length` 2, `datalength` 4 — were counting two substitution characters.
+
+The cause is upstream of the client: a character literal in a query is ordinary character data, which ASE
+converts to the server's default charset before anything becomes `univarchar`. Where that default cannot
+represent a character, the server has nothing left to store. A `univarchar` column can hold the character; a
+literal typed into a query cannot carry it there. So this is a property of the server's charset, and no Charset
+choice at login changes it: `-J utf8` did not.
+
+What this does not measure is reading a character that is already stored as Unicode, which is the case that
+matters for real data. A `univarchar` value built from its code points as binary, rather than from a literal,
+isolates that path, and the sweep's `unicode from bytes` batch does exactly that.
 
 ### A known limit: the fraction of a second of `time`
 

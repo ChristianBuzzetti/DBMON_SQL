@@ -116,6 +116,25 @@ select 'unicode as bytes' as sweep_case,
        convert(varbinary(90), convert(univarchar(40), 'áéíóú 漢字 кириллица')) as whole_string_as_bytes
 go
 
+-- A character literal in a query is ordinary character data: ASE converts it to the server's default charset
+-- before anything becomes univarchar, so a character that charset cannot represent is already a substitution
+-- character by the time it is stored. These values are built from their code points as binary instead, which
+-- carries no charset at all, so they reach a univarchar column intact and this batch measures the way back on
+-- its own. U+6F22 and U+5B57 are the two ideographs; the swapped pair is there because the order of the bytes
+-- the server keeps is what the previous batch's hex reveals. One of the two reads as 漢字, and the one that does
+-- is the one to compare: its text column either shows the ideographs or shows what the trip back did to them.
+select 'unicode from bytes' as sweep_case,
+       convert(univarchar(2), 0x6F225B57) as cjk_text,
+       convert(univarchar(2), 0x226F575B) as cjk_text_swapped,
+       convert(varbinary(8), convert(univarchar(2), 0x6F225B57)) as cjk_bytes_back
+go
+
+-- The charset each side settled on, which the sweep's own output cannot show.
+select 'session charset' as sweep_case,
+       @@client_csname as client_charset,
+       @@client_csid as client_charset_id
+go
+
 select 'binary' as sweep_case,
        convert(binary(8), 0x0001020304050607) as binary_with_leading_zero,
        convert(varbinary(8), 0xff00ff00) as varbinary_value,
