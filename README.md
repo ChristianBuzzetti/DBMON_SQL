@@ -62,16 +62,17 @@ The drivers and network access are your own: DBMON SQL never installs or changes
 
 ### Download
 
-Development packages are published on the [releases page](https://github.com/ChristianBuzzetti/DBMON_SQL/releases),
-newest first. Take the one at the top: earlier ones are kept only so a build can be traced, and each is marked
-when a later build supersedes it. Download the `.zip`, check it against the `.sha256` beside it, extract the whole
-folder and run `DBMON SQL.exe`. The package is self-contained: no separate .NET install is needed.
+Take the [latest release](https://github.com/ChristianBuzzetti/DBMON_SQL/releases/latest). Download its `.zip`,
+check it against the `.sha256` beside it, extract the whole folder and run `DBMON SQL.exe`. Keep the files
+together. The package is self-contained: no separate .NET install is needed.
 
 ```powershell
-(Get-FileHash 'DBMON-SQL-0.1.0-dev-<commit>-windows-x64.zip' -Algorithm SHA256).Hash
+(Get-FileHash 'DBMON-SQL-0.1.0-windows-x64.zip' -Algorithm SHA256).Hash
 ```
 
-These are development builds while the product version stays 0.1.0, not finished releases.
+The [releases page](https://github.com/ChristianBuzzetti/DBMON_SQL/releases) also carries development builds,
+marked as pre-releases and named after the commit they were built from. They exist so a build can be traced and
+are not the one to install.
 
 ### Run a build
 
