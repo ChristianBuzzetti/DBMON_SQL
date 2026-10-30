@@ -111,9 +111,14 @@ represent a character, the server has nothing left to store. A `univarchar` colu
 literal typed into a query cannot carry it there. So this is a property of the server's charset, and no Charset
 choice at login changes it: `-J utf8` did not.
 
-What this does not measure is reading a character that is already stored as Unicode, which is the case that
-matters for real data. A `univarchar` value built from its code points as binary, rather than from a literal,
-isolates that path, and the sweep's `unicode from bytes` batch does exactly that.
+Reading a character already stored as Unicode is a different path, and the one that matters for real data. The
+sweep's `unicode from bytes` batch isolates it by building the value from its code points as binary, which
+carries no charset, so it reaches the column intact. Measured the same day: `convert(univarchar(2), 0x6F225B57)`
+reads as 漢字 in DBMON SQL, and `0x6F225B57` comes back unchanged, so the server keeps UTF-16 in that order and
+the trip back loses nothing. The same batch in ASE ISQL shows `??`.
+
+So stored Unicode is safe here, and a `univarchar` column reads in DBMON SQL what ISQL cannot show. What no
+client can do is carry a character through a query literal that the server's default charset cannot represent.
 
 ### A known limit: the fraction of a second of `time`
 

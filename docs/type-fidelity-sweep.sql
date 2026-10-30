@@ -120,19 +120,13 @@ go
 -- before anything becomes univarchar, so a character that charset cannot represent is already a substitution
 -- character by the time it is stored. These values are built from their code points as binary instead, which
 -- carries no charset at all, so they reach a univarchar column intact and this batch measures the way back on
--- its own. U+6F22 and U+5B57 are the two ideographs; the swapped pair is there because the order of the bytes
--- the server keeps is what the previous batch's hex reveals. One of the two reads as 漢字, and the one that does
--- is the one to compare: its text column either shows the ideographs or shows what the trip back did to them.
+-- its own. U+6F22 and U+5B57 are the two ideographs; the swapped pair is there to show the order of the bytes
+-- the server keeps. Measured against ASEDB1 on 30/10/2026: cjk_text reads as 漢字 and cjk_bytes_back returns
+-- 0x6F225B57 unchanged, so that server keeps UTF-16 in that order and the trip back loses nothing.
 select 'unicode from bytes' as sweep_case,
        convert(univarchar(2), 0x6F225B57) as cjk_text,
        convert(univarchar(2), 0x226F575B) as cjk_text_swapped,
        convert(varbinary(8), convert(univarchar(2), 0x6F225B57)) as cjk_bytes_back
-go
-
--- The charset each side settled on, which the sweep's own output cannot show.
-select 'session charset' as sweep_case,
-       @@client_csname as client_charset,
-       @@client_csid as client_charset_id
 go
 
 select 'binary' as sweep_case,
