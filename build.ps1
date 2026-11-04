@@ -26,19 +26,23 @@ try {
     if ($Publish) {
         # The product was renamed to DBMON SQL; files of the former executable name must not linger in the package.
         if (Test-Path -LiteralPath $taskOutputPath) { Get-ChildItem -LiteralPath $taskOutputPath -File -Filter 'ASE ISQL Desktop.*' | ForEach-Object { [IO.File]::Delete($_.FullName) } }
-        & $taskDotnet publish src/AseIsql.Desktop/AseIsql.Desktop.csproj -c Release -r win-x64 --self-contained true -o $taskOutputPath --nologo
-        if ($LASTEXITCODE -ne 0) { throw 'Publishing failed.' }
+        # Verify a separate opted-in executable; the distribution below contains no UI smoke code.
+        $taskSmokePath = Join-Path $PSScriptRoot 'artifacts/ui-smoke/win-x64'
+        & $taskDotnet publish src/AseIsql.Desktop/AseIsql.Desktop.csproj -c Release -r win-x64 --self-contained true -p:Smoke=true -o $taskSmokePath --nologo
+        if ($LASTEXITCODE -ne 0) { throw 'Smoke build failed.' }
         $taskReport = Join-Path $PSScriptRoot 'artifacts/smoke-latest.json'
         if(Test-Path -LiteralPath $taskReport) { Remove-Item -LiteralPath $taskReport }
-        $taskSmoke = Start-Process -FilePath (Join-Path $taskOutputPath 'DBMON SQL.exe') -ArgumentList ('--smoke --report "' + $taskReport + '"') -WindowStyle Hidden -PassThru
+        $taskSmoke = Start-Process -FilePath (Join-Path $taskSmokePath 'DBMON SQL.exe') -ArgumentList ('--smoke --report "' + $taskReport + '"') -WindowStyle Hidden -PassThru
         if (-not $taskSmoke.WaitForExit(120000)) { throw 'UI verification did not finish within 120 seconds; no releases were removed.' }
         $taskSmokeResult = Get-Content -LiteralPath $taskReport -Raw | ConvertFrom-Json
         if ($taskSmoke.ExitCode -ne 0 -or $taskSmokeResult.exitCode -ne 0) { throw 'UI verification failed; no releases were removed. See artifacts/smoke-latest.json.' }
         Write-Output ("UI verification passed: " + $taskSmokeResult.checks.Count + " checks and measurements.")
+        & $taskDotnet publish src/AseIsql.Desktop/AseIsql.Desktop.csproj -c Release -r win-x64 --self-contained true -p:Smoke=false -o $taskOutputPath --nologo
+        if ($LASTEXITCODE -ne 0) { throw 'Publishing failed.' }
         $taskAssemblyHashes = @{}
         foreach($taskAssembly in @('DBMON SQL.dll','AseIsql.Core.dll','AseIsql.Odbc.dll')) { $taskAssemblyHashes[$taskAssembly] = (Get-FileHash -LiteralPath (Join-Path $taskOutputPath $taskAssembly) -Algorithm SHA256).Hash }
         [ordered]@{version=$taskVersion.ToString(3);builtAtUtc=[DateTime]::UtcNow.ToString('O');kind=$(if($Release){'release'}else{'development'});coreTestsPassed=$true;uiChecks=$taskSmokeResult.checks.Count;assemblySha256=$taskAssemblyHashes} | ConvertTo-Json -Depth 4 | Set-Variable taskBuildInfo
-        # The smoke's WebView2 processes can hold the folder for a moment after exit; retry the marker briefly.
+        # Retry briefly if another process still holds the package marker.
         for($taskTry=1;;$taskTry++) { try { Set-Content -LiteralPath (Join-Path $taskOutputPath 'build-info.json') -Value $taskBuildInfo -Encoding utf8 -ErrorAction Stop; break } catch [System.IO.IOException] { if($taskTry -ge 10) { throw }; Start-Sleep -Milliseconds 500 } }
         & (Join-Path $PSScriptRoot 'scripts/prepare-distribution.ps1') -PackageDirectory $taskOutputPath
         if ($Release -and (Split-Path $taskOutputPath -Leaf) -match '^windows-x64-v\d+\.\d+\.\d+-final$') { & (Join-Path $PSScriptRoot 'scripts/prune-releases.ps1') -CurrentRelease $taskOutputPath }

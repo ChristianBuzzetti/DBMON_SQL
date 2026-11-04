@@ -1,11 +1,11 @@
 # Records the README tour: runs DBMON SQL's synthetic showcase (--smoke --showcase), which composes frames from its
 # own windows only (PrintWindow), then encodes an MP4 and a GIF and copies the scene stills to docs/media.
-# Needs a Release build (./build.ps1) and ffmpeg on PATH. The pointer moves on its own for about 45 seconds.
+# Needs a Release build with -p:Smoke=true and ffmpeg on PATH. The pointer moves on its own for about 45 seconds.
 param([string]$Output = 'docs/media', [int]$Fps = 15)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $exe = Join-Path $root 'src/AseIsql.Desktop/bin/Release/net10.0-windows/DBMON SQL.exe'
-if (-not (Test-Path -LiteralPath $exe)) { throw 'Build first: ./build.ps1' }
+if (-not (Test-Path -LiteralPath $exe)) { throw 'Build first: dotnet build src/AseIsql.Desktop -c Release -p:Smoke=true' }
 if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) { throw 'ffmpeg is required on PATH.' }
 $localDotnet = Join-Path $root '.tools/dotnet'
 if (Test-Path -LiteralPath $localDotnet) { $env:DOTNET_ROOT = $localDotnet }

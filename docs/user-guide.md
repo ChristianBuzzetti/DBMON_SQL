@@ -2,6 +2,8 @@
 
 DBMON SQL is a Windows workbench for writing and running SQL against SAP ASE, SAP IQ and SAP Replication Server (RS). This guide walks through each part of the window.
 
+Standard builds and distributed packages exclude developer UI smoke checks and synthetic showcase data. In these builds, `--smoke` prints `smoke checks not included in this build` and exits with code 1. Developers can enable the checks with `dotnet build src/AseIsql.Desktop -c Release -p:Smoke=true`; see [Building and testing](building.md) for running them and producing a package. Driver-free core checks also cover session execution and diagnostics; the optional native IQ check prints an `INFO` skip when its Windows registry or driver is unavailable.
+
 - [Connecting](#connecting)
 - [Session tabs](#session-tabs)
 - [The window](#the-window)

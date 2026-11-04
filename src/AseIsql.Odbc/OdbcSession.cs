@@ -17,7 +17,7 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
     // The program name the server records for every login (sysprocesses.program_name). Fixed by the product: no
     // profile field, setting or caller value reaches it, and it is written last so nothing earlier can replace it.
     public const string ApplicationName = "DBMON SQL";
-    private readonly OdbcConnection connection;
+    private readonly IOdbcConnection connection;
     private readonly ConnectionProfile profile;
     private string password;
     private string identityPassword;
@@ -38,16 +38,16 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
     public IReadOnlyList<QueryMessage> LoginMessages { get { lock (messagesGate) return loginMessages.Snapshot(); } }
     public int OmittedLoginMessages => loginMessages.OmittedCount;
 
-    private OdbcSession(ConnectionProfile profile, string password, string identityPassword)
+    private OdbcSession(ConnectionProfile profile, string password, string identityPassword, IOdbcConnection connection)
     {
         this.profile = profile; this.password = password; this.identityPassword = identityPassword; database = profile.Database;
-        connection = new OdbcConnection(BuildConnectionString(profile, password, identityPassword));
+        this.connection = connection;
         if (profile.Platform == ServerPlatform.Iq) connection.ConnectionTimeout = profile.LoginTimeout;
-        connection.InfoMessage += (_, args) => {
+        connection.InfoMessage += errors => {
             lock (messagesGate)
             {
                 if (suppressMessages) return;
-                foreach (OdbcError error in args.Errors)
+                foreach (var error in errors)
                 {
                     var message = diagnostics.Read(error.NativeError, error.SQLState, error.Message, this.password, this.identityPassword);
                     // Nothing but a transport frame: ASE separates its trailing blocks with these, and a row that
@@ -61,9 +61,13 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
     }
 
     public static OdbcSession Open(ConnectionProfile profile, string password, string identityPassword = "")
+        => Open(profile, password, identityPassword, new NativeOdbcConnection(BuildConnectionString(profile, password, identityPassword)));
+
+    // The session owns the injected connection, just as it owns a native connection.
+    internal static OdbcSession Open(ConnectionProfile profile, string password, string identityPassword, IOdbcConnection connection)
     {
         profile.Validate();
-        var session = new OdbcSession(profile, password, identityPassword);
+        var session = new OdbcSession(profile, password, identityPassword, connection);
         try
         {
             var clock = System.Diagnostics.Stopwatch.StartNew();
@@ -110,7 +114,7 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
                 charset = reader.FieldCount > 3 && !reader.IsDBNull(3) ? Convert.ToString(reader.GetValue(3), CultureInfo.InvariantCulture)?.Trim() : null;
                 return;
             }
-            catch (Exception ex) when (ex is OdbcException or InvalidCastException or FormatException or OverflowException or InvalidOperationException) { }
+            catch (Exception ex) when (connection.GetDiagnostics(ex) != null || ex is InvalidCastException or FormatException or OverflowException or InvalidOperationException) { }
         }
     }
 
@@ -122,7 +126,7 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
             command.CommandText = DatabaseProbe; command.CommandTimeout = 10;
             if (Convert.ToString(command.ExecuteScalar(), CultureInfo.InvariantCulture)?.Trim() is { Length: > 0 } name) database = name;
         }
-        catch (Exception ex) when (ex is OdbcException or InvalidOperationException) { }
+        catch (Exception ex) when (connection.GetDiagnostics(ex) != null || ex is InvalidOperationException) { }
     }
 
     public static string BuildConnectionString(ConnectionProfile profile, string password, string identityPassword = "")
@@ -260,10 +264,10 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
                     flushCommand.CommandText = flush; flushCommand.CommandTimeout = 10;
                     flushCommand.ExecuteNonQuery();
                 }
-                catch (Exception ex) when (ex is OdbcException or InvalidOperationException) { }
+                catch (Exception ex) when (connection.GetDiagnostics(ex) != null || ex is InvalidOperationException) { }
             }
         }
-        catch (OdbcException ex) { RecordFailure(ex, output, cancellation); }
+        catch (Exception ex) when (connection.GetDiagnostics(ex) != null) { RecordFailure(ex, output, cancellation); }
         catch (Exception ex) when (ex is FormatException or ResultLimitException or ResultValueException or InvalidOperationException or OverflowException or NotSupportedException or InvalidCastException or ArgumentException)
         { output.Error = RedactSecrets(ex.Message); }
         catch (OperationCanceledException) { output.Error = "Cancellation requested. Received results are partial; verify the session before continuing."; }
@@ -285,7 +289,7 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
         command.CommandText = sql;
         command.CommandTimeout = 15;
         using var registration = cancellation.Register(() => {
-            try { command.Cancel(); } catch (Exception ex) when (ex is OdbcException or InvalidOperationException or ObjectDisposedException) { }
+            try { command.Cancel(); } catch (Exception ex) when (connection.GetDiagnostics(ex) != null || ex is InvalidOperationException or ObjectDisposedException) { }
         });
         using var reader = command.ExecuteReader();
         ResultReader.Read(reader, probe, new ResultBudget(maxRows), cancellation);
@@ -312,7 +316,7 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
             textSize.EnsureForExecutionIo(sql => RunInternalBatch(sql, cancellation));
             RunInternalBatch("set plan for show_execio_xml to message on", cancellation);
         }
-        catch (Exception ex) when (ex is OdbcException or InvalidOperationException or FormatException or InvalidCastException or OverflowException or ResultLimitException or ResultValueException) { }
+        catch (Exception ex) when (connection.GetDiagnostics(ex) != null || ex is InvalidOperationException or FormatException or InvalidCastException or OverflowException or ResultLimitException or ResultValueException) { }
         finally
         {
             lock (messagesGate) suppressMessages = false;
@@ -321,12 +325,13 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
 
     // A server failure of one batch: its native records become messages and the run's error. A connection-level
     // SQLSTATE (08xxx) marks the session as interrupted.
-    private void RecordFailure(OdbcException ex, QueryOutput output, CancellationToken cancellation)
+    private void RecordFailure(Exception ex, QueryOutput output, CancellationToken cancellation)
     {
+        var errors = connection.GetDiagnostics(ex)!;
         lock (messagesGate)
-            foreach (OdbcError error in ex.Errors) output.Messages.Add(diagnostics.Read(error.NativeError, error.SQLState, error.Message, password, identityPassword));
+            foreach (var error in errors) output.Messages.Add(diagnostics.Read(error.NativeError, error.SQLState, error.Message, password, identityPassword));
         output.ErrorSource = "ODBC";
-        if (ex.Errors.Cast<OdbcError>().Any(e => e.SQLState.StartsWith("08", StringComparison.Ordinal))) connectionIssue = true;
+        if (errors.Any(e => e.SQLState.StartsWith("08", StringComparison.Ordinal))) connectionIssue = true;
         // Native records above own the readable server facts. Do not append
         // the exception's framed aggregate as another display message.
         output.ErrorRawText = RedactSecrets(ex.Message);
@@ -346,7 +351,7 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
         {
             lock (session.messagesGate) session.suppressMessages = true;
             try { return session.ReadPlanXml("select showplan_in_xml(" + index.ToString(CultureInfo.InvariantCulture) + ")", cancellation); }
-            catch (Exception ex) when (ex is OdbcException or InvalidOperationException or FormatException or InvalidCastException or OverflowException or ResultLimitException or ResultValueException)
+            catch (Exception ex) when (session.connection.GetDiagnostics(ex) != null || ex is InvalidOperationException or FormatException or InvalidCastException or OverflowException or ResultLimitException or ResultValueException)
             {
                 output.Messages.Add(new QueryMessage(0, "CLIENT", "Statistics IO plan read failed: " + session.RedactSecrets(ex.Message)));
                 return null;
@@ -364,7 +369,7 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
                 // Cancel is best effort in ODBC. The UI requests it from a worker
                 // thread and keeps ownership until the actual call returns.
                 using var registration = cancellation.Register(() => {
-                    try { command.Cancel(); } catch (Exception ex) when (ex is OdbcException or InvalidOperationException or ObjectDisposedException) { }
+                    try { command.Cancel(); } catch (Exception ex) when (session.connection.GetDiagnostics(ex) != null || ex is InvalidOperationException or ObjectDisposedException) { }
                 });
                 if (session.profile.Platform == ServerPlatform.Ase) session.textSize.ObserveBatch(batch);
                 using var reader = command.ExecuteReader();
@@ -375,13 +380,13 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
                 }
                 catch
                 {
-                    try { command.Cancel(); } catch (OdbcException cancelError) { output.Messages.Add(new QueryMessage(0, "ODBC", "Cancellation was not confirmed. Open the original diagnostic for details.", session.RedactSecrets(cancelError.Message))); }
+                    try { command.Cancel(); } catch (Exception cancelError) when (session.connection.GetDiagnostics(cancelError) != null) { output.Messages.Add(new QueryMessage(0, "ODBC", "Cancellation was not confirmed. Open the original diagnostic for details.", session.RedactSecrets(cancelError.Message))); }
                     throw;
                 }
                 if (reader.RecordsAffected >= 0) output.Messages.Add(new QueryMessage(0, SourceTag, $"Rows affected: {reader.RecordsAffected}"));
                 return BatchOutcome.Ok;
             }
-            catch (OdbcException ex)
+            catch (Exception ex) when (session.connection.GetDiagnostics(ex) != null)
             {
                 session.RecordFailure(ex, output, cancellation);
                 return session.connectionIssue || cancellation.IsCancellationRequested ? BatchOutcome.Fatal : BatchOutcome.Failed;

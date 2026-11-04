@@ -31,7 +31,11 @@ public partial class MainWindow
     {
         if (!CanOpenReadTool()) return;
         HealthSettings settings;
-        try { settings = HealthSettings.Load(isSmoke ? Path.Combine(AppContext.BaseDirectory, "UiSmoke", "health-check.json") : DataFolder.File("health-check.json")); }
+        try { settings = HealthSettings.Load(
+#if DBMON_SMOKE
+            isSmoke ? Path.Combine(AppContext.BaseDirectory, "UiSmoke", "health-check.json") :
+#endif
+            DataFolder.File("health-check.json")); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or ArgumentException)
         { ShowError("Unable to load health settings: " + ex.Message); return; }
         var choose = new MultiRunWindow(this, "Fixed platform probes · version, capacity and availability", "health check", "Server health check");

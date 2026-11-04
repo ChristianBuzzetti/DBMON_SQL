@@ -6,9 +6,20 @@ public partial class App : Application
     {
         System.Globalization.CultureInfo.DefaultThreadCurrentCulture=System.Globalization.CultureInfo.GetCultureInfo("en-US");
         System.Globalization.CultureInfo.DefaultThreadCurrentUICulture=System.Globalization.CultureInfo.GetCultureInfo("en-US");
+#if !DBMON_SMOKE
+        if (e.Args.Contains("--smoke"))
+        {
+            Console.WriteLine("smoke checks not included in this build");
+            Shutdown(1);
+            return;
+        }
+#endif
         // Before anything reads settings: the data folder moves from "ASE ISQL Desktop" to DBMON_SQL once.
         // Smoke checks use their own fixture paths and never move user data.
-        if (!e.Args.Contains("--smoke")) DataFolder.MigrateDefault();
+#if DBMON_SMOKE
+        if (!e.Args.Contains("--smoke"))
+#endif
+            DataFolder.MigrateDefault();
         DriverPrewarm.Start();
         AppTypography.Apply(new AppearanceSettings());
         Themes.Apply(Themes.WithAccent(Themes.All[0],null));

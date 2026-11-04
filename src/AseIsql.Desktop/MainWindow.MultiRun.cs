@@ -22,7 +22,10 @@ public partial class MainWindow
     private readonly Dictionary<RunTarget, ConnectionProfile> targetProfiles = [];
     // Each Diff tab remembers the per-server tables and key it compared, so the key can be changed later.
     private Dictionary<DataTable, (IReadOnlyList<(string Server, DataTable Table)> Parts, IReadOnlyList<int> Keys, int Number)> diffSources => activeSession.Diffs;
-    private string ServerGroupsPath => isSmoke ? Path.Combine(AppContext.BaseDirectory, "UiSmoke", "server-groups.json") :
+    private string ServerGroupsPath =>
+#if DBMON_SMOKE
+        isSmoke ? Path.Combine(AppContext.BaseDirectory, "UiSmoke", "server-groups.json") :
+#endif
         DataFolder.File("server-groups.json");
 
     private static string ProfileLabel(ConnectionProfile profile) => profile.ServerAlias.Length != 0 ? profile.ServerAlias : profile.Server + ":" + profile.Port;

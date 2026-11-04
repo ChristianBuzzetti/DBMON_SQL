@@ -21,11 +21,17 @@ public partial class MainWindow
 
     private RunSettings runSettings = new();
     private string? runSettingsWarning;
-    private string RunSettingsPath => isSmoke ? Path.Combine(AppContext.BaseDirectory, "UiSmoke", "run.json") : RunSettingsStore.PathName;
+    private string RunSettingsPath =>
+#if DBMON_SMOKE
+        isSmoke ? Path.Combine(AppContext.BaseDirectory, "UiSmoke", "run.json") :
+#endif
+        RunSettingsStore.PathName;
+#if DBMON_SMOKE
     // Smoke hook: answers the PROD confirmation instead of the dialog and records what it was shown.
     private Func<ProductionPrompt, bool>? productionAnswer;
     // The Run dropdown last opened, for the smoke checks of its entries.
     private ContextMenu? lastRunMenu;
+#endif
 
     internal sealed record ProductionPrompt(string Server, string Action, SqlRiskReview Review, string? Note);
 
@@ -74,7 +80,11 @@ public partial class MainWindow
         var review = SqlRisk.Review(sql);
         if (!review.ChangesState) return true;
         var prompt = new ProductionPrompt(server, action, review, note);
-        return productionAnswer?.Invoke(prompt) ?? new ProductionConfirmWindow(prompt) { Owner = this }.ShowDialog() == true;
+        return
+#if DBMON_SMOKE
+            productionAnswer?.Invoke(prompt) ??
+#endif
+            new ProductionConfirmWindow(prompt) { Owner = this }.ShowDialog() == true;
     }
 
     // The PROD targets of a multi-server run: the current session when its profile is PROD, and every added session
