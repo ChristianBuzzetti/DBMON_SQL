@@ -54,7 +54,15 @@ public partial class MainWindow
         if (string.IsNullOrWhiteSpace(sql)) { StatusText.Text = "Write SQL before running it on several servers."; Editor.Focus(); return; }
         var dialog = new MultiRunWindow(this, sql, scope);
         dialog.ShowDialog();
-        if (dialog.Chosen is { Count: > 0 } chosen) _ = ExecuteOnTargetsAsync(chosen, sql, scope);
+        if (dialog.Chosen is { Count: > 0 } chosen)
+        {
+            // One confirmation names every PROD server of the run; servers that are not PROD never ask.
+            if (ProductionTargets(chosen) is { Count: > 0 } prod &&
+                !ConfirmProduction(string.Join(", ", prod.Select(t => t.Label)), sql, "This " + scope + " on " + Counts.Of(chosen.Count, "server"),
+                    $"PROD servers in this run: {string.Join(", ", prod.Select(t => t.Label))} ({prod.Count} of {chosen.Count}). It runs on all of them in parallel."))
+            { AddMessage(0, "CLIENT", "Multi-server run not started: cancelled at the PROD confirmation."); StatusText.Text = "Cancelled · PROD confirmation"; RefreshConnection(); return; }
+            _ = ExecuteOnTargetsAsync(chosen, sql, scope);
+        }
         else RefreshConnection();
     }
 
@@ -74,6 +82,7 @@ public partial class MainWindow
         SetStatus(owner, $"Executing on {Counts.Of(chosen.Count, "server")} · Esc cancels all"); ticker.Start();
         try
         {
+            foreach (var target in chosen) ApplyRunSettings(target.Engine);
             var outcomes = await MultiRun.ExecuteAsync(chosen, sql, cancellation.Token);
             double elapsedMs = timer.Elapsed.TotalMilliseconds; ticker.Stop();
             // Multi-server results accumulate like any run; they are registered without a session, so F9 points to Run on….

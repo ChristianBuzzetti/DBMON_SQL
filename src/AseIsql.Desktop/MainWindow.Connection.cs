@@ -116,6 +116,7 @@ public partial class MainWindow
         ConnectionStatus.ToolTip = extraTargets.Count > 0 ? "Sessions for multi-server runs: " + string.Join(", ", extraTargets.Select(t => t.Label)) : null;
         RunMenuButton.IsEnabled = !changingSession;
         RefreshAseOptions();
+        RefreshProductionIndicator();
         foreach (var workspace in sessions) RefreshSessionHeader(workspace);
         BrowserConnection.Text = live ? engine.Name : "No connection";
         UpdateTitle();

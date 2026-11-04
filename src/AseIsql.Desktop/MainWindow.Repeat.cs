@@ -51,6 +51,9 @@ public partial class MainWindow
         if(FillParameters(source,selection?"Selection":"Query","Use for every run") is not {} sql)return;
         var form=new RepeatWindow(sql,selection?"selection":"query",engine.Name) {Owner=this};
         if(form.ShowDialog()!=true||form.Plan(engine) is not {} plan)return;
+        // PROD asks once, here, for the whole repeat: the runs it starts on the timer do not ask again.
+        if(!ConfirmProduction(activeSession,sql,"This repeated "+plan.Scope,"Repeats every "+RepeatPlan.Describe(plan.Interval)+(plan.MaxRuns is int max?", "+Counts.Of(max,"run")+" in all":" until stopped")+": every run applies it again."))
+        {AddMessage(0,"CLIENT","Repeat not started: cancelled at the PROD confirmation.");StatusText.Text="Cancelled · PROD confirmation";return;}
         StartRepeat(plan);
     }
     private void RepeatNowClick(object sender,RoutedEventArgs e){if(repeat!=null)repeat.NextRun=DateTime.Now;RepeatTick(activeSession);}

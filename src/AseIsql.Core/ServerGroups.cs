@@ -42,8 +42,9 @@ public static class ServerGroupStore
     public static IReadOnlyList<ServerGroup> Remove(IReadOnlyList<ServerGroup> groups, string name) =>
         groups.Where(g => !g.Name.Equals(name, StringComparison.OrdinalIgnoreCase)).ToList();
 
-    // Structure only: a CA file that moved since the group was saved must not make every group unreadable.
-    // Each profile is fully validated by the login when the group is opened.
+    // Structure only, with the same per-platform rules as a login (ConnectionProfile.ValidateFields): Replication Server
+    // has no database and IQ may leave it empty. Files are not checked: a CA file that moved since the group was saved
+    // must not make every group unreadable. Each profile is fully validated by the login when the group is opened.
     public static void Validate(IReadOnlyList<ServerGroup> groups)
     {
         if (groups.Count > MaxGroups) throw new ArgumentException($"Local limit: {MaxGroups} server groups.");
@@ -54,8 +55,11 @@ public static class ServerGroupStore
             if (!names.Add(group.Name.Trim())) throw new ArgumentException("Server group names must be unique: " + group.Name);
             if (group.Profiles == null || group.Profiles.Count is 0 or > MultiRun.MaxTargets) throw new ArgumentException($"Server group {group.Name}: 1 to {MultiRun.MaxTargets} servers.");
             foreach (var profile in group.Profiles)
-                if (profile == null || string.IsNullOrWhiteSpace(profile.Server) || string.IsNullOrWhiteSpace(profile.User) || string.IsNullOrWhiteSpace(profile.Database) || profile.Port is < 1 or > 65535)
-                    throw new ArgumentException($"Server group {group.Name} contains an incomplete profile.");
+            {
+                if (profile == null) throw new ArgumentException($"Server group {group.Name} contains an incomplete profile.");
+                try { profile.ValidateFields(); }
+                catch (ArgumentException ex) { throw new ArgumentException($"Server group {group.Name} contains an incomplete profile: {ex.Message}", ex); }
+            }
         }
     }
 }

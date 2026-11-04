@@ -34,8 +34,9 @@ The login opens when the app starts (and with `F11`, or **Connect…** when you 
 | **Hostname** | Client host name reported to the server (ASE and RS). |
 | **Language** | ASE/RS message language; `us_english` by default. |
 | **Encrypt password / Encrypt data (TLS)** | TLS is required when the `sql.ini` entry says `ssl`; select the CA file under *Advanced options*. |
+| **Production (PROD)** | Marks the server as production. Its session shows a red **PROD** band and tag, and SQL that changes data or server state asks for confirmation first. See [PROD protection](#prod-protection). Saved with the profile; profiles saved before 0.4.0 are not PROD. |
 
-**Advanced options** holds manual host and port, the TLS CA file (`TrustedFile`), the IQ server name (optional when one IQ server listens on the host and port), login timeout, query timeout and the maximum number of rows per execution.
+**Advanced options** holds manual host and port, the TLS CA file (`TrustedFile`), the IQ server name (optional when one IQ server listens on the host and port), login timeout, query timeout (1 to 3600 s, or **0 for no timeout**, for long maintenance; `Esc` still cancels) and the maximum number of rows per execution.
 
 For SAP IQ servers that require a client identity, enable **Encrypt data (TLS)** and select both the trusted `.crt` under **Browse CA…** and the `.id` under **Browse identity…** in Advanced options. Enter the private key password in **Client identity password**, separately from the database login password. Saving a profile retains both paths. Enable **Remember identity password** to save the key password with that profile, encrypted with Windows DPAPI for your user. This is independent of **Remember password** for the database login; both are off by default. Save the profile with **Profiles → Save current**, or connect with an existing loaded profile, to keep the selected passwords. Loading it again restores only the passwords you chose to remember. Changing the identity file or leaving SAP IQ clears the identity input and its Remember checkbox.
 
@@ -46,6 +47,8 @@ IQ TLS values containing semicolons, parentheses, braces, quotes, control charac
 **Test connection** opens a temporary session and runs `SELECT 1` (`admin version` on Replication Server). **Connect** opens the session and closes the dialog. The *Information* tab shows the driver in use and the `sql.ini` that was read.
 
 **Profiles** keep the form under a name. They are stored in `%LOCALAPPDATA%\DBMON_SQL\profiles.dat`, encrypted with Windows DPAPI for your user. **Forget password** removes only the database password; **Forget identity password** removes only the key password. Each action also clears that secret from the loaded form. Saving with either Remember checkbox off removes that stored password. Overwriting or forgetting passwords creates no `.bak` copies. Deleting a profile asks for a second click.
+
+A profile whose CA certificate or IQ identity file was moved or deleted no longer blocks the others: every profile loads, and the login window names the affected one in red (for example *Profile X: The trusted certificate file does not exist: C:\certs\ca.pem*), also in the Profiles list. Load it, choose the file again under *Advanced options* and save it. Until then it cannot connect, and saving other profiles keeps it in the file unchanged.
 
 Cancelling the login leaves the app open **offline**: a notice sits above the editor, Run is disabled, and nothing executes until you connect.
 
@@ -75,7 +78,7 @@ Appearance, Boberto, profiles, SQL history, recipes, server groups and command s
 
 The window title names the open document and the product, with a `*` while it has unsaved changes. The server, platform and database are not repeated there: they belong to the session tab and the status bar, which are always on screen, and one title cannot speak for several sessions at once.
 
-The toolbar keeps one row: **Run** with its chevron ▾ (run selection, current line, several servers, repeat), **Cancel**, the file glyphs (new, open, save), **Objects** and **Recipes**. Session tabs sit below the toolbar; the active session has an accent border and underline, and **+ Session** opens another workspace. In windows narrower than 1180 DIP, labels turn into glyphs (tooltips name them); below 900 DIP Boberto's band steps aside so the workspace keeps the header.
+The toolbar keeps one row: **Run** with its chevron ▾ (run selection, current line, several servers, repeat, run without timeout, continue after errors), **Cancel**, the file glyphs (new, open, save), **Objects** and **Recipes**. Session tabs sit below the toolbar; the active session has an accent border and underline, and **+ Session** opens another workspace. In windows narrower than 1180 DIP, labels turn into glyphs (tooltips name them); below 900 DIP Boberto's band steps aside so the workspace keeps the header.
 
 ## The editor
 
@@ -102,6 +105,21 @@ Right-clicking an identifier (`orders`, `dbo.orders`, `sales..orders`, `[my tabl
 | `Esc` or **Cancel** | Cancels the running execution (best effort in ODBC; partial results are reported as such). |
 
 Scripts are split on `GO` lines, exactly like `isql`; `GO` inside strings, comments or brackets is not a separator. Each execution shows its elapsed time in the status bar while it runs.
+
+### isql-style execution
+
+- **`go N`** (also `GO N`, with any spaces) runs the batch above it N times in a row, as `isql` does. N is 1 to 1000; anything else is refused before anything runs. Messages ends with a summary such as *Summary: 5 batches ok / 0 with error*.
+- **Continue after errors** (Run ▾, or *Query → Continue after errors*): when a batch fails, its error is recorded in Messages and the next batch runs, like `isql` told to continue. Off by default: the first failed batch stops the script. The choice is kept across restarts (`run.json`). The final summary counts the batches that succeeded and failed. A lost connection or `Esc` always stops the script.
+- **Run without timeout (maintenance)** (Run ▾, or *Query → Execute without timeout*): runs the selection or script once without the profile's query timeout, for long `dbcc`, `reorg` or `dump` work. A profile can also use query timeout `0` for no timeout at all. `Esc` cancels in both cases.
+- **Statistics IO** (*Tools → SAP ASE session options*) reads the plan the server kept for each batch. When the server returns no plan, Messages says *plan not captured* for that batch; the batch is never run a second time to obtain one.
+
+### PROD protection
+
+Tick **Production (PROD)** in the login (or the saved profile) for production servers. While a PROD session is on screen, its session tab has a red frame, a top rail and a **PROD** tag, and the status bar shows a red band and **PROD** beside the platform. The red is the palette's error color, so it reads on light and dark palettes.
+
+Before SQL that changes state runs on a PROD session, a confirmation shows the server and every statement found (line, kind and text), plus the batches that `go N` repeats and how many times. **Cancel** is the default: `Enter` and `Esc` never run it; only **Run on PROD** does. This applies to `F9`, `Ctrl+E`, `Alt+F9`, re-running a result, object actions, recipes (they are inserted into the editor and run from there), **Repeat every…** (asked once when it starts, with the interval) and **Run on several servers** (one confirmation naming every PROD server in the run). Read-only SQL runs without asking, and sessions that are not PROD behave as before.
+
+What counts as changing state: `insert`, `update`, `delete`, `merge`, `select … into` (temporary `#tables` excluded), `create`/`alter`/`drop`, `truncate`, `grant`/`revoke`, `setuser`, `reconfigure`, `writetext`; `sp_add*`, `sp_drop*`, `sp_dboption`, `sp_rename`, `sp_modifylogin`, `sp_password` and `sp_configure` with a value; every `dbcc` except `sqltext`, `help`, `stacktrace`, `showplan`, `memusage`, `traceflags` and `traceon`/`traceoff` of 3604/3605; `checkpoint`, `online database`, `disk init/resize/mirror/remirror/unmirror/refit/reinit`, `mount`/`unmount database`, `quiesce`, `kill`, `dump`, `load`, `shutdown`, `reorg`; and **`update statistics`** (it rewrites the optimizer statistics, so plans can change, and reads whole tables or indexes). Replication Server: `sysadmin`, `ignore loss`, `rebuild queues`, `allow connections`, `suspend`, `resume`, and `create`/`alter`/`drop connection`. Words inside comments, quoted strings and `[brackets]` do not count. `exec` of a user procedure is not inspected: the guard is a warning aid, not a permission check.
 
 ## Results
 
@@ -181,7 +199,7 @@ A form asks for each value when you **insert a recipe**, when you **run SQL** th
 - **Runs**: empty repeats until you stop it.
 - **Stop at the first failed run** is on by default.
 - **Keep every run as a new result**: off by default, so each run replaces the previous run's result; on, every run adds its own tab (within the 40-tab limit).
-- SQL that changes data or server state (`insert`, `update`, `delete`, `drop`, `kill`, `resume`…; temporary `#tables` excluded) needs an explicit acknowledgement before it can start.
+- SQL that changes data or server state (`insert`, `update`, `delete`, `drop`, `kill`, `resume`…; temporary `#tables` excluded; the full list is under [PROD protection](#prod-protection)) needs an explicit acknowledgement before it can start. On a PROD session the PROD confirmation is asked once more when the repeat starts, never on each run.
 
 While repeating, an amber band shows *REPEATING*, the interval, the run count, the server, the SQL and a countdown with a progress rail, plus **Run now** and **Stop repeating**. The window title starts with `⚠ REPEATING`. The repeat stops on Stop, `Esc`, the run limit, a failure (when set), disconnecting or closing the app; Messages records why. It belongs to its own session: other tabs keep running their own SQL while it ticks, and its band reappears when you return to its tab.
 
@@ -204,6 +222,7 @@ On the right: the caret position, then the session facts reported by the server.
 - **SPID**: click to copy it.
 - **Login** and the **charset** the server negotiated.
 - The platform tag (ASE, IQ, RS) and, during multi-server work, how many extra sessions are open.
+- **PROD** and a red band across the status bar while the session on screen is a production one.
 
 ## Personalization and Boberto
 
@@ -225,7 +244,8 @@ Everything the app stores lives in `%LOCALAPPDATA%\DBMON_SQL`:
 | `appearance.json` | Palette, accent, fonts, sizes, options. |
 | `profiles.dat` | Saved logins, DPAPI-encrypted for your Windows user. |
 | `library.json` | My recipes. |
-| `server-groups.json` | Saved server groups for multi-server runs. |
+| `server-groups.json` | Saved server groups for multi-server runs (any server type; Replication Server and IQ entries without a database are kept). |
+| `run.json` | Run settings: *Continue after errors*. |
 | `BobertoRuntime\` | The companion's WebView2 profile (his look). |
 
 Builds before 16 October 2026 used `%LOCALAPPDATA%\ASE ISQL Desktop`; the first start of a newer build moves it once (or copies it when it is in use).
@@ -236,6 +256,8 @@ Builds before 16 October 2026 used `%LOCALAPPDATA%\ASE ISQL Desktop`; the first 
 |---|---|
 | SQL text per execution | 1 MiB |
 | `GO` batches per execution | 256 |
+| `go N` count | 1 to 1000; 10,000 batch executions per run in total |
+| Query timeout | 0 (none) to 3600 s |
 | Rows per execution | Profile setting (default 10,000; up to 1,000,000) |
 | Values per execution | 64 MiB |
 | One cell | 1 MiB (never silently truncated) |

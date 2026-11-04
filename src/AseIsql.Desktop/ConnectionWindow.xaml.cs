@@ -26,6 +26,8 @@ public partial class ConnectionWindow : Window
     public ConnectionProfile? Profile { get; private set; }
     public bool DriverAvailable { get; }
     private List<SavedLogin> savedLogins = [];
+    // "Profile X: the trusted certificate file does not exist: path", one per saved profile with a missing file.
+    internal IReadOnlyList<string> ProfileProblems { get; private set; } = [];
     private bool restoring;
     private string? deleteArmed;
 
@@ -85,10 +87,18 @@ public partial class ConnectionWindow : Window
     {
         try { savedLogins = ProfileStore.Load(ProfileStore.PathName); }
         catch (Exception ex) when (ex is IOException or JsonException or ArgumentException or UnauthorizedAccessException) { savedLogins = []; Feedback.Text = "Saved profiles could not be read: " + ex.Message; }
+        // A profile whose CA or identity file is gone still loads with the others; the window names it.
+        ProfileProblems = savedLogins.Where(l => l.Problem != null).Select(l => "Profile " + l.Name + ": " + l.Problem).ToList();
+        if (ProfileProblems.Count > 0)
+        {
+            Feedback.SetResourceReference(TextBlock.ForegroundProperty, "ErrorInk");
+            Feedback.Text = string.Join("\n", ProfileProblems.Take(3)) + (ProfileProblems.Count > 3 ? $"\n… and {ProfileProblems.Count - 3} more." : "") +
+                "\nThe other profiles loaded normally. Load the profile, fix the path in Advanced options and save it again.";
+        }
         restoring = true;
         try {
             SavedProfiles.ItemsSource = null; SavedProfiles.ItemsSource = savedLogins;
-            ProfileList.ItemsSource = null; ProfileList.ItemsSource = savedLogins.Select(l => new ListBoxItem { Content = l.Name + (l.HasPassword ? "  ·  login password saved" : "") + (l.HasIdentityPassword ? "  ·  identity password saved" : ""), Tag = l }).ToList();
+            ProfileList.ItemsSource = null; ProfileList.ItemsSource = savedLogins.Select(l => new ListBoxItem { Content = l.Name + (l.Profile.Production ? "  ·  PROD" : "") + (l.HasPassword ? "  ·  login password saved" : "") + (l.HasIdentityPassword ? "  ·  identity password saved" : "") + (l.Problem != null ? "  ·  ⚠ " + l.Problem : ""), Tag = l, ToolTip = l.Problem }).ToList();
             SavedProfiles.SelectedItem = savedLogins.FirstOrDefault(l => l.Name.Equals(select, StringComparison.OrdinalIgnoreCase));
             SavedProfiles.IsEnabled = savedLogins.Count > 0;
         } finally { restoring = false; }
@@ -113,6 +123,11 @@ public partial class ConnectionWindow : Window
         Feedback.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
         Feedback.Text = login.HasPassword ? "Profile " + login.Name + " loaded with its saved password." : "Profile " + login.Name + " loaded. Enter your password before connecting.";
         if (login.Profile.IqIdentityFile.Length > 0 && !login.HasIdentityPassword) Feedback.Text += " Enter the client identity password.";
+        if (login.Problem is { } problem)
+        {
+            Feedback.SetResourceReference(TextBlock.ForegroundProperty, "ErrorInk");
+            Feedback.Text = "Profile " + login.Name + ": " + problem + " Choose the file again in Advanced options before connecting, then save the profile.";
+        }
         if (!login.HasPassword) Password.Focus();
     }
     // Saves each secret independently, only when its own Remember checkbox is on.
@@ -238,6 +253,7 @@ public partial class ConnectionWindow : Window
         EncryptData.IsChecked = profile.UseTls; TrustedFile.Text = profile.TrustedFile;
         IqIdentityFile.Text = profile.IqIdentityFile; IqCertificateName.Text = profile.IqCertificateName; IqIdentityPassword.Clear(); RememberIdentityPassword.IsChecked = false;
         LoginTimeout.Text = profile.LoginTimeout.ToString(); QueryTimeout.Text = profile.QueryTimeout.ToString(); MaxRows.Text = profile.MaxRows.ToString();
+        Production.IsChecked = profile.Production;
         ManualMode.IsChecked = string.IsNullOrEmpty(profile.ServerAlias); SelectAlias(profile.ServerAlias, profile.Server, profile.Port);
         EncryptData.IsChecked = profile.UseTls || (ManualMode.IsChecked != true && (Endpoints.SelectedItem as SqlIniEndpoint)?.UseTls == true);
     }
@@ -259,7 +275,7 @@ public partial class ConnectionWindow : Window
         var platform = SelectedPlatform;
         var profile = new ConnectionProfile(host, port, platform == ServerPlatform.Rs ? "" : Database.Text.Trim(), UserName.Text, tls, TrustedFile.Text, login, query, rows,
             Charset.Text, Hostname.Text, EncryptPassword.IsChecked == true, alias, path, LoginLanguage.Text, platform, platform == ServerPlatform.Iq ? IqServerName.Text.Trim() : "",
-            platform == ServerPlatform.Iq ? IqIdentityFile.Text : "", platform == ServerPlatform.Iq ? IqCertificateName.Text.Trim() : "");
+            platform == ServerPlatform.Iq ? IqIdentityFile.Text : "", platform == ServerPlatform.Iq ? IqCertificateName.Text.Trim() : "", Production.IsChecked == true);
         profile.Validate(); return profile;
     }
     internal LoginSelection ReadSelection()=>new(ReadProfile());

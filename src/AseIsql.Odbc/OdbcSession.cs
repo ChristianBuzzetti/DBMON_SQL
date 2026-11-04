@@ -218,51 +218,30 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
     // without depending on ODBC's diagnostic channel.
     public bool CaptureExecutionIo { get; set; }
 
+    // Set by the window before each user run: a failed batch is recorded and the next one runs, as isql does when told
+    // to continue. Off by default, so the first error stops the script.
+    public bool ContinueOnError { get; set; }
+
     public QueryOutput Execute(string sql, CancellationToken cancellation = default) => Execute(sql, cancellation, userRun: true);
 
-    public QueryOutput Execute(string sql, CancellationToken cancellation, bool userRun)
+    // timeoutSeconds replaces the profile's query timeout for this run only; 0 means no timeout. Esc (the
+    // cancellation token) still cancels the statement either way.
+    public QueryOutput Execute(string sql, CancellationToken cancellation, bool userRun, int? timeoutSeconds = null)
     {
         cancellation.ThrowIfCancellationRequested();
         var output = new QueryOutput();
         if (!IsOpen) { output.Error = "The " + profile.Platform.Tag() + " session is disconnected."; return output; }
         if (sql.Length > 1024 * 1024) { output.Error = "Local limit: 1 MiB of SQL text per execution."; return output; }
+        if (timeoutSeconds is < 0 or > ConnectionProfile.MaxQueryTimeout) { output.Error = "Query timeout: 0 (no timeout) to 3600 s."; return output; }
         lock (messagesGate) { activeOutput = output; suppressMessages = false; }
         try
         {
-            var batches = SqlScript.Split(sql, cancellation: cancellation);
+            var batches = SqlScript.SplitBatches(sql, cancellation: cancellation);
             if (batches.Count == 0) { output.Error = "No SQL to execute."; return output; }
-            if (batches.Count > 256) { output.Error = "Local limit: 256 GO batches per execution."; return output; }
-            var budget = new ResultBudget(profile.MaxRows);
-            var ioPlans = new List<ExecutionIoPlan>();
-            foreach (string batch in batches)
-            {
-                cancellation.ThrowIfCancellationRequested();
-                if (userRun && profile.Platform == ServerPlatform.Ase && CaptureExecutionIo && !cancellation.IsCancellationRequested)
-                    ArmExecutionIo(cancellation);
-                using (var command = connection.CreateCommand())
-                {
-                    command.CommandText = batch; command.CommandTimeout = profile.QueryTimeout;
-                    // Cancel is best effort in ODBC. The UI requests it from a worker
-                    // thread and keeps ownership until the actual call returns.
-                    using var registration = cancellation.Register(() => {
-                        try { command.Cancel(); } catch (Exception ex) when (ex is OdbcException or InvalidOperationException or ObjectDisposedException) { }
-                    });
-                    using var reader = command.ExecuteReader();
-                    try { ResultReader.Read(reader, output, budget, cancellation); }
-                    catch (Exception ex) when (ex is ResultLimitException or ResultValueException or OperationCanceledException)
-                    {
-                        try { command.Cancel(); } catch (OdbcException cancelError) { output.Messages.Add(new QueryMessage(0, "ODBC", "Cancellation was not confirmed. Open the original diagnostic for details.", RedactSecrets(cancelError.Message))); }
-                        throw;
-                    }
-                    if (reader.RecordsAffected >= 0) output.Messages.Add(new QueryMessage(0, profile.Platform.Tag(), $"Rows affected: {reader.RecordsAffected}"));
-                }
-                if (userRun && profile.Platform == ServerPlatform.Ase && CaptureExecutionIo && !cancellation.IsCancellationRequested)
-                    CollectExecutionIo(output, ioPlans, batch, cancellation);
-                // SQL_ATTR_CURRENT_CATALOG can remain at the login database after a T-SQL USE.
-                // Keep the server's db_name() facts; the guarded probe below refreshes them after USE.
-            }
-            if (ioPlans.Any(p => p.Scans.Count > 0))
-                output.Tables.Add(ExecutionIo.ToTable(ioPlans));
+            var channel = new SessionChannel(this, new ResultBudget(profile.MaxRows), userRun, timeoutSeconds ?? profile.QueryTimeout, cancellation);
+            // SQL_ATTR_CURRENT_CATALOG can remain at the login database after a T-SQL USE.
+            // Keep the server's db_name() facts; the guarded probe below refreshes them after USE.
+            ScriptRunner.Run(batches, channel, output, userRun && ContinueOnError, cancellation);
             // A failure here is never the run's failure: the results are already read and complete.
             if (userRun && TrailingFlush is { Length: > 0 } flush && !cancellation.IsCancellationRequested)
             {
@@ -275,17 +254,7 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
                 catch (Exception ex) when (ex is OdbcException or InvalidOperationException) { }
             }
         }
-        catch (OdbcException ex)
-        {
-            lock (messagesGate)
-                foreach (OdbcError error in ex.Errors) output.Messages.Add(diagnostics.Read(error.NativeError, error.SQLState, error.Message, password, identityPassword));
-            output.ErrorSource = "ODBC";
-            if (ex.Errors.Cast<OdbcError>().Any(e => e.SQLState.StartsWith("08", StringComparison.Ordinal))) connectionIssue = true;
-            // Native records above own the readable server facts. Do not append
-            // the exception's framed aggregate as another display message.
-            output.ErrorRawText = RedactSecrets(ex.Message);
-            output.Error = cancellation.IsCancellationRequested ? "Cancellation requested. Review server messages and verify the session state." : "Query failed. Review server messages or open the original diagnostic for details.";
-        }
+        catch (OdbcException ex) { RecordFailure(ex, output, cancellation); }
         catch (Exception ex) when (ex is FormatException or ResultLimitException or ResultValueException or InvalidOperationException or OverflowException or NotSupportedException or InvalidCastException or ArgumentException)
         { output.Error = RedactSecrets(ex.Message); }
         catch (OperationCanceledException) { output.Error = "Cancellation requested. Received results are partial; verify the session before continuing."; }
@@ -341,56 +310,69 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
         }
     }
 
-    private void CollectExecutionIo(QueryOutput output, List<ExecutionIoPlan> ioPlans, string batch, CancellationToken cancellation)
+    // A server failure of one batch: its native records become messages and the run's error. A connection-level
+    // SQLSTATE (08xxx) marks the session as interrupted.
+    private void RecordFailure(OdbcException ex, QueryOutput output, CancellationToken cancellation)
     {
-        string rawXml;
-        lock (messagesGate) suppressMessages = true;
-        try
+        lock (messagesGate)
+            foreach (OdbcError error in ex.Errors) output.Messages.Add(diagnostics.Read(error.NativeError, error.SQLState, error.Message, password, identityPassword));
+        output.ErrorSource = "ODBC";
+        if (ex.Errors.Cast<OdbcError>().Any(e => e.SQLState.StartsWith("08", StringComparison.Ordinal))) connectionIssue = true;
+        // Native records above own the readable server facts. Do not append
+        // the exception's framed aggregate as another display message.
+        output.ErrorRawText = RedactSecrets(ex.Message);
+        output.Error = cancellation.IsCancellationRequested ? "Cancellation requested. Review server messages and verify the session state." : "Query failed. Review server messages or open the original diagnostic for details.";
+    }
+
+    // The driver side of ScriptRunner for one run. Execute is the only path that sends user SQL, once per call; the
+    // plan read-back only selects showplan_in_xml. An empty plan buffer is reported as "plan not captured" by the
+    // runner and the batch is never executed a second time (that doubled exec, dbcc and checkpoint effects).
+    private sealed class SessionChannel(OdbcSession session, ResultBudget budget, bool userRun, int timeoutSeconds, CancellationToken run) : IBatchChannel
+    {
+        public string SourceTag => session.profile.Platform.Tag();
+        public bool CapturesPlans => userRun && session.profile.Platform == ServerPlatform.Ase && session.CaptureExecutionIo && !run.IsCancellationRequested;
+        public void ArmPlanCapture(CancellationToken cancellation) => session.ArmExecutionIo(cancellation);
+
+        public string? ReadPlan(int index, QueryOutput output, CancellationToken cancellation)
         {
-            rawXml = ReadPlanXml("select showplan_in_xml(0)", cancellation);
-            if (rawXml.Length == 0)
-                rawXml = ReadPlanXml("select showplan_in_xml(-1)", cancellation);
-            if (rawXml.Length == 0 && TrailingFlush is { Length: > 0 } && SqlRisk.StateChanges(batch).Count == 0)
+            lock (session.messagesGate) session.suppressMessages = true;
+            try { return session.ReadPlanXml("select showplan_in_xml(" + index.ToString(CultureInfo.InvariantCulture) + ")", cancellation); }
+            catch (Exception ex) when (ex is OdbcException or InvalidOperationException or FormatException or InvalidCastException or OverflowException or ResultLimitException or ResultValueException)
             {
-                RunInternalBatch("set statistics time off", cancellation);
-                RunInternalBatch("set textsize 16777216", cancellation);
-                RunInternalBatch("set plan for show_execio_xml to message on", cancellation);
-                RunInternalBatch(batch, cancellation, profile.MaxRows);
-                rawXml = ReadPlanXml("select showplan_in_xml(0)", cancellation);
-                if (rawXml.Length == 0)
-                    rawXml = ReadPlanXml("select showplan_in_xml(-1)", cancellation);
-                RunInternalBatch("set statistics time on", cancellation);
+                output.Messages.Add(new QueryMessage(0, "CLIENT", "Statistics IO plan read failed: " + session.RedactSecrets(ex.Message)));
+                return null;
+            }
+            finally { lock (session.messagesGate) session.suppressMessages = false; }
+        }
+
+        public BatchOutcome Execute(string batch, QueryOutput output, CancellationToken cancellation)
+        {
+            try
+            {
+                using var command = session.connection.CreateCommand();
+                // 0 is no timeout for ODBC, as in isql; cancellation below still interrupts the statement.
+                command.CommandText = batch; command.CommandTimeout = timeoutSeconds;
+                // Cancel is best effort in ODBC. The UI requests it from a worker
+                // thread and keeps ownership until the actual call returns.
+                using var registration = cancellation.Register(() => {
+                    try { command.Cancel(); } catch (Exception ex) when (ex is OdbcException or InvalidOperationException or ObjectDisposedException) { }
+                });
+                using var reader = command.ExecuteReader();
+                try { ResultReader.Read(reader, output, budget, cancellation); }
+                catch (Exception ex) when (ex is ResultLimitException or ResultValueException or OperationCanceledException)
+                {
+                    try { command.Cancel(); } catch (OdbcException cancelError) { output.Messages.Add(new QueryMessage(0, "ODBC", "Cancellation was not confirmed. Open the original diagnostic for details.", session.RedactSecrets(cancelError.Message))); }
+                    throw;
+                }
+                if (reader.RecordsAffected >= 0) output.Messages.Add(new QueryMessage(0, SourceTag, $"Rows affected: {reader.RecordsAffected}"));
+                return BatchOutcome.Ok;
+            }
+            catch (OdbcException ex)
+            {
+                session.RecordFailure(ex, output, cancellation);
+                return session.connectionIssue || cancellation.IsCancellationRequested ? BatchOutcome.Fatal : BatchOutcome.Failed;
             }
         }
-        catch (Exception ex) when (ex is OdbcException or InvalidOperationException or FormatException or InvalidCastException or OverflowException or ResultLimitException or ResultValueException)
-        {
-            output.Messages.Add(new QueryMessage(0, "CLIENT", "Statistics IO plan read failed: " + RedactSecrets(ex.Message)));
-            return;
-        }
-        finally
-        {
-            lock (messagesGate) suppressMessages = false;
-        }
-        var report = ExecutionIo.Parse(rawXml);
-        if (report.Plans.Count == 0)
-        {
-            output.Messages.Add(new QueryMessage(0, "CLIENT",
-                rawXml.Length == 0
-                    ? "Statistics IO: showplan_in_xml(0) and (-1) returned an empty buffer."
-                    : $"Statistics IO: no user execution plan found in {rawXml.Length} chars ({report.Unreadable} unreadable).",
-                rawXml.Length == 0 ? null : rawXml));
-            return;
-        }
-        foreach (var plan in report.Plans)
-        {
-            ioPlans.Add(plan);
-            foreach (string line in ExecutionIo.Summary(plan))
-                output.Messages.Add(new QueryMessage(3615, profile.Platform.Tag(), line, plan.Xml));
-            if (plan.MissingStatistics.Count > 0)
-                output.Messages.Add(new QueryMessage(0, profile.Platform.Tag(), "Missing statistics · " + string.Join(", ", plan.MissingStatistics), plan.Xml));
-        }
-        if (report.Unreadable > 0)
-            output.Messages.Add(new QueryMessage(0, "CLIENT", $"Statistics IO: {report.Unreadable} plan block(s) could not be parsed.", rawXml));
     }
 
     public static string Redact(string text, string secret, string identityPassword = "")

@@ -48,6 +48,7 @@ public partial class MainWindow
         public TabItem Header = null!;
         public TextBlock Label = null!;
         public System.Windows.Shapes.Ellipse Dot = null!;
+        public Border ProdBadge = null!;
     }
 
     private SessionWorkspace activeSession = new();
@@ -78,7 +79,13 @@ public partial class MainWindow
         var panel = new StackPanel { Orientation = Orientation.Horizontal };
         workspace.Dot = new System.Windows.Shapes.Ellipse { Width = 8, Height = 8, Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center };
         panel.Children.Add(workspace.Dot);
-        workspace.Label = new TextBlock { VerticalAlignment = VerticalAlignment.Center, MaxWidth = 260, TextTrimming = TextTrimming.CharacterEllipsis };
+        // PROD tag: ErrorInk on Surface reads on light and dark palettes alike (the contrast check covers the pair).
+        var prodText = new TextBlock { Text = "PROD", FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center };
+        prodText.SetResourceReference(TextBlock.ForegroundProperty, "Surface"); prodText.SetResourceReference(TextBlock.FontSizeProperty, "SmallFontSize");
+        workspace.ProdBadge = new Border { Child = prodText, Padding = new Thickness(5, 0, 5, 0), Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed };
+        workspace.ProdBadge.SetResourceReference(Border.BackgroundProperty, "ErrorInk"); workspace.ProdBadge.SetResourceReference(Border.CornerRadiusProperty, "ControlRadius");
+        panel.Children.Add(workspace.ProdBadge);
+        workspace.Label =new TextBlock { VerticalAlignment = VerticalAlignment.Center, MaxWidth = 260, TextTrimming = TextTrimming.CharacterEllipsis };
         panel.Children.Add(workspace.Label);
         var close = new Button { Content = "×", ToolTip = "Close session", Padding = new Thickness(4, 0, 4, 0), Margin = new Thickness(8, 0, 0, 0), MinHeight = 20, MinWidth = 20 };
         close.Click += async (_, e) => { e.Handled = true; await CloseSessionAsync(workspace); };
@@ -123,7 +130,10 @@ public partial class MainWindow
         workspace.Label.Text = working ? "▶ " + title : title;
         workspace.Dot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, workspace.Engine is DisconnectedQueryEngine ? "Muted" :
             workspace.Engine is AseIsql.Odbc.OdbcSession { IsOpen: false } ? "ErrorInk" : "Accent");
-        workspace.Header.ToolTip = title + (workspace.Engine is DisconnectedQueryEngine ? "" : "\n" + workspace.Engine.Name);
+        bool prod = IsProduction(workspace);
+        workspace.ProdBadge.Visibility = prod ? Visibility.Visible : Visibility.Collapsed;
+        SetIsProduction(workspace.Header, prod);
+        workspace.Header.ToolTip = (prod ? "PRODUCTION · SQL that changes state asks for confirmation\n" : "") + title + (workspace.Engine is DisconnectedQueryEngine ? "" : "\n" + workspace.Engine.Name);
         if (workspace.Busy) workspace.Header.ToolTip = (string)workspace.Header.ToolTip! + Environment.NewLine + workspace.BusyReason;
     }
 
