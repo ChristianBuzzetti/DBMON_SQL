@@ -4,8 +4,6 @@ namespace AseIsql;
 
 public static partial class CatalogSql
 {
-    private static string Db(string database) => ResultFormats.Identifier(database) + "..";
-    private static string Id(int id) => id > 0 ? id.ToString(CultureInfo.InvariantCulture) : throw new ArgumentException("A positive catalog object id is required.");
     private static string DbId(string database) => "db_id(" + ResultFormats.Literal(database) + ")";
 
     public static string AseTableDetails(string database, int id)

@@ -1,3 +1,4 @@
+#if DBMON_SMOKE
 using System.Data;
 using System.Globalization;
 using System.IO;
@@ -231,3 +232,4 @@ public partial class MainWindow
         }
     }
 }
+#endif

@@ -4,12 +4,34 @@ All notable changes to DBMON SQL are listed here. The project follows [Semantic 
 
 ## [Unreleased]
 
+### Changed
+- UI smoke checks, fixtures and the synthetic showcase now compile only with `-p:Smoke=true` (`DBMON_SMOKE`). Standard builds and packages exclude them; `--smoke` prints "smoke checks not included in this build" and exits. Publishing verifies a separate smoke build before producing the distribution with smoke disabled.
+
 ### Added
 - **Richer ASE explorer**: lazy, paged indexes, constraints/foreign keys, defaults/rules, user-defined types, users/groups/roles, segments and master logins. Expand tables for estimated row counts (`row_count()`), reserved/used space, lock scheme, partitions, index keys, triggers and constraints.
 - **Generate DDL** on ASE tables, indexes, views, procedures, triggers and alias types opens a new offline editor tab. Scripts preserve column types, lengths/precision, nullability, identity, defaults/rules, lock scheme, primary/unique keys, index clustering/sort order and foreign keys; stored code uses ordered catalog fragments. Partial/protected metadata and unsupported computed/encrypted columns are refused. Grants and physical storage/partition layout are excluded.
 - **Replication Server panel** in Tools: threads (theme warning colors for DOWN/suspended), down threads, health, partition usage, connections and SQM queues; lazy tabs and manual refresh. Suspend/resume validates RCL names, requires two confirmations, and uses the existing PROD confirmation and execution lane.
 - **IQ metrics** in Tools: status key/value pairs, dbspace usage, connections and transaction summaries/details, with read-only snapshots and manual refresh. Unknown percentages remain NULL. Both panels retain their original session/connection and expose partial output and server messages.
 - Fake-DataTable core checks for DDL generation, malformed/incomplete metadata, RS state/space parsing and command validation, and IQ metrics/transaction summaries.
+- An internal ODBC transport seam and scripted driver-free checks for `OdbcSession`: result sets and facts, bounded login/error diagnostics, live progress, per-session textsize, continue-on-error, `go N`, cancellation and row limits. Real connections retain the native ODBC calls and exceptions.
+
+### Fixed
+- The optional native IQ TLS registry check skips with an `INFO` line when the registry is unavailable, including non-Windows hosts and missing registry hives.
+
+## [0.7.0] — 2026-11-04
+
+### Added
+- **Server health check** under Tools: choose connected profiles or open a server group, then run fixed read-only ASE, IQ and RS probes in parallel through MultiRun. A theme-colored server × probe matrix shows OK/WARN/FAIL, per-cell SQL/results/messages, independent server deadlines, cancellation, and CSV/HTML export. Optional `health-check.json` configures capacity, blocking, log-dump-age thresholds and the deadline.
+- **Compare objects** under Tools: compare two ASE connections and their databases for tables, procedures, views or triggers. Lists objects only in either side, different, same or unavailable; compares columns and logical index definitions, and shows unified LCS line diffs plus side-by-side definitions. Optional SQL whitespace normalization preserves quoted contents. Reads use qualified catalogs and never change the session database.
+- Core fixtures cover health thresholds, platform result parsing, matrix aggregation, parallel failure isolation/deadlines, object sets, line diffs, column/index changes, and incomplete metadata.
+
+## [0.6.0] — 2026-11-04
+
+### Added
+- **Activity monitor…** in Tools and command search: a dedicated ASE connection with 2/5/10/30-second refresh, pause, a blocking tree, theme-colored head blockers, cycle markers, filtering, sorting within branches and copying selected rows. The editor session remains independent.
+- Selected-SPID details show current SQL from `monSysStatement` / `monProcessSQLText` and locks from `monLocks` when accessible. Unavailable MDA panes hide with an explanation; **Retry MDA** checks access again. IQ and Replication Server display an explicit unsupported message.
+- **Kill spid…** requires a process-identity review and typing the SPID, with extra PROD warnings. Monitor/editor SPIDs, system processes (`suid <= 0`) and missing logins are protected. Process identity and guards are checked again before sending KILL; server permissions still apply.
+- Core checks cover process parsing, blocking chains, multiple heads, cycles, filtering/sorting and kill guards.
 
 ## [0.5.0] — 2026-11-04
 

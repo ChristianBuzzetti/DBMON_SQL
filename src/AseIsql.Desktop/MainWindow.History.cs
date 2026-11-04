@@ -8,8 +8,14 @@ namespace AseIsql.Desktop;
 public partial class MainWindow
 {
     private readonly List<QueryHistoryEntry> history = [];
-    private string HistoryPath => isSmoke ? smokeHistoryPath : DataFolder.File("query-history.json");
+    private string HistoryPath =>
+#if DBMON_SMOKE
+        isSmoke ? smokeHistoryPath :
+#endif
+        DataFolder.File("query-history.json");
+#if DBMON_SMOKE
     private readonly string smokeHistoryPath = Path.Combine(Path.GetTempPath(), "dbmon-history-smoke-" + Guid.NewGuid().ToString("N"), "query-history.json");
+#endif
     private bool historyWritable = true;
     private string? historyWarning;
 

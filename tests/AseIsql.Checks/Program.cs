@@ -8,6 +8,7 @@ int passed = 0;
 void Check(string name, Action body) { body(); Console.WriteLine("PASS " + name); passed++; }
 void Assert(bool value) { if (!value) throw new Exception("Assertion failed"); }
 T6Checks.Run(Check, Assert);
+OdbcSessionChecks.Run(Check);
 Check("Streaming CSV uses RFC 4180 quoting, invariant values, Unicode and empty NULL fields", () => {
     var oldCulture = CultureInfo.CurrentCulture;
     try {
@@ -137,6 +138,77 @@ Check("Query engine streaming exports GO repetitions directly without grid resul
     Assert(text.ToString() == "n\r\n1\r\n\r\nn\r\n1\r\n\r\nnil\r\n\r\n");
 });
 var engine = new DemoQueryEngine();
+HealthObjectChecks.Run(Check, Assert);
+
+ActivityProcess Process(int spid, int blocked = 0) => new(spid, "sleeping", "alice", "workstation", "client", "master", "SELECT", 5, 2, 3, blocked, 0, "", 7);
+Check("Activity parses fake sysprocesses values, nulls, aliases and worker duplicates", () => {
+    var table = new DataTable();
+    foreach (string column in new[] { "SPID", "status", "loginame", "suser_name", "hostname", "program_name", "dbname", "cmd", "cpu", "physical_io", "memusage", "blocked", "time_blocked", "tran_name", "suid" }) table.Columns.Add(column, typeof(object));
+    table.Rows.Add((short)21, " recv sleep ", " alice ", DBNull.Value, " host ", " app ", " db ", " SELECT ", 4294967296L, "12", (short)3, 0, DBNull.Value, DBNull.Value, (short)7);
+    table.Rows.Add(22, "lock sleep", DBNull.Value, " bob ", "h", "p", "db", "UPDATE", 0, 0, 0, (short)21, 900L, " transaction ", 8);
+    table.Rows.Add(22, "worker", "bob", DBNull.Value, "h", "p", "db", "UPDATE", 0, 0, 0, 22, 0, "", 8);
+    table.Rows.Add(23, "sleeping", DBNull.Value, DBNull.Value, DBNull.Value, DBNull.Value, DBNull.Value, DBNull.Value, "bad", DBNull.Value, DBNull.Value, DBNull.Value, DBNull.Value, DBNull.Value, DBNull.Value);
+    table.Rows.Add("bad", "ignored");
+    var parsed = ActivityMonitor.Parse(table);
+    Assert(parsed.Count == 3 && parsed[0] == (Process(21) with { Status = "recv sleep", Host = "host", Program = "app", Database = "db", Cpu = 4294967296L, PhysicalIo = 12 }));
+    Assert(parsed[1].Login == "bob" && parsed[1].BlockedBy == 21 && parsed[1].TimeBlocked == 900 && parsed[1].Transaction == "transaction");
+    Assert(parsed[2].Suid == null && parsed[2].Login == "" && parsed[2].Cpu == 0 && parsed[2].BlockedBy == 0);
+    try { ActivityMonitor.Parse(new DataTable()); Assert(false); } catch (ArgumentException) { }
+});
+Check("Blocking tree nests chains and multiple heads, retaining missing blockers", () => {
+    var roots = ActivityMonitor.BuildTree([Process(4, 3), Process(3, 2), Process(2), Process(6, 5), Process(5), Process(8, 999), Process(7)]);
+    Assert(roots.Select(n => n.Process.Spid).SequenceEqual(new[] { 2, 5, 7, 8 }));
+    Assert(roots[0].IsHeadBlocker && roots[1].IsHeadBlocker && !roots[2].IsHeadBlocker && !roots[3].IsHeadBlocker);
+    Assert(roots[0].Children.Single().Process.Spid == 3 && roots[0].Children[0].Children.Single().Process.Spid == 4);
+    Assert(ActivityMonitor.Flatten(roots).Select(r => (r.Node.Process.Spid, r.Depth)).SequenceEqual(new[] { (2, 0), (3, 1), (4, 2), (5, 0), (6, 1), (7, 0), (8, 0) }));
+    Assert(ActivityMonitor.Flatten(roots, filter: "999").Single().Node.Process.Spid == 8);
+});
+Check("Blocking cycles and self cycles terminate and retain every process exactly once", () => {
+    var roots = ActivityMonitor.BuildTree([Process(13, 12), Process(12, 11), Process(11, 13), Process(14, 12), Process(15, 15), Process(20)]);
+    var rows = ActivityMonitor.Flatten(roots);
+    Assert(rows.Count == 6 && rows.Select(r => r.Node.Process.Spid).Distinct().Count() == 6);
+    Assert(rows.Where(r => r.Node.InCycle).Select(r => r.Node.Process.Spid).Order().SequenceEqual(new[] { 11, 12, 13, 15 }));
+    Assert(rows.All(r => !r.Node.IsHeadBlocker) && roots.Select(r => r.Process.Spid).SequenceEqual(new[] { 11, 15, 20 }));
+    Assert(ActivityMonitor.BuildTree([]).Count == 0);
+});
+Check("Activity filtering keeps ancestors and sorting preserves branches", () => {
+    var roots = ActivityMonitor.BuildTree([Process(1), Process(2, 1), Process(3, 1), Process(4, 2) with { Login = "needle" }, Process(10)]);
+    var filtered = ActivityMonitor.Flatten(roots, filter: "NEEDLE");
+    Assert(filtered.Select(r => r.Node.Process.Spid).SequenceEqual(new[] { 1, 2, 4 }));
+    Assert(ActivityMonitor.Flatten(roots, (a, b) => b.Spid.CompareTo(a.Spid)).Select(r => r.Node.Process.Spid).SequenceEqual(new[] { 10, 1, 3, 2, 4 }));
+    Assert(ActivityMonitor.Flatten(roots, filter: "absent").Count == 0);
+    var deep = ActivityMonitor.Flatten(ActivityMonitor.BuildTree(Enumerable.Range(1, 10000).Select(i => Process(i, i - 1))));
+    Assert(deep.Count == 10000 && deep[^1].Depth == 9999);
+});
+Check("Kill guards reject own sessions, unknown identity, system SPIDs and missing login", () => {
+    var p = Process(21);
+    Assert(ActivityMonitor.KillDenied(p, 99) == null);
+    Assert(ActivityMonitor.KillDenied(p, 21) != null && ActivityMonitor.KillDenied(p, 99, [21, 22]) != null);
+    Assert(ActivityMonitor.KillDenied(p, null) != null && ActivityMonitor.KillDenied(p, 0) != null);
+    foreach (var invalid in new[] { p with { Spid = 0 }, p with { Spid = -1 }, p with { Suid = 0 }, p with { Suid = null }, p with { Suid = -1 }, p with { Login = " " } }) {
+        Assert(ActivityMonitor.KillDenied(invalid, 99) != null);
+        try { ActivityMonitor.KillSql(invalid, 99); Assert(false); } catch (InvalidOperationException) { }
+    }
+    Assert(ActivityMonitor.ConfirmsSpid(21, "21"));
+    foreach (string? bad in new[] { null, "", " 21", "21 ", "021", "22", "21;kill 22" }) Assert(!ActivityMonitor.ConfirmsSpid(21, bad));
+    Assert(ActivityMonitor.SameIdentity(p, p with { Cpu = 50, BlockedBy = 12 }));
+    Assert(!ActivityMonitor.SameIdentity(p, p with { Login = "other" }) && !ActivityMonitor.SameIdentity(p, p with { Program = "other" }) && !ActivityMonitor.SameIdentity(p, p with { Command = "UPDATE" }));
+});
+Check("Activity SQL bounds SPIDs, guards KILL on the server and joins ordered SQL fragments", () => {
+    string sql = ActivityMonitor.KillSql(Process(21) with { Program = "O'Brien;kill 99--" }, 99, [98]);
+    Assert(sql.Contains("spid <> @@spid") && sql.Contains("suid > 0") && sql.Contains("suid = 7") && sql.Contains("O''Brien;kill 99--") && sql.Contains("\nkill 21\n"));
+    Assert(SqlScript.SplitBatches(sql).Count == 1);
+    Assert(ActivityMonitor.ProcessSql(21).Contains("where p.spid = 21") && !ActivityMonitor.ProcessSql(21).Contains("order by"));
+    Assert(ActivityMonitor.SqlTextSql(21).Contains("monSysStatement") && !ActivityMonitor.SqlTextSql(21, false).Contains("monSysStatement"));
+    Assert(ActivityMonitor.LocksSql(21).EndsWith("SPID = 21", StringComparison.Ordinal));
+    foreach (int invalid in new[] { 0, -1 }) {
+        try { ActivityMonitor.ProcessSql(invalid); Assert(false); } catch (ArgumentOutOfRangeException) { }
+        try { ActivityMonitor.SqlTextSql(invalid); Assert(false); } catch (ArgumentOutOfRangeException) { }
+        try { ActivityMonitor.LocksSql(invalid); Assert(false); } catch (ArgumentOutOfRangeException) { }
+    }
+    var text = new DataTable(); text.Columns.Add("SQLText"); text.Rows.Add("select "); text.Rows.Add(DBNull.Value); text.Rows.Add("'é'\n");
+    Assert(ActivityMonitor.ParseSqlText(text) == "select 'é'\n" && ActivityMonitor.ParseSqlText(new DataTable()) == "");
+});
 Check("isql text formats every set with headers, dashes and received row counts", () => {
     var table = new DataTable(); table.Columns.Add("name"); table.Columns.Add("n", typeof(int));
     table.Rows.Add("Ada", 12); table.Rows.Add("Bo", DBNull.Value);
@@ -1069,12 +1141,33 @@ Check("New light palettes meet WCAG contrast for text, syntax, accent and select
     if (failures.Count > 0) throw new Exception("Contrast below floor: " + string.Join("; ", failures));
     foreach (var palette in catalog.Where(p => enforced.ContainsKey(p.Id))) Console.WriteLine("INFO contrast " + PaletteContrast.Report(palette));
 });
-if (OperatingSystem.IsWindows())
-using (var iqDriver = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\ODBC\ODBCINST.INI\SAP IQ"))
+string? iqLibrary = null;
+if (!OperatingSystem.IsWindows())
+    Console.WriteLine("INFO native IQ TLS parser check skipped: Windows registry is unavailable.");
+else
 {
-    if (iqDriver?.GetValue("Driver") is not string iqLibrary || !File.Exists(iqLibrary))
-        Console.WriteLine("SKIP native IQ TLS parser check: SAP IQ driver is not installed.");
-    else Check("Installed IQ driver recognizes TLS with and without client identity on loopback", () => {
+    try
+    {
+        // Some hosts expose no LocalMachine hive even when the registry API is present.
+        var machine = Microsoft.Win32.Registry.LocalMachine;
+        if (machine == null)
+            Console.WriteLine("INFO native IQ TLS parser check skipped: Windows registry is unavailable.");
+        else
+        {
+            using var iqDriver = machine.OpenSubKey(@"SOFTWARE\ODBC\ODBCINST.INI\SAP IQ");
+            iqLibrary = iqDriver?.GetValue("Driver") as string;
+            if (iqLibrary == null || !File.Exists(iqLibrary))
+            {
+                iqLibrary = null;
+                Console.WriteLine("INFO native IQ TLS parser check skipped: SAP IQ driver is not installed.");
+            }
+        }
+    }
+    catch (Exception ex) when (ex is PlatformNotSupportedException or UnauthorizedAccessException or System.Security.SecurityException or IOException)
+    { iqLibrary = null; Console.WriteLine("INFO native IQ TLS parser check skipped: Windows registry is unavailable (" + ex.GetType().Name + ")."); }
+}
+if (iqLibrary != null)
+    Check("Installed IQ driver recognizes TLS with and without client identity on loopback", () => {
         string ca = Path.GetTempFileName(), identity = Path.GetTempFileName();
         try {
             foreach (bool withIdentity in new[] { false, true })
@@ -1091,8 +1184,6 @@ using (var iqDriver = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWAR
             }
         } finally { File.Delete(ca); File.Delete(identity); }
     });
-}
-else Console.WriteLine("SKIP native IQ TLS parser check: Windows registry is unavailable.");
 Check("Replication Server profiles use the ASE driver without a database and test with RCL", () => {
     var profile = new ConnectionProfile("rs-host", 5510, "", "sa", false, "", Platform: ServerPlatform.Rs);
     var builder = new OdbcConnectionStringBuilder(OdbcSession.BuildConnectionString(profile, "secret"));

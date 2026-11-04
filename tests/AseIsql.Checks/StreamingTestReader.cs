@@ -5,7 +5,7 @@ using System.Data.Common;
 // In-memory boundary fixture. DataTableReader.GetChars expects char[] rather
 // than a SQL string, so provide the DbDataReader streaming-string contract.
 // This does not establish native SAP driver behavior.
-sealed class StreamingTestReader(params DataTable[] tables) : DbDataReader
+class StreamingTestReader(params DataTable[] tables) : DbDataReader
 {
     private readonly DataTableReader inner = new(tables);
     public override long GetChars(int ordinal, long dataOffset, char[]? buffer, int bufferOffset, int length)

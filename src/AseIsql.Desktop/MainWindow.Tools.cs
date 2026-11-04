@@ -129,7 +129,11 @@ public partial class MainWindow
     }
     private void BookmarkClick(object sender,RoutedEventArgs e)=>ToggleBookmark();
     private void NextBookmarkClick(object sender,RoutedEventArgs e)=>GoBookmark(false);
-    private string LibraryPath => isSmoke?Path.Combine(AppContext.BaseDirectory,"UiSmoke","library.json"):DataFolder.File("library.json");
+    private string LibraryPath =>
+#if DBMON_SMOKE
+        isSmoke?Path.Combine(AppContext.BaseDirectory,"UiSmoke","library.json"):
+#endif
+        DataFolder.File("library.json");
     private const string UserRecipeCategory = "My recipes";
     private const int MaxUserRecipes = 1000;
     private static List<LibraryItem> ReadUserRecipes(string path)
@@ -407,7 +411,7 @@ public partial class MainWindow
             ("Find and replace · Ctrl+H", () => ReplaceClick(this,e)), ("Comment / uncomment", () => CommentClick(this,e)), ("Duplicate line", () => DuplicateLineClick(this,e)),
             ("Selection to UPPERCASE", () => UpperClick(this,e)), ("Selection to lowercase", () => LowerClick(this,e)),
             ("Word wrap", () => WrapClick(this,e)), ("Increase font size", () => Zoom(1)), ("Decrease font size", () => Zoom(-1)),
-            ("Object explorer · F4", () => BrowserClick(this,e)), ("History · Ctrl+R", () => HistoryClick(this,e)),
+            ("Server health check", () => HealthCheckClick(this,e)), ("Compare objects", () => ObjectCompareClick(this,e)), ("Activity monitor…", () => ActivityClick(this,e)), ("Object explorer · F4", () => BrowserClick(this,e)), ("History · Ctrl+R", () => HistoryClick(this,e)),
             ("Dark theme", () => SetPalette("dark")), ("Light theme", () => SetPalette("light"))
         };
         var window = new Window { Owner = this, Title = "Command palette · Ctrl+K", Width = 560, Height = 520, WindowStartupLocation = WindowStartupLocation.CenterOwner };

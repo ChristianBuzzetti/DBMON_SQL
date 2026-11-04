@@ -2,6 +2,8 @@
 
 DBMON SQL is a Windows workbench for writing and running SQL against SAP ASE, SAP IQ and SAP Replication Server (RS). This guide walks through each part of the window.
 
+Standard builds and distributed packages exclude developer UI smoke checks and synthetic showcase data. In these builds, `--smoke` prints `smoke checks not included in this build` and exits with code 1. Developers can enable the checks with `dotnet build src/AseIsql.Desktop -c Release -p:Smoke=true`; see [Building and testing](building.md) for running them and producing a package. Driver-free core checks also cover session execution and diagnostics; the optional native IQ check prints an `INFO` skip when its Windows registry or driver is unavailable.
+
 - [Connecting](#connecting)
 - [Session tabs](#session-tabs)
 - [The window](#the-window)
@@ -13,6 +15,7 @@ DBMON SQL is a Windows workbench for writing and running SQL against SAP ASE, SA
 - [Parameters](#parameters)
 - [Run on several servers](#run-on-several-servers)
 - [Repeat on a timer](#repeat-on-a-timer)
+- [Activity monitor](#activity-monitor)
 - [Object explorer](#object-explorer)
 - [Generate DDL](#generate-ddl)
 - [Replication Server panel](#replication-server-panel)
@@ -224,6 +227,18 @@ A form asks for each value when you **insert a recipe**, when you **run SQL** th
 
 While repeating, an amber band shows *REPEATING*, the interval, the run count, the server, the SQL and a countdown with a progress rail, plus **Run now** and **Stop repeating**. The window title starts with `⚠ REPEATING`. The repeat stops on Stop, `Esc`, the run limit, a failure (when set), disconnecting or closing the app; Messages records why. It belongs to its own session: other tabs keep running their own SQL while it ticks, and its band reappears when you return to its tab.
 
+## Activity monitor
+
+Open **Tools → Activity monitor…** (also in command search). The regular login opens a **dedicated connection**; confirm the server and credentials there. The monitor runs in its own window and connection, so refreshes and detail queries can run while an editor session is busy. Closing the monitor cancels its requests and closes its connection. SAP IQ and Replication Server show **not supported for this platform yet**.
+
+Choose **2 s**, **5 s** (default), **10 s** or **30 s** refresh, or **Pause**. **Refresh now** works while paused. Requests run one at a time, with a ten-second query timeout. The process list reads `master..sysprocesses`: SPID, status, login, host, program, database, command, CPU, physical IO, memory, blocked-by SPID, seconds blocked and transaction name. Counters are server values, not rates. The login's maximum-row setting applies; increase it in the monitor login if the server has more processes than that limit.
+
+The **SPID / blocking tree** column indents blocked processes below their blockers. **HEAD** marks a head blocker in the palette's notice colors. **cycle** marks circular blocking; one edge is cut for display so each SPID appears once. **blocker absent** means that blocker was not returned in the snapshot. Filters keep matching processes and their ancestors. Click any column header to toggle its sort direction within each branch, preserving the tree. Select rows and use **Copy rows**, its context-menu entry or `Ctrl+C` to copy tab-separated values with headers.
+
+Select a SPID for its **Current SQL** and **Locks**. The monitor reads ordered `monProcessSQLText` fragments matched to `monSysStatement`; if statement monitoring is unavailable or its history has no matching statement yet, it tries batch SQL text alone. Locks come from `monLocks`. If MDA tables are disabled, missing or not permitted, the affected pane hides and the detail heading explains why. The monitor does not enable server monitoring or change permissions. After an administrator changes access, select **Retry MDA**. No current text or no lock rows can also mean the SPID is idle or has already ended.
+
+Right-click a process and choose **Kill spid…**. The first confirmation lists its server, SPID, login, host, program and command. The second requires typing the exact SPID number. PROD profiles show an extra production warning. **Cancel** is the default in the identity review; cancelling either dialog sends nothing. System processes (`suid <= 0`), missing logins, the monitor itself and known editor sessions on the same server cannot be killed. Killing is disabled if the monitor cannot identify its own SPID. After confirmation, the process is read again; an identity change cancels the action. The KILL batch repeats the identity and system-process checks on the server. Your ASE permissions still decide whether KILL is allowed. A successful submission may start a long rollback; refresh to see the result. A process snapshot can change at any moment, including between the final check and execution.
+
 ## Object explorer
 
 `F4` or **Objects** opens the explorer.
@@ -280,6 +295,50 @@ On the right: the caret position, then the session facts reported by the server.
 
 **Boberto** is the companion in the header band. Click him (or the pencil) to open **Boberto Studio**: gestures, costumes, accessories, skins, backgrounds and frames. The X hides him and suspends his renderer; *View → Boberto companion* brings him back.
 
+## Server health check
+
+Open **Tools → Server health check** (also in Search commands). Select up to eight connected servers, use **Add server** to log in with a profile, or **Groups → Open** to log in to a saved server group. The editor SQL is unrelated to this tool. All probes are fixed, read-only queries; each server runs independently in parallel using MultiRun, with probes executed serially within its session.
+
+The matrix has one server per row and one probe per column. **OK**, **WARN** and **FAIL** use the current palette's success, notice and error colors; the overall state is the worst probe state. **—** means that a probe belongs to another platform. Select a cell for its SQL, values, messages and failure details. **Export CSV** and **Export HTML** save the complete matrix. **Run health check** refreshes it; **Cancel run** cancels all outstanding probes.
+
+| Platform | Probes |
+|---|---|
+| ASE | `@@version`; uptime from `tempdb` creation time; database status/status2 flags; data and log allocated/free pages and usage per database; last transaction dump and age where applicable; blocked processes; user connections and configured maximum. |
+| IQ | `@@version`; `sp_iqstatus` main and temporary IQ block usage, with the full status output in details. |
+| Replication Server | `admin health` (including mode and loss status when present); `admin who_is_down`. |
+
+ASE suspect/offline/for-load databases and suspect pages fail the flag probe; dbo-only/single-user databases warn. Capacity warns **above 85%** and fails **above 95%**. Blocking warns at **1** blocked process and fails at **10**. Last transaction dump age warns above **24 hours** and fails above **48 hours**. The dump probe excludes the first three system databases, names beginning `syb`, and databases with trunc-log-on-checkpoint; `dumptrdate` is a transaction-log-dump timestamp, not proof of a full database backup. Missing dump times or unrecognized/empty metrics warn; query errors, permission failures and timeouts fail only the affected probes. An empty RS down-thread result is OK.
+
+Data space uses `sysusages` and `curunreservedpgs`; log space uses `lct_admin('logsegment_freepages', dbid)`. These are capacity snapshots, not table-level accounting. In databases sharing data/log devices the capacities overlap; inspect both probes together. Offline/suspect/for-load databases are omitted from capacity queries and remain visible in the database-flags probe. Catalog visibility and supported server version determine which metrics are available. ASE flag meanings follow SAP's [sysdatabases reference](https://infocenter.sybase.com/help/topic/com.sybase.infocenter.dc36274.1600/doc/html/san1393052470321.html); IQ parsing follows [sp_iqstatus](https://help.sap.com/docs/SAP_IQ/a898e08b84f21015969fa437e89860c8/a5b8569b84f210159be8f2c13b8ea3fb.html).
+
+Defaults work without a settings file. To customize them, create `%LOCALAPPDATA%\DBMON_SQL\health-check.json`:
+
+```json
+{
+  "UsageWarnPercent": 85,
+  "UsageFailPercent": 95,
+  "BlockedWarnCount": 1,
+  "BlockedFailCount": 10,
+  "DumpWarnHours": 24,
+  "DumpFailHours": 48,
+  "ServerTimeoutSeconds": 60
+}
+```
+
+The timeout is a total deadline per server (1–3600 seconds), independent of a profile's unlimited-query setting. Warning thresholds must be below failure thresholds. Invalid settings are reported before a run starts. Cancellation asks the ODBC driver to cancel and waits for it to release the sessions; closing an active dialog requests cancellation and keeps it open until the driver returns. Tools suppress user execution options, plan/IO capture and trailing user SQL. Stop repeat execution before opening a tool.
+
+## Object comparison
+
+Open **Tools → Compare objects**, add/log in to profiles or open a group, and select at least two SAP ASE connections. In the comparison window choose the **Left** and **Right** connections, each side's **database**, and **Tables**, **Procedures**, **Views** or **Triggers**. Click **Compare objects**. IQ and RS are supported by health checks; this object's catalog comparison currently targets ASE.
+
+Objects match on separate, case-sensitive **owner and name** fields. The list shows **Only in left**, **Only in right**, **Different**, **Same**, or **Unavailable**. Select an object for a unified line diff (minus lines from the left; plus lines from the right) or the two definitions side by side. These views support selection and copying. Nothing is applied to either server and no migration SQL is executed.
+
+Code reads ordered `syscomments` text through `CatalogSql.ObjectText`; hidden, missing or inaccessible definitions are unavailable, never reported as equal empty code. **Normalize SQL whitespace** collapses formatting outside literals, quoted identifiers and comments when calculating object status. Changing it reuses the captured definitions; the displayed diff always preserves original text and line numbers, so it can still show formatting differences for a normalized **Same** object. Line endings compare consistently across Windows and Unix text.
+
+Tables compare column order, name, datatype, length, nullability, identity, precision and scale, plus logical index names, descriptions and ordered keys from `sp_helpindex`. Physical index IDs and storage counters do not affect equality. Constraints, defaults, permissions and table data are outside this comparison. Inventories reflect what the login can see; an object absent from that inventory is reported only on the other side. A failed/partial inventory stops comparison rather than treating unread objects as missing. Individual definition errors appear as **Unavailable** while other objects continue.
+
+Comparisons allow 2,000 objects per side, 4 MiB of definition characters per object and 32 MiB per side, in addition to the profile's result limits. Both sides read concurrently, with a 60-second command timeout and a five-minute overall deadline. A large line diff exceeding four million working LCS cells directs you to the side-by-side definitions. **Cancel run** also waits for both drivers before releasing the sessions. Metadata can change during a scan; use suitable snapshots or a quiet period when a consistent catalog view is needed.
+
 ## Files and local data
 
 Everything the app stores lives in `%LOCALAPPDATA%\DBMON_SQL`:
@@ -290,6 +349,7 @@ Everything the app stores lives in `%LOCALAPPDATA%\DBMON_SQL`:
 | `profiles.dat` | Saved logins, DPAPI-encrypted for your Windows user. |
 | `library.json` | My recipes. |
 | `server-groups.json` | Saved server groups for multi-server runs (any server type; Replication Server and IQ entries without a database are kept). |
+| `health-check.json` | Optional health thresholds and per-server timeout. |
 | `run.json` | Run settings: *Continue after errors*. |
 | `BobertoRuntime\` | The companion's WebView2 profile (his look). |
 

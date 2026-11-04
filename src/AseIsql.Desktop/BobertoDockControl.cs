@@ -262,8 +262,10 @@ public sealed class BobertoDockControl:Grid,IDisposable
         try{old.Dispose();}catch(Exception ex)when(ex is InvalidOperationException or COMException){Note("dispose failed "+ex.Message);}
         started=false;await InitializeAsync();
     }
+#if DBMON_SMOKE
     // Smoke: exercises the rebuild path without waiting for a real stall.
     internal Task HealForTestAsync()=>RebuildViewAsync();
+#endif
     public async Task<string> EvaluateAsync(string script)
     {
         await ready.Task.WaitAsync(TimeSpan.FromSeconds(20));if(disposed)throw new ObjectDisposedException(nameof(BobertoDockControl));
