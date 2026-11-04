@@ -2,7 +2,7 @@ using System.Globalization;
 
 namespace AseIsql;
 
-// Read-only ASE metadata, fully qualified so comparing another database does not change the session's USE context.
+// Read-only ASE metadata. Comparison reads qualify the database without changing the session's USE context.
 public static class CatalogSql
 {
     public static string Objects(string database, CompareObjectType type)
@@ -10,7 +10,8 @@ public static class CatalogSql
         string code = type switch { CompareObjectType.Tables => "U", CompareObjectType.Procedures => "P", CompareObjectType.Views => "V", CompareObjectType.Triggers => "TR", _ => throw new ArgumentException("Unknown object type.") };
         return $"select top {ObjectCompare.MaxObjects + 1} o.id, u.name as owner, o.name from {Db(database)}sysobjects o join {Db(database)}sysusers u on u.uid=o.uid where o.type={ResultFormats.Literal(code)} order by u.name,o.name";
     }
-    public static string ObjectText(string database, int objectId) =>
+    // Comparison accepts a database name and treats protected fragments as unavailable metadata.
+    public static string ComparisonObjectText(string database, int objectId) =>
         $"select case when (isnull(c.status,0) & 1)=0 then c.text else null end as text from {Db(database)}syscomments c where c.id={Id(objectId)} and c.texttype=0 order by c.number,c.colid2,c.colid";
     public static string Columns(string database, int objectId) =>
         $"select c.name, t.name as type, c.length, case when (c.status & 8)=8 then 1 else 0 end as nullable, case when (c.status & 128)=128 then 1 else 0 end as [identity], isnull(c.prec,0) as [precision], isnull(c.scale,0) as scale from {Db(database)}syscolumns c join {Db(database)}systypes t on t.usertype=c.usertype where c.id={Id(objectId)} order by c.colid";
@@ -43,7 +44,7 @@ public static class CatalogSql
                 }
                 else
                 {
-                    var code = Read(engine, ObjectText(database, id), cancellation);
+                    var code = Read(engine, ComparisonObjectText(database, id), cancellation);
                     if (code.Tables.Count != 1 || code.Tables[0].Columns.Count != 1 || code.Tables[0].Rows.Count == 0 || code.Tables[0].Rows.Cast<System.Data.DataRow>().Any(r => r[0] is DBNull)) throw new FormatException("Stored text is missing, protected or not visible to this login.");
                     string text = string.Concat(code.Tables[0].Rows.Cast<System.Data.DataRow>().Select(r => Convert.ToString(r[0], CultureInfo.InvariantCulture)));
                     if (string.IsNullOrWhiteSpace(text)) throw new FormatException("Stored text is empty or protected.");
@@ -65,4 +66,15 @@ public static class CatalogSql
         if (result.Error != null) throw new InvalidOperationException(result.Error);
         return result;
     }
+
+    // Prefix is the already-quoted database prefix (or empty for the current database).
+    public static string ObjectText(string prefix, string name) =>
+        ObjectTextQuery(prefix, "object_id(" + ResultFormats.Literal(name) + ")");
+
+    // A resolved catalog object keeps its id, avoiding another name lookup in the session's context.
+    public static string ObjectText(string prefix, int id) =>
+        ObjectTextQuery(prefix, id.ToString(CultureInfo.InvariantCulture));
+
+    private static string ObjectTextQuery(string prefix, string id) =>
+        "select c.text from " + prefix + "syscomments c where c.id = " + id + " order by c.number, c.colid2, c.colid";
 }

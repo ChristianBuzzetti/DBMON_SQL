@@ -4,6 +4,72 @@ using System.Text;
 
 namespace AseIsql;
 
+public enum QueryExportFormat { Csv, Tsv, JsonLines }
+
+// One writer per script, shared across GO batches. Only the current row is held in memory.
+// CSV/TSV sets are separated by a blank line and each has its own header (including empty sets).
+// The caller owns the UTF-8 file and keeps it on cancellation or failure as partial output.
+public sealed class QueryExportWriter
+{
+    private readonly TextWriter output;
+    private readonly QueryExportFormat format;
+    private long rowsWritten;
+    public long RowsWritten => Interlocked.Read(ref rowsWritten);
+    public int ResultSets { get; private set; }
+
+    public QueryExportWriter(TextWriter output, QueryExportFormat format)
+    {
+        if (!Enum.IsDefined(format)) throw new ArgumentOutOfRangeException(nameof(format));
+        this.output = output; this.format = format;
+    }
+
+    public void Write(IDataReader reader, CancellationToken cancellation = default)
+    {
+        do { cancellation.ThrowIfCancellationRequested(); WriteResult(reader, cancellation); }
+        while (NextResult(reader, cancellation));
+    }
+
+    private static bool NextResult(IDataReader reader, CancellationToken cancellation)
+    { cancellation.ThrowIfCancellationRequested(); return reader.NextResult(); }
+
+    // The ODBC adapter supplies its lossless cell conversion; Core and other engines use GetValue directly.
+    public void WriteResult(IDataReader reader, CancellationToken cancellation = default, Func<int, object?>? readValue = null)
+    {
+        cancellation.ThrowIfCancellationRequested();
+        if (reader.FieldCount == 0) return;
+        var headers = Enumerable.Range(0, reader.FieldCount).Select(reader.GetName).ToArray();
+        int set = ++ResultSets;
+        IEnumerable<IReadOnlyList<object?>> Rows()
+        {
+            while (true)
+            {
+                cancellation.ThrowIfCancellationRequested();
+                if (!reader.Read()) break;
+                var values = new object?[headers.Length];
+                for (int field = 0; field < values.Length; field++)
+                {
+                    cancellation.ThrowIfCancellationRequested();
+                    values[field] = readValue == null ? reader.GetValue(field) : readValue(field);
+                }
+                cancellation.ThrowIfCancellationRequested();
+                yield return values;
+                // The consumer resumes only after a complete row was written.
+                Interlocked.Increment(ref rowsWritten);
+            }
+        }
+        if (format == QueryExportFormat.JsonLines)
+        {
+            foreach (var row in Rows()) { output.Write(ResultFormats.JsonLine(set, headers, row)); output.Write('\n'); }
+        }
+        else
+        {
+            if (set > 1) output.Write("\r\n");
+            DelimitedText.Write(output, headers, Rows(), format == QueryExportFormat.Csv ? ',' : '\t', includeHeaders: true, maxCharacters: long.MaxValue);
+        }
+        output.Flush();
+    }
+}
+
 public static class CsvExport
 {
     // Export source values, never reinterpret them through UI formatting.
@@ -44,6 +110,10 @@ public static class DelimitedText
             if (value is byte[] bytes && 2L + 2L * bytes.Length > maxCharacters - written) Check(2L + 2L * bytes.Length);
             string text = value switch { null or DBNull => "", byte[] binary => "0x" + Convert.ToHexString(binary),
                 DateTime time => time.ToString("O", CultureInfo.InvariantCulture),
+                DateTimeOffset time => time.ToString("O", CultureInfo.InvariantCulture),
+                DateOnly date => date.ToString("O", CultureInfo.InvariantCulture),
+                TimeOnly time => time.ToString("O", CultureInfo.InvariantCulture),
+                TimeSpan time => time.ToString("c", CultureInfo.InvariantCulture),
                 // ASE bit columns hold 1 and 0; True/False is .NET's spelling, not a value the server ever sent.
                 bool bit => bit ? "1" : "0", _ => Convert.ToString(value, CultureInfo.InvariantCulture) ?? "" };
             // Ordinary clipboard text must preserve generated SQL; explicit delimited formats retain CSV escaping.

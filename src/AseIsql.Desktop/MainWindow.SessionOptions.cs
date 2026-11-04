@@ -4,7 +4,7 @@ using AseIsql.Odbc;
 
 namespace AseIsql.Desktop;
 
-// SAP ASE session options: noexec, statistics io, statistics time and compatibility_mode, sent as SET statements on the
+// SAP ASE session options: noexec, plan-based Statistics IO, statistics time and compatibility_mode, sent as SET statements on the
 // open session. One builder feeds both the Tools submenu and the status-bar chip, so there is a single description of
 // what each option does and a single place that decides the next state.
 public partial class MainWindow
@@ -28,7 +28,7 @@ public partial class MainWindow
             "set noexec on/off · the server parses, compiles and optimizes every statement and executes none. Results stop arriving until it is off again.");
         items.Add(new Separator());
         Toggle("Statistics IO", aseOptions.StatisticsIo, aseOptions with { StatisticsIo = !aseOptions.StatisticsIo },
-            "set statistics io on/off + set plan for show_execio_xml to message on · per-table logical and physical reads from the executed plan, in Messages and in a Statistics IO tab.");
+            "set plan for show_execio_xml to message on / set plan for show_execio_xml off · per-table logical and physical reads from the executed plan, in Messages and in a Statistics IO tab.");
         Toggle("Statistics time", aseOptions.StatisticsTime, aseOptions with { StatisticsTime = !aseOptions.StatisticsTime },
             "set statistics time on/off · parse, compile and execution time, as server messages.");
         items.Add(new Separator());

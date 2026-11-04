@@ -214,7 +214,7 @@ public partial class MainWindow
         var target = item.Target;
         if (item.Platform == ServerPlatform.Iq)
             return action == "size" ? "sp_iqtablesize " + ResultFormats.Literal(target.From) : IqObjectHelperSql(action, target);
-        if (action == "code") return "select c.text from " + target.ProcedurePrefix + "syscomments c where c.id = " + item.Id.ToString(CultureInfo.InvariantCulture) + " order by c.number, c.colid";
+        if (action == "code") return CatalogSql.ObjectText(target.ProcedurePrefix, item.Id);
         if (action == "top") return ObjectHelperSql(action, target);
         return ObjectHelperSql(action, target);
     }

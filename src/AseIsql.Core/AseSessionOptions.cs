@@ -9,13 +9,12 @@ public enum CompatibilityMode { ServerDefault, On, Off }
 // live in that connection only, disappear when it closes, and never reach the multi-server or repeat sessions, which
 // open their own. The app tracks what it sent, never what the server was configured with.
 //
-// Statistics IO is two options at once. "set statistics io" still runs because its "Total writes for this command"
-// record (3614) arrives whole through ODBC, but its substance, the per-table "Table: <name> scan count N, logical
-// reads: ..." record (3615), reaches System.Data.Odbc with no body: verified against a real table on the user's ASE,
-// and the predecessor AseIsql only shows it because it reads server messages through a CT-Library callback. The
-// per-table counters therefore come from "set plan for show_execio_xml to message", which keeps the executed plan
-// with its actual logical and physical reads in a session buffer that showplan_in_xml(0) returns as an ordinary
-// result: same session, same run, no diagnostics channel involved. Verified on ASE 16.0 SP04: the actual logical
+// Statistics IO sends "set plan for show_execio_xml to message on", not "set statistics io on": its per-table
+// "Table: <name> scan count N, logical reads: ..." record (3615) reaches System.Data.Odbc with no body, verified
+// against a real table on the user's ASE. The predecessor AseIsql reads it through a CT-Library callback instead.
+// The plan option keeps the executed plan with its actual logical and physical reads in a session buffer that
+// showplan_in_xml(0) returns as an ordinary result: same session, same run, no diagnostics channel involved.
+// Verified on ASE 16.0 SP04: the actual logical
 // reads it reports equal those of statistics io in isql. It carries no scan count and no regular/apf split.
 public sealed record AseSessionOptions(bool NoExec = false, bool StatisticsTime = false, bool StatisticsIo = false, CompatibilityMode Compatibility = CompatibilityMode.ServerDefault)
 {
@@ -67,7 +66,7 @@ public sealed record AseSessionOptions(bool NoExec = false, bool StatisticsTime 
             others.Add("set compatibility_mode " + OnOff(next.Compatibility == CompatibilityMode.On));
         if (current.StatisticsIo != next.StatisticsIo)
         {
-            if (next.StatisticsIo) others.Add("set textsize 16777216");
+            // OdbcSession initializes textsize once when capture first runs, preserving user SETs in this session.
             others.Add(next.StatisticsIo ? "set plan for show_execio_xml to message on" : "set plan for show_execio_xml off");
         }
         else if (next.StatisticsIo && others.Count > 0)

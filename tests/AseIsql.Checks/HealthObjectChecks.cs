@@ -125,8 +125,20 @@ internal static class HealthObjectChecks
             var result = CatalogSql.ReadObjects(reader, "db", CompareObjectType.Procedures);
             assert(result.Count == 1 && result[0].Error != null);
             try { CatalogSql.ReadObjects(new FixtureEngine((_, _) => new QueryOutput { Error = "row limit; partial" }), "db", CompareObjectType.Procedures); assert(false); } catch (InvalidOperationException) { }
-            assert(CatalogSql.ObjectText("a]b", 100).Contains("[a]]b]..syscomments"));
+            assert(CatalogSql.ComparisonObjectText("a]b", 100).Contains("[a]]b]..syscomments"));
             assert(CatalogSql.Objects("db", CompareObjectType.Triggers).Contains("'TR'"));
+        });
+        check("Object comparison reads qualified source fragments without resolving names in the session database", () => {
+            var inventory = Table(["id", "owner", "name"], [100, "dbo", "p"]);
+            var reader = new FixtureEngine((sql, _) => {
+                if (sql.Contains("sysobjects")) return Output(inventory);
+                assert(sql.Contains("[a]]b]..syscomments") && sql.Contains("c.id=100") && !sql.Contains("object_id("));
+                assert(sql.Contains("c.texttype=0") && sql.Contains("isnull(c.status,0) & 1"));
+                assert(sql.EndsWith("order by c.number,c.colid2,c.colid", StringComparison.Ordinal));
+                return Output(Table(["text"], ["create procedure dbo.p as\n"], ["select 'é'\n"]));
+            });
+            var result = CatalogSql.ReadObjects(reader, "a]b", CompareObjectType.Procedures).Single();
+            assert(result.Error == null && result.Definition == "create procedure dbo.p as\nselect 'é'\n");
         });
     }
     private sealed class FixtureEngine(Func<string, CancellationToken, QueryOutput> execute) : IQueryEngine
