@@ -6,8 +6,101 @@ using System.Text.Json;
 
 namespace AseIsql;
 
+// Ordered entries let callers preserve message/result interleaving when their engine supplies it.
+public sealed record IsqlOutput(DataTable? Table = null, string? Message = null);
+public sealed record SysmonSection(string Heading, int Line, int Offset);
+
 public static class ResultFormats
 {
+    // QueryOutput has separate lists, with no relative positions. Preserve each list's order rather than
+    // inventing a chronology. Received/partial row counts describe the local result, not unread server rows.
+    public static string Isql(QueryOutput output) => Isql(
+        output.Tables.Select(table => new IsqlOutput(Table: table))
+            .Concat(output.Messages.Snapshot(count => new QueryMessage(0, "CLIENT", HeadTailBuffer<QueryMessage>.OmissionText(count))).Select(message => new IsqlOutput(Message: message.Text)))
+            .Concat(output.Error is { } error ? [new IsqlOutput(Message: error)] : []));
+
+    public static string Isql(IEnumerable<IsqlOutput> entries)
+    {
+        var text = new StringBuilder();
+        static string[] Lines(string value) => value.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n').Replace("\t", "    ", StringComparison.Ordinal).Split('\n');
+        foreach (var entry in entries)
+        {
+            if (entry.Table is { } table)
+            {
+                // Wrap long cells rather than discarding their text or padding every other row to LOB width.
+                const int maxWidth = 120;
+                var widths = table.Columns.Cast<DataColumn>().Select(column => Math.Max(1, Lines(column.Caption).Max(line => Math.Min(maxWidth, line.Length)))).ToArray();
+                foreach (DataRow row in table.Rows)
+                    for (int c = 0; c < widths.Length; c++)
+                        foreach (string line in Lines(row[c] is DBNull ? "NULL" : Cell(row[c]))) widths[c] = Math.Max(widths[c], Math.Min(maxWidth, line.Length));
+                void Row(IEnumerable<string> values)
+                {
+                    var cells = values.Select((value, c) => Lines(value).SelectMany(line =>
+                        line.Length == 0 ? [""] : Enumerable.Range(0, (line.Length - 1) / widths[c] + 1).Select(i => line.Substring(i * widths[c], Math.Min(widths[c], line.Length - i * widths[c])))).ToArray()).ToArray();
+                    int height = cells.Length == 0 ? 0 : cells.Max(cell => cell.Length);
+                    for (int line = 0; line < height; line++)
+                    {
+                        for (int c = 0; c < cells.Length; c++)
+                        {
+                            if (c > 0) text.Append(' ');
+                            text.Append((line < cells[c].Length ? cells[c][line] : "").PadRight(widths[c]));
+                        }
+                        text.AppendLine();
+                    }
+                }
+                Row(table.Columns.Cast<DataColumn>().Select(column => column.Caption));
+                text.AppendLine(string.Join(" ", widths.Select(width => new string('-', width))));
+                foreach (DataRow row in table.Rows) Row(row.ItemArray.Select(value => value is DBNull ? "NULL" : Cell(value)));
+                text.Append('(').Append(table.Rows.Count.ToString(CultureInfo.InvariantCulture)).AppendLine(" rows affected)");
+            }
+            if (entry.Message is { } message)
+            {
+                // ODBC's final RecordsAffected is surfaced by the engine using this client-generated spelling.
+                const string prefix = "Rows affected: ";
+                if (message.StartsWith(prefix, StringComparison.Ordinal) && long.TryParse(message.AsSpan(prefix.Length), NumberStyles.None, CultureInfo.InvariantCulture, out long rows))
+                    text.Append('(').Append(rows.ToString(CultureInfo.InvariantCulture)).AppendLine(" rows affected)");
+                else
+                {
+                    text.Append(message);
+                    if (message.Length == 0 || message[^1] is not ('\r' or '\n')) text.AppendLine();
+                }
+            }
+        }
+        return text.ToString();
+    }
+
+    private static readonly HashSet<string> SysmonHeadings = new(StringComparer.OrdinalIgnoreCase) {
+        "Kernel Utilization", "Worker Process Management", "Parallel Query Management", "Task Management",
+        "Application Management", "ESP Management", "Transaction Profile", "Transaction Management",
+        "Index Management", "Metadata Cache Management", "Lock Management", "Data Cache Management",
+        "Procedure Cache Management", "Memory Management", "Recovery Management", "Disk I/O Management", "Network I/O Management"
+    };
+
+    // Offsets and zero-based lines refer to the original text, including CRLF/CR/LF and indented headings.
+    public static IReadOnlyList<SysmonSection> SysmonSections(string text)
+    {
+        var sections = new List<SysmonSection>();
+        string previous = ""; int previousOffset = 0, line = 0;
+        for (int start = 0; start < text.Length; line++)
+        {
+            int end = start;
+            while (end < text.Length && text[end] is not ('\r' or '\n')) end++;
+            string current = text[start..end].Trim();
+            if (current.Length >= 3 && current.All(c => c == '-') && SysmonHeadings.Contains(previous))
+                sections.Add(new SysmonSection(previous, line - 1, previousOffset));
+            previous = current; previousOffset = start;
+            start = end < text.Length && text[end] == '\r' && end + 1 < text.Length && text[end + 1] == '\n' ? end + 2 : end + 1;
+        }
+        return sections;
+    }
+
+    private static readonly JsonSerializerOptions JsonLineOptions = new() { NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals };
+    // Arrays retain duplicate/empty column names and avoid collisions with the resultSet metadata.
+    public static string JsonLine(int resultSet, IReadOnlyList<string> columns, IReadOnlyList<object?> values) => JsonSerializer.Serialize(new {
+        resultSet, columns,
+        values = values.Select(v => v is DBNull ? null : v is byte[] bytes ? (object)("0x" + Convert.ToHexString(bytes)) : v)
+    }, JsonLineOptions);
+
     private static string Display(object? value) => value switch { null or DBNull => "", byte[] bytes => "0x"+Convert.ToHexString(bytes), DateTime date => date.ToString("O",CultureInfo.InvariantCulture), bool bit => bit ? "1" : "0", _=>Convert.ToString(value,CultureInfo.InvariantCulture)??"" };
     // What a result cell shows on screen. Dates keep every digit the value carries: ASE datetime holds 1/300 of a
     // second and bigdatetime microseconds, and a cell that hides them makes two different rows look identical.

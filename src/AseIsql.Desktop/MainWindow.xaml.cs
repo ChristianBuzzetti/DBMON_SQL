@@ -230,22 +230,27 @@ public partial class MainWindow : Window
         AddMessage(owner, 0, SourceLabelOf(owner), "Execute · " + scope + (noTimeout ? " · no timeout" : "") + (runSettings.ContinueOnError ? " · continue after errors" : ""));
         if (noTimeout) AddMessage(owner, 0, "CLIENT", "No query timeout for this run (maintenance): it runs until it ends or Esc cancels it.");
         ApplyRunSettings(executingEngine);
+        var messages = new SessionMessageProgress(owner);
         var timer = Stopwatch.StartNew();
-        // Long batches show that the session is still working and for how long; the tick only rewrites the status line.
-        var ticker = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
-        ticker.Tick += (_, _) => SetStatus(owner, $"Executing · {timer.Elapsed.TotalSeconds:F1} s · {runningName} · Esc cancels");
+        // One dispatcher refresh per tick, even when the driver produces thousands of messages between ticks.
+        var ticker = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
+        ticker.Tick += (_, _) => {
+            RefreshMessages(owner);
+            SetStatus(owner, $"Executing · {timer.Elapsed.TotalSeconds:F1} s · {runningName} · Esc cancels");
+        };
         ticker.Start();
         try
         {
-            var output = await Task.Run(() => noTimeout && executingEngine is OdbcSession odbc ? odbc.Execute(sql, cancellation.Token, userRun: true, timeoutSeconds: 0) : executingEngine.Execute(sql, cancellation.Token), cancellation.Token);
+            var output = await Task.Run(() => noTimeout && executingEngine is OdbcSession odbc ? odbc.Execute(sql, cancellation.Token, userRun: true, timeoutSeconds: 0, messages: messages) : executingEngine.Execute(sql, cancellation.Token, messages), cancellation.Token);
             double elapsedMs = timer.Elapsed.TotalMilliseconds; ticker.Stop();
+            if (!messages.Reported) AddOutputMessages(owner, output);
+            else RefreshMessages(owner);
             int rowCount = output.Tables.Sum(t => t.Rows.Count);
             if (owner.Engine is DemoQueryEngine) cancellation.Token.ThrowIfCancellationRequested();
             // Results accumulate; a re-run replaces only its own earlier tabs.
             var run = NewRun(owner, sql, owner.Engine); owner.LastRunId = run.Id;
+            CaptureRunText(owner, run, output);
             PublishResults(owner, output.Tables, run, replaceRun);
-            foreach (QueryMessage message in output.Messages) AddMessage(owner, message.Number, message.Source, message.Text, message.RawText);
-            if (output.OmittedMessages > 0) AddMessage(owner, 0, "CLIENT", $"{output.OmittedMessages} earlier messages were omitted by the retention limit.");
             // A repeat records its SQL once when it starts, not on every run.
             if (!repeatRun) RecordHistory(sql);
             owner.LastRunFailed = output.Error != null;
@@ -264,7 +269,7 @@ public partial class MainWindow : Window
         catch (OperationCanceledException) { AddMessage(owner, 0, SourceLabelOf(owner), "Execution cancelled. No new results were published."); SetStatus(owner, "Cancelled · " + SourceLabelOf(owner)); }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
         { AddMessage(owner, 1, "CLIENT", "Unable to display the result: " + ex.Message); SetStatus(owner, "Error · see Messages"); ShowMessages(owner); }
-        finally { ticker.Stop(); owner.Running = null; RefreshFor(owner); }
+        finally { ticker.Stop(); RefreshMessages(owner); owner.Running = null; RefreshFor(owner); }
     }
 
     private static string Elapsed(double milliseconds) => milliseconds < 1000
@@ -427,6 +432,7 @@ public partial class MainWindow : Window
         }
         Item("Run selection", "Ctrl+E", "", () => _ = ExecuteAsync(selectionOnly: true), idle && online && Editor.SelectionLength > 0);
         Item("Run current line", "Alt+F9", "", () => _ = ExecuteAsync(lineOnly: true), idle && online);
+        Item("Export query to file…", "", "", () => ExportQueryClick(this, new RoutedEventArgs()), idle && online);
         menu.Items.Add(new Separator());
         Item("Run on several servers…", "Shift+F9", "", () => MultiRunClick(this, new RoutedEventArgs()), idle);
         Item(repeat != null ? "Stop repeating" : "Repeat every…", "Ctrl+Shift+F9", "", () => RepeatClick(this, new RoutedEventArgs()), repeat != null || idle && online);
@@ -466,6 +472,7 @@ public partial class MainWindow : Window
     private void TabChanged(object sender, SelectionChangedEventArgs e)
     {
         if (!ready || e.Source != Workspace) return;
+        if (!mountingSession) SelectRunText();
         // The tab strip is one scrolling row, so a tab selected from the keyboard or from code can sit off-screen.
         if (Workspace.SelectedItem is TabItem selected) selected.BringIntoView();
         if (Workspace.SelectedItem is TabItem { Tag: DataTable table } tab) StatusText.Text = $"{ResultName(tab)} · {resultOrigins.GetValueOrDefault(table).Source} · {Counts.Of(table.Rows.Count, "row")} · {Counts.Of(table.Columns.Count, "column")}";
@@ -950,6 +957,7 @@ public partial class MainWindow : Window
                 engine=new DiagnosticSmokeEngine();await ExecuteAsync();
                 Require(log.Any(message=>message.Text=="Fixture server error.")&&log.All(message=>!message.Text.Contains("[SAP]"))&&log.Last(message=>message.Number==1).RawText==DiagnosticSmokeEngine.Raw,"Messages keeps normalized records and an unframed failure summary with original error evidence accessible");
             }finally{engine=priorEngine;}
+            await VerifyLiveMessages(Require);
             Editor.Select(0,0);await ExecuteAsync(selectionOnly:true);Require(log.Count==1&&log[0].Number==1,"Empty selection reports only the current execution attempt");
             SetLogVisible(false); SetLogVisible(true);
             Require(LogPanel.Visibility == Visibility.Visible && ShowLogMenu.IsChecked, "Log toggle restores visible state");

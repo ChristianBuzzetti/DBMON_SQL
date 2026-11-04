@@ -7,6 +7,134 @@ using System.Data.Odbc;
 int passed = 0;
 void Check(string name, Action body) { body(); Console.WriteLine("PASS " + name); passed++; }
 void Assert(bool value) { if (!value) throw new Exception("Assertion failed"); }
+Check("Streaming CSV uses RFC 4180 quoting, invariant values, Unicode and empty NULL fields", () => {
+    var oldCulture = CultureInfo.CurrentCulture;
+    try {
+        CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("fr-FR");
+        var table = new DataTable();
+        foreach (string name in new[] { "head,one", "quote", "date", "number", "null", "empty" }) table.Columns.Add(name, typeof(object));
+        var date = new DateTime(2026, 11, 4, 13, 46, 30).AddTicks(1234567);
+        table.Rows.Add("José,漢\r\nline", "a\"b", date, 10.13m, DBNull.Value, "");
+        using var reader = new ExportTestReader(table);
+        using var text = new StringWriter();
+        var writer = new QueryExportWriter(text, QueryExportFormat.Csv); writer.Write(reader);
+        Assert(text.ToString() == "\"head,one\",quote,date,number,null,empty\r\n\"José,漢\r\nline\",\"a\"\"b\",2026-11-04T13:46:30.1234567,10.13,,\r\n");
+        Assert(writer.RowsWritten == 1 && writer.ResultSets == 1 && !reader.IsClosed);
+    } finally { CultureInfo.CurrentCulture = oldCulture; }
+});
+Check("Streaming CSV and TSV repeat headers across empty sets and separate GO batches", () => {
+    foreach (var format in new[] { QueryExportFormat.Csv, QueryExportFormat.Tsv }) {
+        var first = new DataTable(); first.Columns.Add("n", typeof(int)); first.Rows.Add(1);
+        var empty = new DataTable(); empty.Columns.Add("empty");
+        var last = new DataTable(); last.Columns.Add("a\tb"); last.Rows.Add("x\"y\nz");
+        using var reader = new ExportTestReader(new DataTable(), first, empty);
+        using var nextBatch = new ExportTestReader(last);
+        using var text = new StringWriter(); var writer = new QueryExportWriter(text, format);
+        writer.Write(reader); writer.Write(nextBatch);
+        string header = format == QueryExportFormat.Tsv ? "\"a\tb\"" : "a\tb";
+        Assert(text.ToString() == "n\r\n1\r\n\r\nempty\r\n\r\n" + header + "\r\n\"x\"\"y\nz\"\r\n");
+        Assert(writer.ResultSets == 3 && writer.RowsWritten == 2);
+    }
+});
+Check("Streaming JSON Lines preserves NULL, types, duplicate headers and result-set indices", () => {
+    var empty = new DataTable(); empty.Columns.Add("empty");
+    var table = new DataTable();
+    foreach (string name in new[] { "a", "b", "c", "d", "e", "f" }) table.Columns.Add(name, typeof(object));
+    var date = new DateTime(2026, 11, 4, 13, 46, 30, DateTimeKind.Utc);
+    table.Rows.Add(10.13m, DBNull.Value, "quote\"\nJosé", new byte[] { 0, 255 }, true, date);
+    using var reader = new ExportTestReader(empty, table) { ColumnName = _ => "resultSet" };
+    using var text = new StringWriter(); var writer = new QueryExportWriter(text, QueryExportFormat.JsonLines);
+    writer.Write(reader);
+    using var next = new ExportTestReader(table); writer.Write(next);
+    string[] lines = text.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries);
+    Assert(lines.Length == 2 && writer.RowsWritten == 2 && writer.ResultSets == 3);
+    using var first = System.Text.Json.JsonDocument.Parse(lines[0]);
+    var root = first.RootElement; var values = root.GetProperty("values");
+    Assert(root.GetProperty("resultSet").GetInt32() == 2);
+    Assert(root.GetProperty("columns").EnumerateArray().All(c => c.GetString() == "resultSet"));
+    Assert(values[0].GetDecimal() == 10.13m && values[1].ValueKind == System.Text.Json.JsonValueKind.Null);
+    Assert(values[2].GetString() == "quote\"\nJosé" && values[3].GetString() == "0x00FF" && values[4].GetBoolean());
+    Assert(values[5].GetDateTime() == date);
+    using var second = System.Text.Json.JsonDocument.Parse(lines[1]);
+    Assert(second.RootElement.GetProperty("resultSet").GetInt32() == 3);
+});
+Check("Streaming cancellation stops before reading and keeps complete UTF-8 rows in a partial file", () => {
+    var table = new DataTable(); table.Columns.Add("text");
+    for (int i = 0; i < 5; i++) table.Rows.Add("José 漢 " + i);
+    foreach (var format in Enum.GetValues<QueryExportFormat>()) {
+        using var cancelled = new CancellationTokenSource(); cancelled.Cancel();
+        using var unopened = new ExportTestReader(table); using var untouched = new StringWriter();
+        var before = new QueryExportWriter(untouched, format);
+        try { before.Write(unopened, cancelled.Token); Assert(false); } catch (OperationCanceledException) { }
+        Assert(unopened.ReadCalls == 0 && before.ResultSets == 0 && untouched.ToString() == "");
+        string path = Path.Combine(Path.GetTempPath(), "dbmon-partial-" + Guid.NewGuid().ToString("N"));
+        try {
+            using var stop = new CancellationTokenSource();
+            using var reader = new ExportTestReader(table, table);
+            QueryExportWriter writer;
+            using (var file = new StreamWriter(path, false, new System.Text.UTF8Encoding(false, true))) {
+                writer = new QueryExportWriter(file, format);
+                reader.BeforeRead = count => {
+                    Assert(writer.RowsWritten == count - 1); // visible progress advances after each complete row
+                    if (count == 3) stop.Cancel();
+                };
+                try { writer.Write(reader, stop.Token); Assert(false); } catch (OperationCanceledException) { }
+            }
+            byte[] bytes = File.ReadAllBytes(path);
+            string partial = new System.Text.UTF8Encoding(false, true).GetString(bytes);
+            Assert(!bytes.AsSpan().StartsWith(new byte[] { 0xEF, 0xBB, 0xBF }));
+            Assert(writer.RowsWritten == 2 && reader.ReadCalls == 3 && reader.NextResultCalls == 0);
+            Assert(partial.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length == (format == QueryExportFormat.JsonLines ? 2 : 3));
+            if (format == QueryExportFormat.JsonLines) {
+                foreach (string line in partial.Split('\n', StringSplitOptions.RemoveEmptyEntries)) {
+                    using var json = System.Text.Json.JsonDocument.Parse(line);
+                    Assert(json.RootElement.GetProperty("values")[0].GetString()!.StartsWith("José 漢"));
+                }
+            } else Assert(partial.Contains("José 漢 1") && !partial.Contains("José 漢 2"));
+        } finally { File.Delete(path); }
+    }
+});
+Check("Streaming cancellation at a result-set boundary writes no next header", () => {
+    var table = new DataTable(); table.Columns.Add("n", typeof(int)); table.Rows.Add(1);
+    using var stop = new CancellationTokenSource();
+    using var reader = new ExportTestReader(table, table) { BeforeNextResult = () => stop.Cancel() };
+    using var text = new StringWriter(); var writer = new QueryExportWriter(text, QueryExportFormat.Csv);
+    try { writer.Write(reader, stop.Token); Assert(false); } catch (OperationCanceledException) { }
+    Assert(writer.ResultSets == 1 && writer.RowsWritten == 1 && text.ToString() == "n\r\n1\r\n");
+});
+Check("ODBC streaming bypasses 10k rows, 64 MiB, cell and result-set grid limits", () => {
+    var table = new DataTable(); table.Columns.Add("payload");
+    string payload = new('x', 4096);
+    for (int row = 0; row < 10001; row++) table.Rows.Add(payload);
+    using var reader = new StreamingTestReader(table);
+    var writer = new QueryExportWriter(TextWriter.Null, QueryExportFormat.Csv);
+    ResultReader.Stream(reader, writer, CancellationToken.None);
+    Assert(writer.RowsWritten == 10001 && 10001L * payload.Length * 2 > ResultBudget.MaxBytes);
+    var large = new DataTable(); large.Columns.Add("text"); large.Columns.Add("binary", typeof(byte[]));
+    large.Rows.Add(new string('é', ResultBudget.MaxCellBytes), new byte[ResultBudget.MaxCellBytes + 1]);
+    using var cells = new StreamingTestReader(large); ResultReader.Stream(cells, writer, CancellationToken.None);
+    var empty = new DataTable(); empty.Columns.Add("n");
+    using var sets = new StreamingTestReader(Enumerable.Repeat(empty, 129).ToArray());
+    ResultReader.Stream(sets, writer, CancellationToken.None);
+    Assert(writer.RowsWritten == 10002 && writer.ResultSets == 131);
+});
+Check("ODBC streaming retains wide decimals, fractional times and NULL without grid tables", () => {
+    const string wide = "12345678901234567890123456789012345678";
+    using var numbers = new WideNumericTestReader("wide", 38, [wide, null]);
+    using var text = new StringWriter(); var writer = new QueryExportWriter(text, QueryExportFormat.Csv);
+    ResultReader.Stream(numbers, writer, CancellationToken.None);
+    using var time = new WideNumericTestReader("time", 0, ["16:30:45.123456"], fieldType: typeof(TimeSpan));
+    ResultReader.Stream(time, writer, CancellationToken.None);
+    Assert(text.ToString() == "wide\r\n" + wide + "\r\n\r\n\r\ntime\r\n16:30:45.1234560\r\n");
+    Assert(numbers.ValueCalls == 0 && writer.RowsWritten == 3 && writer.ResultSets == 2);
+});
+Check("Query engine streaming exports GO repetitions directly without grid results", () => {
+    IQueryEngine fixture = new DemoQueryEngine(); using var text = new StringWriter();
+    var writer = new QueryExportWriter(text, QueryExportFormat.Csv);
+    var output = fixture.Export("select 1 as n\ngo 2\nselect NULL as nil", writer);
+    Assert(output.Error == null && output.Tables.Count == 0 && writer.RowsWritten == 3 && writer.ResultSets == 3);
+    Assert(text.ToString() == "n\r\n1\r\n\r\nn\r\n1\r\n\r\nnil\r\n\r\n");
+});
 var engine = new DemoQueryEngine();
 
 ActivityProcess Process(int spid, int blocked = 0) => new(spid, "sleeping", "alice", "workstation", "client", "master", "SELECT", 5, 2, 3, blocked, 0, "", 7);
@@ -77,6 +205,125 @@ Check("Activity SQL bounds SPIDs, guards KILL on the server and joins ordered SQ
     }
     var text = new DataTable(); text.Columns.Add("SQLText"); text.Rows.Add("select "); text.Rows.Add(DBNull.Value); text.Rows.Add("'é'\n");
     Assert(ActivityMonitor.ParseSqlText(text) == "select 'é'\n" && ActivityMonitor.ParseSqlText(new DataTable()) == "");
+});
+Check("isql text formats every set with headers, dashes and received row counts", () => {
+    var table = new DataTable(); table.Columns.Add("name"); table.Columns.Add("n", typeof(int));
+    table.Rows.Add("Ada", 12); table.Rows.Add("Bo", DBNull.Value);
+    var empty = table.Clone();
+    var output = new QueryOutput(); output.Tables.Add(table); output.Tables.Add(empty);
+    string expected = string.Join(Environment.NewLine, new[] { "name n   ", "---- ----", "Ada  12  ", "Bo   NULL", "(2 rows affected)", "name n", "---- -", "(0 rows affected)", "" });
+    Assert(ResultFormats.Isql(output) == expected);
+    Assert(table.Rows.Count == 2 && table.DefaultView.RowFilter == "");
+});
+Check("isql ordered entries interleave messages and results without losing diagnostics", () => {
+    var table = new DataTable(); table.Columns.Add("v"); table.Rows.Add("value");
+    string text = ResultFormats.Isql([new(Message: "before"), new(Table: table), new(Message: "between"), new(Table: table.Clone()), new(Message: "Rows affected: 7"), new(Message: "after")]);
+    Assert(text.StartsWith("before" + Environment.NewLine) && text.EndsWith("after" + Environment.NewLine));
+    Assert(text.IndexOf("(1 rows affected)", StringComparison.Ordinal) < text.IndexOf("between", StringComparison.Ordinal));
+    Assert(text.IndexOf("between", StringComparison.Ordinal) < text.IndexOf("(0 rows affected)", StringComparison.Ordinal));
+    Assert(text.Contains("(7 rows affected)") && !text.Contains("Rows affected: 7"));
+    var output = new QueryOutput { Error = "Partial output: cancelled" }; output.Messages.Append(Array.Empty<QueryMessage>(), 3);
+    output.Tables.Add(table); output.Messages.Add(new(0, "ASE", "first")); output.Messages.Add(new(0, "ASE", "second"));
+    text = ResultFormats.Isql(output);
+    Assert(text.IndexOf("first", StringComparison.Ordinal) < text.IndexOf("second", StringComparison.Ordinal));
+    Assert(text.Contains(HeadTailBuffer<QueryMessage>.OmissionText(3)) && text.EndsWith("Partial output: cancelled" + Environment.NewLine));
+    Assert(ResultFormats.Isql(new QueryOutput()) == "");
+});
+Check("isql cells preserve types, multiline and long values without local grid filtering", () => {
+    var table = new DataTable(); table.Columns.Add("value", typeof(object));
+    table.Rows.Add(new object[] { "line1\r\nline2\tend\rline3" });
+    table.Rows.Add(new object[] { new string('x', 245) });
+    table.Rows.Add(new object[] { new byte[] { 0, 255 } });
+    table.Rows.Add(true); table.Rows.Add(12.5m);
+    table.Rows.Add(new DateTime(2026, 11, 4, 12, 30, 5).AddTicks(1234567));
+    table.Rows.Add(DBNull.Value); table.Rows.Add("");
+    table.DefaultView.RowFilter = "value IS NULL";
+    var culture = CultureInfo.CurrentCulture;
+    try {
+        CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("es-AR");
+        string text = ResultFormats.Isql([new(Table: table)]);
+        Assert(text.Contains("line1") && text.Contains("line2    end") && text.Contains("line3"));
+        Assert(text.Replace("0x00FF", "", StringComparison.Ordinal).Count(c => c == 'x') == 245 && text.Contains("0x00FF") && text.Contains("12.5"));
+        Assert(text.Contains("2026-11-04 12:30:05.1234567") && text.Contains("NULL") && text.Contains("(8 rows affected)"));
+        Assert(text.Split(Environment.NewLine).Where(line => line.Length > 0 && !line.StartsWith('(')).All(line => line.Length == 120));
+    } finally { CultureInfo.CurrentCulture = culture; }
+});
+Check("sp_sysmon index recognizes underlined sections and preserves original navigation offsets", () => {
+    const string sample = "sp_sysmon report\r\n  Kernel Utilization  \r\n -------------------- \r\nCPU: 12%\nLock Management\n---\nlocks: 2\rNetwork I/O Management\r----------------------\rpackets: 4\r\nTask Management\r\nnot an underline\r\nOther heading\r\n---------\r\nKernel Utilization\r\n---";
+    var sections = ResultFormats.SysmonSections(sample);
+    Assert(sections.Select(section => section.Heading).SequenceEqual(new[] { "Kernel Utilization", "Lock Management", "Network I/O Management", "Kernel Utilization" }));
+    Assert(sections.Select(section => section.Line).SequenceEqual(new[] { 1, 4, 7, 14 }));
+    foreach (var section in sections) Assert(sample[section.Offset..].TrimStart().StartsWith(section.Heading, StringComparison.Ordinal));
+    Assert(ResultFormats.SysmonSections("").Count == 0 && ResultFormats.SysmonSections("Lock Management\n--\nTask Management").Count == 0);
+    string[] headings = ["Kernel Utilization", "Worker Process Management", "Parallel Query Management", "Task Management", "Application Management", "ESP Management", "Transaction Profile", "Transaction Management", "Index Management", "Metadata Cache Management", "Lock Management", "Data Cache Management", "Procedure Cache Management", "Memory Management", "Recovery Management", "Disk I/O Management", "Network I/O Management"];
+    Assert(ResultFormats.SysmonSections(string.Join("\n", headings.Select(heading => heading + "\n---"))).Count == headings.Length);
+    var report = new QueryOutput(); report.Messages.Add(new(0, "ASE", "Kernel Utilization")); report.Messages.Add(new(0, "ASE", "------------------"));
+    report.Messages.Add(new(0, "ASE", "CPU: 12%\nLock Management\n---------------\nlocks: 2"));
+    Assert(ResultFormats.SysmonSections(ResultFormats.Isql(report)).Count == 2);
+    report.Messages.Clear(); report.Messages.Add(new(0, "ASE", "Kernel Utilization\r\n")); report.Messages.Add(new(0, "ASE", "------------------\r\n"));
+    report.Messages.Add(new(0, "ASE", "CPU: 12%\nLock Management\n---------------\nlocks: 2"));
+    Assert(ResultFormats.SysmonSections(ResultFormats.Isql(report)).Count == 2);
+    var table = new DataTable(); table.Columns.Add("report"); table.Rows.Add("Task Management\n---------------\ntasks: 3");
+    report.Tables.Add(table);
+    Assert(ResultFormats.SysmonSections(ResultFormats.Isql(report)).Count == 3);
+});
+Check("Head/tail retention preserves all messages through 500, in arrival order without a marker", () => {
+    foreach (int count in new[] { 0, 1, 249, 250, 251, 499, 500 })
+    {
+        var buffer = new HeadTailBuffer<int>();
+        for (int i = 0; i < count; i++) buffer.Add(i);
+        Assert(buffer.Count == count && buffer.OmittedCount == 0);
+        Assert(buffer.SequenceEqual(Enumerable.Range(0, count)));
+        Assert(buffer.Snapshot(_ => -1).SequenceEqual(Enumerable.Range(0, count)));
+    }
+});
+Check("Head/tail retention keeps the first 250 and last 250 with one counted marker between them", () => {
+    var buffer = new HeadTailBuffer<string>();
+    for (int i = 0; i < 10000; i++)
+    {
+        buffer.Add(i.ToString(CultureInfo.InvariantCulture));
+        if (i is not (500 or 501 or 749 or 9999)) continue;
+        int count = i + 1;
+        var rows = buffer.Snapshot(HeadTailBuffer<string>.OmissionText);
+        Assert(buffer.Count == 500 && buffer.OmittedCount == count - 500 && rows.Count == 501);
+        Assert(rows.Take(250).SequenceEqual(Enumerable.Range(0, 250).Select(n => n.ToString(CultureInfo.InvariantCulture))));
+        Assert(rows[250] == "… " + (count - 500) + " messages omitted …");
+        Assert(rows.Skip(251).SequenceEqual(Enumerable.Range(count - 250, 250).Select(n => n.ToString(CultureInfo.InvariantCulture))));
+        Assert(rows.Count(row => row.Contains("messages omitted")) == 1);
+    }
+    var snapshot = buffer.Snapshot(HeadTailBuffer<string>.OmissionText);
+    buffer.Clear(); buffer.Add("new execution");
+    Assert(buffer.Count == 1 && buffer.OmittedCount == 0 && buffer.Snapshot(_ => "marker").Single() == "new execution");
+    Assert(snapshot.Count == 501 && snapshot[^1] == "9999");
+});
+Check("Appending retained output carries omissions forward alongside client messages", () => {
+    var output = new QueryOutput();
+    for (int i = 0; i < 1200; i++) output.Messages.Add(new QueryMessage(i, "ASE", "Message " + i, "Raw " + i));
+    var panel = new HeadTailBuffer<QueryMessage>();
+    panel.Add(new QueryMessage(0, "CLIENT", "Execute"));
+    panel.Append(output.Messages, output.OmittedMessages);
+    panel.Add(new QueryMessage(0, "CLIENT", "Done"));
+    var rows = panel.Snapshot(n => new QueryMessage(0, "CLIENT", HeadTailBuffer<QueryMessage>.OmissionText(n)));
+    Assert(output.OmittedMessages == 700 && panel.OmittedCount == 702 && rows.Count == 501);
+    Assert(rows[0].Text == "Execute" && rows[249].Number == 248 && rows[250].Text == "… 702 messages omitted …");
+    Assert(rows[251].Number == 951 && rows[^2].Number == 1199 && rows[^2].RawText == "Raw 1199" && rows[^1].Text == "Done");
+});
+Check("QueryOutput reports each message immediately, including diagnostics beyond the retention limit", () => {
+    int received = 0;
+    var output = new QueryOutput(new MessageProgress(message => { Assert(message.Number == received); received++; }));
+    for (int i = 0; i < 1250; i++)
+    {
+        output.Messages.Add(new QueryMessage(i, "ASE", "print " + i));
+        Assert(received == i + 1);
+    }
+    Assert(output.Messages.Count == 500 && output.OmittedMessages == 750);
+});
+Check("Engines implementing only the original Execute overload still execute through the progress overload", () => {
+    IQueryEngine fixture = engine;
+    var result = fixture.Execute("select 42 as n", default, new MessageProgress(_ => Assert(false)));
+    Assert(result.Error == null && (decimal)result.Tables.Single().Rows[0][0] == 42m);
+    try { ((IQueryEngine)new ThrowingEngine()).Execute("select 1", default, null); Assert(false); }
+    catch (InvalidOperationException ex) { Assert(ex.Message == "fixture failure"); }
 });
 Check("Query clipboard report preserves submitted SQL and escapes it before the table", () => {
     const string query = "select '<script>José & 🐱</script>'\r\nfrom t;";
@@ -577,12 +824,15 @@ Check("Parameter values are escaped inside quotes and limited to one token outsi
 Check("Packaged recipes are generic: no site procedures or logins, and every placeholder is English", () => {
     using var recipes = System.Text.Json.JsonDocument.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "src", "AseIsql.Desktop", "Assets", "ase-recipes.json")));
     var entries = recipes.RootElement.EnumerateArray().ToList();
-    Assert(entries.All(r => r.GetProperty("engine").GetString() is "ASE" or "IQ" or "RS") && entries.Count(r => r.GetProperty("engine").GetString() == "ASE") == 52 && entries.Count(r => r.GetProperty("engine").GetString() == "IQ") == 21 && entries.Count(r => r.GetProperty("engine").GetString() == "RS") == 21);
+    Assert(entries.All(r => r.GetProperty("engine").GetString() is "ASE" or "IQ" or "RS") && entries.Count(r => r.GetProperty("engine").GetString() == "ASE") == 54 && entries.Count(r => r.GetProperty("engine").GetString() == "IQ") == 21 && entries.Count(r => r.GetProperty("engine").GetString() == "RS") == 21);
+    Assert(entries.Select(r => r.GetProperty("id").GetString()).Distinct().Count() == entries.Count);
+    Assert(entries.Single(r => r.GetProperty("name").GetString() == "sp_sysmon 1 minute").GetProperty("sql").GetString() == "sp_sysmon \"00:01:00\"");
+    Assert(entries.Single(r => r.GetProperty("name").GetString() == "sp_sysmon 5 minutes").GetProperty("sql").GetString() == "sp_sysmon \"00:05:00\"");
     // Replication Server speaks RCL: its recipes never use SELECT; IQ recipes never use ASE-only catalogs.
     Assert(entries.Where(r => r.GetProperty("engine").GetString() == "RS").All(r => !r.GetProperty("sql").GetString()!.Contains("select", StringComparison.OrdinalIgnoreCase)));
     Assert(entries.Where(r => r.GetProperty("engine").GetString() == "IQ").All(r => !r.GetProperty("sql").GetString()!.Contains("master..", StringComparison.OrdinalIgnoreCase)));
     var sql = entries.Select(r => r.GetProperty("sql").GetString()!).ToList();
-    Assert(sql.Count == 94 && sql.All(s => !s.Contains("sp_reporte_tablas", StringComparison.OrdinalIgnoreCase) && !s.Contains("create proc", StringComparison.OrdinalIgnoreCase) && !s.Contains("'monitor'", StringComparison.Ordinal)));
+    Assert(sql.Count == 96 && sql.All(s => !s.Contains("sp_reporte_tablas", StringComparison.OrdinalIgnoreCase) && !s.Contains("create proc", StringComparison.OrdinalIgnoreCase) && !s.Contains("'monitor'", StringComparison.Ordinal)));
     var allowed = new HashSet<string>(["interval", "min_spid", "idle_seconds", "spid", "table", "database", "open_minutes", "date_column", "history_table", "min_change_pct", "pattern", "login", "object", "since", "orig_db", "xactname", "databases", "data_server", "connection_id"]);
     Assert(sql.SelectMany(SqlParameters.Names).All(allowed.Contains));
 });
@@ -644,6 +894,76 @@ Check("IQ TLS can verify an explicit certificate name independently of the engin
             try { bad.Validate(); throw new Exception("Accepted certificate name outside IQ TLS"); } catch (ArgumentException) { }
         Assert(!OdbcSession.BuildConnectionString(profile with { IqCertificateName = "" }, "synthetic-db").Contains("CERTIFICATE_NAME", StringComparison.OrdinalIgnoreCase));
     } finally { File.Delete(ca); }
+});
+// ---- 0.5.0: catalog source order, session textsize and disconnected execution ----
+Check("Object source queries share the full syscomments fragment order for names and resolved ids", () => {
+    const string order = " order by c.number, c.colid2, c.colid";
+    Assert(CatalogSql.ObjectText("", "dbo.proc") == "select c.text from syscomments c where c.id = object_id('dbo.proc')" + order);
+    Assert(CatalogSql.ObjectText("[other db]..", "other db.dbo.O'Brien") ==
+        "select c.text from [other db]..syscomments c where c.id = object_id('other db.dbo.O''Brien')" + order);
+    Assert(CatalogSql.ObjectText("[other db]..", 12345) == "select c.text from [other db]..syscomments c where c.id = 12345" + order);
+    Assert(CatalogSql.ObjectText("", 12345) == "select c.text from syscomments c where c.id = 12345" + order);
+});
+Check("Statistics IO initializes textsize once across runs, GO repetitions and option toggles in one session", () => {
+    var state = new AseTextSize();
+    var sent = new List<string>();
+    for (int run = 0; run < 2; run++)
+        foreach (var batch in SqlScript.SplitBatches("select 1\ngo 3\nset textsize 4096\ngo\nselect 2"))
+            for (int repeat = 0; repeat < batch.Repeat; repeat++)
+            {
+                state.EnsureForExecutionIo(sent.Add);
+                state.ObserveBatch(batch.Text);
+            }
+    foreach (bool enabled in new[] { false, true, false, true })
+    {
+        var next = AseSessionOptions.Default with { StatisticsIo = enabled };
+        sent.AddRange(AseSessionOptions.Script(AseSessionOptions.Default with { StatisticsIo = !enabled }, next));
+        if (next.CapturesExecutionIo) state.EnsureForExecutionIo(sent.Add);
+    }
+    Assert(sent.Count(sql => sql.StartsWith("set textsize", StringComparison.Ordinal)) == 1);
+    Assert(sent[0] == "set textsize 16777216");
+    // A fresh connection has independent state.
+    new AseTextSize().EnsureForExecutionIo(sent.Add);
+    Assert(sent.Count(sql => sql == "set textsize 16777216") == 2);
+});
+Check("User textsize SETs before capture, including conditional or possibly failed batches, keep user control", () => {
+    foreach (string sql in new[] { "set textsize 1024", "SET\nTEXTSIZE 4096", "select 1; set/* comment */textsize 512",
+        "if 1 = 0 set textsize 8192", "set textsize @size", "set textsize 2048; raiserror 20000 'later failure'" })
+    {
+        var state = new AseTextSize();
+        state.ObserveBatch(sql);
+        state.EnsureForExecutionIo(_ => Assert(false));
+        state.ObserveBatch("select 1");
+        state.EnsureForExecutionIo(_ => Assert(false));
+    }
+});
+Check("Textsize detection ignores comments, quoted text and identifiers", () => {
+    var state = new AseTextSize();
+    state.ObserveBatch("-- set textsize 1\n/* set textsize 2 /* nested */ */\nselect 'set textsize 3', \"set textsize 4\", [set textsize 5], 'it''s set textsize 6'");
+    state.ObserveBatch("select @set textsize, #set textsize, $set textsize, offset textsize, set textsize_extra, set textsize$alias");
+    int calls = 0;
+    state.EnsureForExecutionIo(_ => calls++);
+    Assert(calls == 1);
+});
+Check("Textsize initialization is retried after failure but never after a user SET", () => {
+    var state = new AseTextSize();
+    int calls = 0;
+    try { state.EnsureForExecutionIo(_ => { calls++; throw new InvalidOperationException("fixture failure"); }); Assert(false); }
+    catch (InvalidOperationException ex) { Assert(ex.Message == "fixture failure"); }
+    state.EnsureForExecutionIo(_ => calls++);
+    state.EnsureForExecutionIo(_ => Assert(false));
+    Assert(calls == 2);
+    var userState = new AseTextSize();
+    try { userState.EnsureForExecutionIo(_ => throw new OperationCanceledException()); Assert(false); }
+    catch (OperationCanceledException) { }
+    userState.ObserveBatch("set textsize 512");
+    userState.EnsureForExecutionIo(_ => Assert(false));
+});
+Check("Disconnected execution names a server generically and still honors cancellation", () => {
+    var disconnected = new DisconnectedQueryEngine();
+    Assert(disconnected.Execute("select 1").Error == "Connect to a server to execute a query.");
+    try { disconnected.Execute("select 1", new CancellationToken(true)); Assert(false); }
+    catch (OperationCanceledException) { }
 });
 // ---- 0.4.0: B1 (no re-execution for Statistics IO), go N, continue after errors, timeouts, B2, B3, PROD and SqlRisk ----
 Check("Statistics IO with an empty plan buffer reports 'plan not captured' and runs each batch exactly once", () => {
@@ -818,6 +1138,7 @@ Check("New light palettes meet WCAG contrast for text, syntax, accent and select
     if (failures.Count > 0) throw new Exception("Contrast below floor: " + string.Join("; ", failures));
     foreach (var palette in catalog.Where(p => enforced.ContainsKey(p.Id))) Console.WriteLine("INFO contrast " + PaletteContrast.Report(palette));
 });
+if (OperatingSystem.IsWindows())
 using (var iqDriver = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\ODBC\ODBCINST.INI\SAP IQ"))
 {
     if (iqDriver?.GetValue("Driver") is not string iqLibrary || !File.Exists(iqLibrary))
@@ -840,6 +1161,7 @@ using (var iqDriver = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWAR
         } finally { File.Delete(ca); File.Delete(identity); }
     });
 }
+else Console.WriteLine("SKIP native IQ TLS parser check: Windows registry is unavailable.");
 Check("Replication Server profiles use the ASE driver without a database and test with RCL", () => {
     var profile = new ConnectionProfile("rs-host", 5510, "", "sa", false, "", Platform: ServerPlatform.Rs);
     var builder = new OdbcConnectionStringBuilder(OdbcSession.BuildConnectionString(profile, "secret"));
@@ -881,17 +1203,17 @@ Check("Session options send only what changed, with noexec last on and first off
     var off = AseSessionOptions.Default;
     Assert(AseSessionOptions.Script(off, off).Count == 0);
     Assert(AseSessionOptions.Script(off, off with { StatisticsTime = true }).SequenceEqual(new[] { "set statistics time on" }));
-    Assert(AseSessionOptions.Script(off, off with { StatisticsIo = true }).SequenceEqual(new[] { "set textsize 16777216", "set plan for show_execio_xml to message on" }));
+    Assert(AseSessionOptions.Script(off, off with { StatisticsIo = true }).SequenceEqual(new[] { "set plan for show_execio_xml to message on" }));
     // Turning on: noexec trails, and show_execio_xml to message on trails statistics time so the message buffer stays the active target.
     var all = off with { NoExec = true, StatisticsIo = true, StatisticsTime = true };
-    Assert(AseSessionOptions.Script(off, all).SequenceEqual(new[] { "set statistics time on", "set textsize 16777216", "set plan for show_execio_xml to message on", "set noexec on" }));
+    Assert(AseSessionOptions.Script(off, all).SequenceEqual(new[] { "set statistics time on", "set plan for show_execio_xml to message on", "set noexec on" }));
     // Turning off: noexec leads, because nothing after it would execute otherwise.
     Assert(AseSessionOptions.Script(all, off).SequenceEqual(new[] { "set noexec off", "set statistics time off", "set plan for show_execio_xml off" }));
 });
 Check("A change made while noexec is on is bracketed, so it never depends on the server honouring SET there", () => {
     var off = AseSessionOptions.Default;
     var noexec = off with { NoExec = true };
-    Assert(AseSessionOptions.Script(noexec, noexec with { StatisticsIo = true }).SequenceEqual(new[] { "set noexec off", "set textsize 16777216", "set plan for show_execio_xml to message on", "set noexec on" }));
+    Assert(AseSessionOptions.Script(noexec, noexec with { StatisticsIo = true }).SequenceEqual(new[] { "set noexec off", "set plan for show_execio_xml to message on", "set noexec on" }));
     var all = off with { NoExec = true, StatisticsIo = true, StatisticsTime = true };
     Assert(AseSessionOptions.Script(all, all with { StatisticsTime = false }).SequenceEqual(new[] { "set noexec off", "set statistics time off", "set plan for show_execio_xml to message on", "set noexec on" }));
     Assert(AseSessionOptions.Script(noexec, noexec with { Compatibility = CompatibilityMode.Off }).SequenceEqual(new[] { "set noexec off", "set compatibility_mode off", "set noexec on" }));
@@ -1048,4 +1370,52 @@ sealed class ThrowingEngine : IQueryEngine
 {
     public string Name => "Throwing fixture";
     public QueryOutput Execute(string sql, CancellationToken cancellation = default) => throw new InvalidOperationException("fixture failure");
+}
+
+sealed class MessageProgress(Action<QueryMessage> report) : IProgress<QueryMessage>
+{
+    public void Report(QueryMessage message) => report(message);
+}
+
+// Fake IDataReader with observable reads and result transitions; no database or driver is involved.
+sealed class ExportTestReader(params DataTable[] tables) : IDataReader
+{
+    private readonly DataTableReader inner = new(tables);
+    public Action<int>? BeforeRead;
+    public Action? BeforeNextResult;
+    public Func<int, string>? ColumnName;
+    public int ReadCalls, NextResultCalls;
+    public bool Read() { ReadCalls++; BeforeRead?.Invoke(ReadCalls); return inner.Read(); }
+    public bool NextResult() { NextResultCalls++; BeforeNextResult?.Invoke(); return inner.NextResult(); }
+    public object GetValue(int i) => inner.GetValue(i);
+    public string GetName(int i) => ColumnName?.Invoke(i) ?? inner.GetName(i);
+    public int FieldCount => inner.FieldCount;
+    public int Depth => inner.Depth;
+    public bool IsClosed => inner.IsClosed;
+    public int RecordsAffected => inner.RecordsAffected;
+    public object this[int i] => inner[i];
+    public object this[string name] => inner[name];
+    public void Close() => inner.Close();
+    public void Dispose() => inner.Dispose();
+    public DataTable? GetSchemaTable() => inner.GetSchemaTable();
+    public bool GetBoolean(int i) => inner.GetBoolean(i);
+    public byte GetByte(int i) => inner.GetByte(i);
+    public long GetBytes(int i, long offset, byte[]? buffer, int start, int length) => inner.GetBytes(i, offset, buffer, start, length);
+    public char GetChar(int i) => inner.GetChar(i);
+    public long GetChars(int i, long offset, char[]? buffer, int start, int length) => inner.GetChars(i, offset, buffer, start, length);
+    public IDataReader GetData(int i) => throw new NotSupportedException();
+    public string GetDataTypeName(int i) => inner.GetDataTypeName(i);
+    public DateTime GetDateTime(int i) => inner.GetDateTime(i);
+    public decimal GetDecimal(int i) => inner.GetDecimal(i);
+    public double GetDouble(int i) => inner.GetDouble(i);
+    public Type GetFieldType(int i) => inner.GetFieldType(i);
+    public float GetFloat(int i) => inner.GetFloat(i);
+    public Guid GetGuid(int i) => inner.GetGuid(i);
+    public short GetInt16(int i) => inner.GetInt16(i);
+    public int GetInt32(int i) => inner.GetInt32(i);
+    public long GetInt64(int i) => inner.GetInt64(i);
+    public int GetOrdinal(string name) => inner.GetOrdinal(name);
+    public string GetString(int i) => inner.GetString(i);
+    public int GetValues(object[] values) => inner.GetValues(values);
+    public bool IsDBNull(int i) => inner.IsDBNull(i);
 }

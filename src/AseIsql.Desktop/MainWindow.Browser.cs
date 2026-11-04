@@ -60,8 +60,7 @@ public partial class MainWindow
         try {
             string tagged = label == "Session options" ? sql : "/* dbmon_execio */\n" + sql;
             var output=await Task.Run(()=>session.Execute(tagged,cancellation.Token,userRun:false));
-            foreach(var message in output.Messages) AddMessage(owner,message.Number,message.Source,message.Text,message.RawText);
-            if(output.OmittedMessages>0) AddMessage(owner,0,"CLIENT",$"{output.OmittedMessages} earlier messages were omitted by the retention limit.");
+            AddOutputMessages(owner,output);
             if(output.Error!=null) { AddMessage(owner,1,output.ErrorSource,output.Error,output.ErrorRawText); ShowMessages(owner); SetStatus(owner,"Catalog partial/unavailable: "+output.Error); if(output.Tables.Count==0)return null; }
             return output;
         } catch(Exception ex) when(ex is ArgumentException or InvalidOperationException or OperationCanceledException or OdbcException) { AddMessage(owner,1,"CLIENT","Catalog request failed: "+ex.Message); SetStatus(owner,ex.Message); return null; }
@@ -263,7 +262,7 @@ public partial class MainWindow
         "depends"=>"exec "+target.ProcedurePrefix+"sp_depends "+target.ProcedureArgument,
         "indexes"=>"exec "+target.ProcedurePrefix+"sp_helpindex "+target.ProcedureArgument,
         "space"=>"exec "+target.ProcedurePrefix+"sp_spaceused "+target.ProcedureArgument,
-        "code"=>"select c.text from "+target.ProcedurePrefix+"syscomments c where c.id = object_id("+target.ObjectIdArgument+") order by c.number, c.colid",
+        "code"=>CatalogSql.ObjectText(target.ProcedurePrefix,target.Display),
         _=>throw new ArgumentException("Unknown object action.")};
     private void RunHelper(string sql,string label)
     {

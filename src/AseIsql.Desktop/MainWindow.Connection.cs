@@ -35,11 +35,11 @@ public partial class MainWindow
         finally { changingSession = false; RefreshConnection(); }
         if (accepted == true && dialog.TakeConnection() is { } connection)
         {
-            ActivateConnection(connection.Session,connection.Selection,connection.Session.LoginMessages,connection.TimingText);
+            ActivateConnection(connection.Session,connection.Selection,connection.Session.LoginMessages,connection.TimingText,connection.Session.OmittedLoginMessages);
         }
     }
 
-    private void ActivateConnection(IQueryEngine session,LoginSelection selection,IReadOnlyList<QueryMessage> loginMessages,string? timing=null)
+    private void ActivateConnection(IQueryEngine session,LoginSelection selection,IReadOnlyList<QueryMessage> loginMessages,string? timing=null,int omittedMessages=0)
     {
         // Adopt the resource before UI work, and consume the validated snapshot
         // captured before opening ODBC rather than re-reading a closed dialog.
@@ -48,7 +48,7 @@ public partial class MainWindow
         engine=session;lastProfile=selection.Profile;aseOptions=AseSessionOptions.Default;
         BrowserTree.Items.Clear();databaseNames=null;ClearResults(true);resultCounter=0;ClearMessages();
         AddMessage(0,"CLIENT","Connected · "+engine.Name+(timing==null?"":" · "+timing));
-        foreach(var message in loginMessages)AddMessage(message.Number,message.Source,message.Text,message.RawText);
+        activeSession.MessageBuffer.Append(loginMessages.Select(LogRowOf),omittedMessages);RefreshMessages(activeSession);
         RefreshConnection();Workspace.SelectedItem=QueryTab;Editor.Focus();
     }
 
