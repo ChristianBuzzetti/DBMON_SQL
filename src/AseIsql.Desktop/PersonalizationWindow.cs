@@ -198,7 +198,7 @@ public sealed class PersonalizationWindow:Window
     private void BuildStyle()
     {
         var section=Section("Style");
-        var palettes=Group(section,"COLOR PALETTE","DBMON's 19 palettes. Each one sets surfaces, ink, SQL syntax colors and its own accent.");
+        var palettes=Group(section,"COLOR PALETTE","DBMON's 23 palettes. Each one sets surfaces, ink, SQL syntax colors and its own accent.");
         foreach(var (heading,dark) in new[]{("Dark",true),("Light",false)})
         {
             var members=Themes.All.Where(p=>p.DarkChrome==dark).ToList();

@@ -65,7 +65,7 @@ Platform-neutral building blocks, fully covered by the core checks.
 | `DataFolder.cs` | `%LOCALAPPDATA%\DBMON_SQL` and the one-time move from the old folder. |
 | `MainWindow.Showcase.cs`, `ShowcaseRecorder.cs` | Synthetic README tour and its own-window recorder. |
 
-Assets: `dbmon-palettes.json` (19 palettes), `ase-recipes.json` (94 recipes tagged ASE/IQ/RS), bundled fonts with their licenses, and `Assets/Boberto` (engine, Studio, adapters and backgrounds).
+Assets: `dbmon-palettes.json` (23 palettes), `ase-recipes.json` (94 recipes tagged ASE/IQ/RS), bundled fonts with their licenses, and `Assets/Boberto` (engine, Studio, adapters and backgrounds).
 
 ## Session workspace ownership
 
@@ -98,4 +98,4 @@ Every engine implements `IQueryEngine` (`Name`, `Execute`); sessions also implem
 - Passwords are never logged or persisted unless the user asks, and then only with DPAPI.
 - Results, recipes and repeats never overwrite user SQL silently: inserts go on new lines, replacements are one undo step.
 - Product UI text is English; SQL, object names and server diagnostics are shown as they are.
-- Every visual token comes from the palette catalog, so all 19 palettes and any accent stay consistent.
+- Every visual token comes from the palette catalog, so all 23 palettes and any accent stay consistent.

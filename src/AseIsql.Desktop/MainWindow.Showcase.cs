@@ -121,7 +121,7 @@ public partial class MainWindow
         await Glide(BobertoButton); OpenPersonalization(true);
         await Task.Delay(2200); // the header dock reloads with the look chosen in Studio
 
-        // 5 · Personalize: a few of the 19 palettes, applied live.
+        // 5 · Personalize: a few of the 23 palettes, applied live.
         _ = Dispatcher.InvokeAsync(async () =>
         {
             await Task.Delay(900);

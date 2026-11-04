@@ -391,14 +391,14 @@
    tenue se lee
    como piso brillante, que es lo que es. Las luces del acento no necesitan
    regla: mezclas con transparente sobre claro tiñen, no lavan. */
-html:is([data-theme="alba"], [data-theme="sandstone"]) [data-boberto-dock] {
+html:is([data-theme="alba"], [data-theme="sandstone"], [data-theme="papel"], [data-theme="sepia"], [data-theme="glaciar"], [data-theme="contraste"]) [data-boberto-dock] {
   --plt-pod-reflejo: .16;
   --plt-pod-reflejo-largo: 30%;
   --plt-fondo-op: .6;
 }
 /* El fondo sobre papel: el gris tenue a baja opacidad se lee como barro.
    Con más acento en la mezcla, el mismo trazo tiñe en vez de ensuciar. */
-html:is([data-theme="alba"], [data-theme="sandstone"]) .plt-fondo-svg {
+html:is([data-theme="alba"], [data-theme="sandstone"], [data-theme="papel"], [data-theme="sepia"], [data-theme="glaciar"], [data-theme="contraste"]) .plt-fondo-svg {
   --pf-tinta: color-mix(in srgb, var(--accent, #2684ff) 50%, var(--text-dim, #6b7e9d));
   --pf-relleno: color-mix(in srgb, var(--accent, #2684ff) 45%, var(--text-dim, #6b7e9d));
 }
