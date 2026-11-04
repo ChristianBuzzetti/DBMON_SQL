@@ -171,6 +171,7 @@ public partial class MainWindow
             Messages.ItemsSource = log; LogCount.Text = Counts.Of(log.Count, "message");
             SetLogVisible(logVisible);
             Workspace.SelectedItem = workspace.SelectedTab != null && Workspace.Items.Contains(workspace.SelectedTab) ? workspace.SelectedTab : QueryTab;
+            RefreshRunText();
             SessionTabs.SelectedItem = workspace.Header;
             SyncRepeatBanner();
             RefreshConnection(); StatusText.Text = workspace.Status;

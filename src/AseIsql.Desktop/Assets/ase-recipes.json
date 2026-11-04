@@ -1,5 +1,21 @@
 [
   {
+    "id": "ase_sysmon_1_minute",
+    "engine": "ASE",
+    "category": "Diagnostics and activity",
+    "name": "sp_sysmon 1 minute",
+    "description": "Samples ASE performance for one minute. Use Text output (isql style) to browse report sections; the query timeout must allow the sampling interval.",
+    "sql": "sp_sysmon \"00:01:00\""
+  },
+  {
+    "id": "ase_sysmon_5_minutes",
+    "engine": "ASE",
+    "category": "Diagnostics and activity",
+    "name": "sp_sysmon 5 minutes",
+    "description": "Samples ASE performance for five minutes. Use Text output (isql style) to browse report sections; run without timeout or allow more than five minutes.",
+    "sql": "sp_sysmon \"00:05:00\""
+  },
+  {
     "id": "ase_top10_lreads",
     "engine": "ASE",
     "category": "Diagnostics and activity",

@@ -243,6 +243,7 @@ public partial class MainWindow : Window
             if (owner.Engine is DemoQueryEngine) cancellation.Token.ThrowIfCancellationRequested();
             // Results accumulate; a re-run replaces only its own earlier tabs.
             var run = NewRun(owner, sql, owner.Engine); owner.LastRunId = run.Id;
+            CaptureRunText(owner, run, output);
             PublishResults(owner, output.Tables, run, replaceRun);
             foreach (QueryMessage message in output.Messages) AddMessage(owner, message.Number, message.Source, message.Text, message.RawText);
             if (output.OmittedMessages > 0) AddMessage(owner, 0, "CLIENT", $"{output.OmittedMessages} earlier messages were omitted by the retention limit.");
@@ -466,6 +467,7 @@ public partial class MainWindow : Window
     private void TabChanged(object sender, SelectionChangedEventArgs e)
     {
         if (!ready || e.Source != Workspace) return;
+        if (!mountingSession) SelectRunText();
         // The tab strip is one scrolling row, so a tab selected from the keyboard or from code can sit off-screen.
         if (Workspace.SelectedItem is TabItem selected) selected.BringIntoView();
         if (Workspace.SelectedItem is TabItem { Tag: DataTable table } tab) StatusText.Text = $"{ResultName(tab)} · {resultOrigins.GetValueOrDefault(table).Source} · {Counts.Of(table.Rows.Count, "row")} · {Counts.Of(table.Columns.Count, "column")}";

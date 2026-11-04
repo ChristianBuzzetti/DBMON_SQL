@@ -2,6 +2,12 @@
 
 All notable changes to DBMON SQL are listed here. The project follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **Text output (isql style)** beside Messages, with fixed-width result tables, row counts, server messages, Copy and UTF-8 `.txt` saving. Each result's toolbar opens its whole run; sessions retain their own text output. Long cells wrap without losing values. When the engine supplies separate result/message lists, text shows results first, then messages in their received order.
+- A navigable **sp_sysmon sections** list in the text view recognizes underlined report headings. Recipes **sp_sysmon 1 minute** and **sp_sysmon 5 minutes** sample ASE performance.
+
 ## [0.4.0] — 2026-11-04
 
 ### Fixed

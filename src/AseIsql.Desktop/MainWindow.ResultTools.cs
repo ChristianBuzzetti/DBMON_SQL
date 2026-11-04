@@ -59,6 +59,9 @@ public partial class MainWindow
             } catch (Exception ex) when (ex is EvaluateException or SyntaxErrorException or FormatException) { StatusText.Text = ex.Message; }
         };
         var pin = new Button { Content = "📌 Pin", Padding = new Thickness(8,4,8,4) }; pin.Click += (_,_) => TogglePin(tab); panel.Children.Add(pin);
+        var textOutput = new Button { Content = "Text output (isql style)", Padding = new Thickness(8,4,8,4), ToolTip = "Show this whole run as plain text" };
+        textOutput.Click += (_, _) => { Workspace.SelectedItem = tab; SelectRunText(); SetLogVisible(true); TextOutputTab.IsSelected = true; RefreshRunText(); };
+        panel.Children.Add(textOutput);
         var detail = new Button { Content = "Row details", Padding = new Thickness(8,4,8,4) };
         detail.Click += (_,_) => { if (grid.CurrentCell.Item is DataRowView row) TextWindow("Row details", string.Join(Environment.NewLine + Environment.NewLine, row.Row.Table.Columns.Cast<DataColumn>().Select(c => c.Caption + " [" + c.DataType.Name + "]\n" + (row[c.Ordinal] is DBNull ? "NULL" : row[c.Ordinal] is byte[] bytes ? "0x" + Convert.ToHexString(bytes) : Convert.ToString(row[c.Ordinal],CultureInfo.InvariantCulture))))); };
         panel.Children.Add(detail);
@@ -132,5 +135,23 @@ public partial class MainWindow
         string extension=format=="JSON"?"json":format=="Markdown"?"md":format=="HTML report"?"html":"sql";
         var picker=new SaveFileDialog { Filter="File "+extension+"|*."+extension, DefaultExt="."+extension, FileName=FileStem(ResultName(tab))+"."+extension };
         if(picker.ShowDialog(this)==true) { AtomicFiles.SaveUtf8(picker.FileName,text); StatusText.Text="Exported · "+format+" · filtered view"; }
+    }
+
+    private void CopyRunTextClick(object sender, RoutedEventArgs e)
+    {
+        if (visibleRunText == null) return;
+        try { Clipboard.SetText(visibleRunText.Text); StatusText.Text = "Copied whole run · isql text"; }
+        catch (Exception ex) when (ex is System.Runtime.InteropServices.ExternalException or InvalidOperationException)
+        { ShowError("Unable to copy: " + ex.Message); }
+    }
+
+    private void SaveRunTextClick(object sender, RoutedEventArgs e)
+    {
+        if (visibleRunText == null) return;
+        var picker = new SaveFileDialog { Filter = "Text files (*.txt)|*.txt", DefaultExt = ".txt", FileName = "Run.txt", AddExtension = true, OverwritePrompt = true };
+        if (picker.ShowDialog(this) != true) return;
+        try { AtomicFiles.SaveUtf8(picker.FileName, visibleRunText.Text); StatusText.Text = "Saved whole run · UTF-8 text"; }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        { ShowError("Unable to save: " + ex.Message); }
     }
 }
