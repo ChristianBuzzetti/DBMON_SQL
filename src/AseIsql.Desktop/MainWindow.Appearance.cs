@@ -10,12 +10,19 @@ public partial class MainWindow
     private AppearanceSettings appearance=new();
     private BobertoDockControl? bobertoDock;
     private bool companionAllowed,personalizing;
-    // Smoke keeps Studio and dock in one isolated profile so their shared look can be verified without user data.
-    private string? BobertoProfile=>isSmoke?Path.Combine(AppContext.BaseDirectory,"BobertoSmoke","profile"):null;
+    private string? BobertoProfile =>
+#if DBMON_SMOKE
+        // Smoke keeps Studio and dock in one isolated profile without user data.
+        isSmoke ? Path.Combine(AppContext.BaseDirectory, "BobertoSmoke", "profile") :
+#endif
+        null;
     private void InitializeAppearance()
     {
+#if DBMON_SMOKE
         if(isSmoke&&!IsShowcase) appearance=appearance with {ThemeId="light"};
-        else try{appearance=AppearanceStore.Load(AppearanceStore.PathName);}catch(Exception ex)when(ex is IOException or UnauthorizedAccessException or JsonException or ArgumentException){AddMessage(1,"CLIENT","Unable to load appearance settings: "+ex.Message);}
+        else
+#endif
+        try{appearance=AppearanceStore.Load(AppearanceStore.PathName);}catch(Exception ex)when(ex is IOException or UnauthorizedAccessException or JsonException or ArgumentException){AddMessage(1,"CLIENT","Unable to load appearance settings: "+ex.Message);}
         ApplyAppearance(appearance);
         if(appearance.BobertoVisible&&!Environment.GetCommandLineArgs().Contains("--startup-report"))BobertoRuntime.Prewarm(BobertoProfile??BobertoRuntime.DefaultProfile);
         // The companion's WebView2 starts after the editor's first render; --startup-report measures the editor alone.
@@ -150,6 +157,9 @@ public partial class MainWindow
     }
     private void SaveAppearance()
     {
-        if(!isSmoke)try{AppearanceStore.Save(AppearanceStore.PathName,appearance);}catch(Exception ex)when(ex is IOException or UnauthorizedAccessException or ArgumentException){ShowError("Unable to save appearance settings: "+ex.Message);}
+#if DBMON_SMOKE
+        if(!isSmoke)
+#endif
+        try{AppearanceStore.Save(AppearanceStore.PathName,appearance);}catch(Exception ex)when(ex is IOException or UnauthorizedAccessException or ArgumentException){ShowError("Unable to save appearance settings: "+ex.Message);}
     }
 }

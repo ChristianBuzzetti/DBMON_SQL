@@ -129,7 +129,11 @@ public partial class MainWindow
     }
     private void BookmarkClick(object sender,RoutedEventArgs e)=>ToggleBookmark();
     private void NextBookmarkClick(object sender,RoutedEventArgs e)=>GoBookmark(false);
-    private string LibraryPath => isSmoke?Path.Combine(AppContext.BaseDirectory,"UiSmoke","library.json"):DataFolder.File("library.json");
+    private string LibraryPath =>
+#if DBMON_SMOKE
+        isSmoke?Path.Combine(AppContext.BaseDirectory,"UiSmoke","library.json"):
+#endif
+        DataFolder.File("library.json");
     private const string UserRecipeCategory = "My recipes";
     private const int MaxUserRecipes = 1000;
     private static List<LibraryItem> ReadUserRecipes(string path)

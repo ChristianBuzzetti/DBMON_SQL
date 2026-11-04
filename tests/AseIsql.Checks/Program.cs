@@ -7,6 +7,7 @@ using System.Data.Odbc;
 int passed = 0;
 void Check(string name, Action body) { body(); Console.WriteLine("PASS " + name); passed++; }
 void Assert(bool value) { if (!value) throw new Exception("Assertion failed"); }
+OdbcSessionChecks.Run(Check);
 Check("Streaming CSV uses RFC 4180 quoting, invariant values, Unicode and empty NULL fields", () => {
     var oldCulture = CultureInfo.CurrentCulture;
     try {
@@ -1138,12 +1139,33 @@ Check("New light palettes meet WCAG contrast for text, syntax, accent and select
     if (failures.Count > 0) throw new Exception("Contrast below floor: " + string.Join("; ", failures));
     foreach (var palette in catalog.Where(p => enforced.ContainsKey(p.Id))) Console.WriteLine("INFO contrast " + PaletteContrast.Report(palette));
 });
-if (OperatingSystem.IsWindows())
-using (var iqDriver = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\ODBC\ODBCINST.INI\SAP IQ"))
+string? iqLibrary = null;
+if (!OperatingSystem.IsWindows())
+    Console.WriteLine("INFO native IQ TLS parser check skipped: Windows registry is unavailable.");
+else
 {
-    if (iqDriver?.GetValue("Driver") is not string iqLibrary || !File.Exists(iqLibrary))
-        Console.WriteLine("SKIP native IQ TLS parser check: SAP IQ driver is not installed.");
-    else Check("Installed IQ driver recognizes TLS with and without client identity on loopback", () => {
+    try
+    {
+        // Some hosts expose no LocalMachine hive even when the registry API is present.
+        var machine = Microsoft.Win32.Registry.LocalMachine;
+        if (machine == null)
+            Console.WriteLine("INFO native IQ TLS parser check skipped: Windows registry is unavailable.");
+        else
+        {
+            using var iqDriver = machine.OpenSubKey(@"SOFTWARE\ODBC\ODBCINST.INI\SAP IQ");
+            iqLibrary = iqDriver?.GetValue("Driver") as string;
+            if (iqLibrary == null || !File.Exists(iqLibrary))
+            {
+                iqLibrary = null;
+                Console.WriteLine("INFO native IQ TLS parser check skipped: SAP IQ driver is not installed.");
+            }
+        }
+    }
+    catch (Exception ex) when (ex is PlatformNotSupportedException or UnauthorizedAccessException or System.Security.SecurityException or IOException)
+    { iqLibrary = null; Console.WriteLine("INFO native IQ TLS parser check skipped: Windows registry is unavailable (" + ex.GetType().Name + ")."); }
+}
+if (iqLibrary != null)
+    Check("Installed IQ driver recognizes TLS with and without client identity on loopback", () => {
         string ca = Path.GetTempFileName(), identity = Path.GetTempFileName();
         try {
             foreach (bool withIdentity in new[] { false, true })
@@ -1160,8 +1182,6 @@ using (var iqDriver = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWAR
             }
         } finally { File.Delete(ca); File.Delete(identity); }
     });
-}
-else Console.WriteLine("SKIP native IQ TLS parser check: Windows registry is unavailable.");
 Check("Replication Server profiles use the ASE driver without a database and test with RCL", () => {
     var profile = new ConnectionProfile("rs-host", 5510, "", "sa", false, "", Platform: ServerPlatform.Rs);
     var builder = new OdbcConnectionStringBuilder(OdbcSession.BuildConnectionString(profile, "secret"));

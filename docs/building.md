@@ -18,7 +18,18 @@ NuGet restores use lock files (`packages.lock.json`), so builds are repeatable.
 ./build.ps1 -Test -Publish   # + self-contained win-x64 package and UI smoke checks
 ```
 
-`-Publish` writes a self-contained development package to `C:\DBMON_SQL`, then runs the packaged app with `--smoke` and stops if any UI check fails. This is the stable local execution directory selected by the maintainer. Close DBMON SQL before rebuilding: the script refuses to overwrite a package that is running. `build-info.json` in the package records the version, build time, check counts and assembly hashes.
+`-Publish` first publishes an opted-in smoke executable to `artifacts/ui-smoke/win-x64`, runs it with `--smoke`, and stops if any UI check fails. It then publishes a self-contained development package with `Smoke=false` to `C:\DBMON_SQL`. This is the stable local execution directory selected by the maintainer. Close DBMON SQL before rebuilding: the script refuses to overwrite a package that is running. `build-info.json` in the package records the version, build time, check counts from the separate smoke build, and assembly hashes of the final distribution.
+
+Default builds and publishes exclude UI smoke sources, fixtures, hooks and the showcase. Passing `--smoke` to such a build prints `smoke checks not included in this build` and exits with code 1 before opening the window or accessing settings. To include them explicitly on Windows:
+
+```powershell
+dotnet build src/AseIsql.Desktop -c Release -p:Smoke=true
+& 'src/AseIsql.Desktop/bin/Release/net10.0-windows/DBMON SQL.exe' --smoke --report out.json
+# A standalone smoke package can also be produced in a separate directory:
+dotnet publish src/AseIsql.Desktop -c Release -r win-x64 --self-contained true -p:Smoke=true -o artifacts/ui-smoke/win-x64
+```
+
+The `Smoke=true` build property defines `DBMON_SMOKE` and includes `MainWindow.*Smoke.cs` and `MainWindow.Showcase.cs`. Rebuild with `-p:Smoke=false` before sharing a directly built executable. The publish script does this automatically for its final package.
 
 ### Share the app
 
@@ -42,10 +53,12 @@ The product version lives only in [`Directory.Build.props`](../Directory.Build.p
 
 | Suite | Command | What it covers |
 |---|---|---|
-| Core checks | `./build.ps1 -Test` (runs `tests/AseIsql.Checks`) | SQL splitting, parameters, risk detection, result reading and limits, formats and exports, `sql.ini` parsing, connection strings per platform, profiles, recipes, multi-server combining and diffs. No server is contacted. |
-| UI smoke | `"DBMON SQL.exe" --smoke --report out.json` (run by `-Publish`) | About 250 checks on the real window: keyboard selection, palettes, personalization, Boberto dock and Studio, results, copies, repeat, parameters, login form per platform, explorer SQL builders. Uses a synthetic in-memory engine; it never opens a server connection. Needs the SAP ASE ODBC driver installed (it checks detection) and WebView2. |
+| Core checks | `./build.ps1 -Test` (runs `tests/AseIsql.Checks`) | SQL splitting, parameters, risk detection, result reading and limits, formats and exports, `sql.ini` parsing, connection strings per platform, profiles, recipes, multi-server combining and diffs. Scripted ODBC checks exercise the real `OdbcSession` without a driver: facts, result sets, bounded/login/error diagnostics, live progress, textsize per session, continue-on-error, `go N`, cancellation and limits. No server is contacted. |
+| UI smoke | `"DBMON SQL.exe" --smoke --report out.json` (requires `Smoke=true`; run separately by `-Publish`) | About 250 checks on the real window: keyboard selection, palettes, personalization, Boberto dock and Studio, results, copies, repeat, parameters, login form per platform, explorer SQL builders. Uses a synthetic in-memory engine; it never opens a server connection. Needs the SAP ASE ODBC driver installed (it checks detection) and WebView2. |
 
-Direct smoke runs write screenshots next to the executable in `UiSmoke/` and Boberto fixtures in `BobertoSmoke/`. Successful `-Publish` removes these generated folders from the package; the JSON report remains at `artifacts/smoke-latest.json`. A later manual smoke run can recreate them; rerun the preparation script before sharing.
+Smoke runs write screenshots next to the opted-in executable in `UiSmoke/` and Boberto fixtures in `BobertoSmoke/`. With `-Publish`, these stay under the separate `artifacts/ui-smoke/win-x64` directory; the JSON report remains at `artifacts/smoke-latest.json`. The final distribution excludes smoke code. The optional native IQ TLS parser check prints an `INFO` skip when the Windows registry is unavailable (including non-Windows hosts) or the IQ driver is absent.
+
+In a restricted sandbox where .NET restore/build or MSBuild named pipes are unavailable, do not attempt build/run. Review source signatures and use `git diff --check`; run the build and checks in the parent environment.
 
 ### Workspace regression checks (2026-10-20)
 
@@ -61,17 +74,17 @@ Native clipboard transfer is not asserted by these checks; they verify the text 
 
 | Switch | Purpose |
 |---|---|
-| `--smoke --report PATH` | Run the UI checks with synthetic data and write a JSON report. |
-| `--smoke --showcase DIR` | Play the scripted README tour with a fictional `DEMO_ASE` server and record frames of the app's own windows to `DIR`. |
+| `--smoke --report PATH` | Requires `Smoke=true`. Run the UI checks with synthetic data and write a JSON report. |
+| `--smoke --showcase DIR` | Requires `Smoke=true`. Play the scripted README tour with a fictional `DEMO_ASE` server and record frames of the app's own windows to `DIR`. |
 | `--ui-preview` | Open the window without the login, for visual inspection. |
 | `--startup-report PATH` | Measure time to first render and exit. |
 
-Synthetic data exists only behind `--smoke`; normal starts always begin with the login.
+Synthetic UI data exists only in opted-in builds behind `--smoke`; normal starts always begin with the login.
 
 ## Recording the README tour
 
 ```powershell
-./build.ps1
+dotnet build src/AseIsql.Desktop -c Release -p:Smoke=true
 ./scripts/record-showcase.ps1
 ```
 
@@ -79,7 +92,7 @@ The showcase types a query, runs it, inserts a recipe with a parameter, repeats 
 
 ## Continuous integration
 
-[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) builds the solution and runs the core checks on `windows-latest`. The UI smoke checks need the SAP ODBC driver and a desktop session, so they run locally through `-Publish`.
+[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) builds the solution and runs the core checks on `windows-latest`. The UI smoke checks need the SAP ODBC driver and a desktop session, so they run locally in a separate opted-in build through `-Publish`.
 
 ## Type fidelity against the server
 

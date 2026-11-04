@@ -4,6 +4,15 @@ All notable changes to DBMON SQL are listed here. The project follows [Semantic 
 
 ## [Unreleased]
 
+### Changed
+- UI smoke checks, fixtures and the synthetic showcase now compile only with `-p:Smoke=true` (`DBMON_SMOKE`). Standard builds and packages exclude them; `--smoke` prints "smoke checks not included in this build" and exits. Publishing verifies a separate smoke build before producing the distribution with smoke disabled.
+
+### Added
+- An internal ODBC transport seam and scripted driver-free checks for `OdbcSession`: result sets and facts, bounded login/error diagnostics, live progress, per-session textsize, continue-on-error, `go N`, cancellation and row limits. Real connections retain the native ODBC calls and exceptions.
+
+### Fixed
+- The optional native IQ TLS registry check skips with an `INFO` line when the registry is unavailable, including non-Windows hosts and missing registry hives.
+
 ## [0.6.0] — 2026-11-04
 
 ### Added
