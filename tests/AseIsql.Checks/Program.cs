@@ -575,6 +575,156 @@ Check("IQ TLS can verify an explicit certificate name independently of the engin
         Assert(!OdbcSession.BuildConnectionString(profile with { IqCertificateName = "" }, "synthetic-db").Contains("CERTIFICATE_NAME", StringComparison.OrdinalIgnoreCase));
     } finally { File.Delete(ca); }
 });
+// ---- 0.4.0: B1 (no re-execution for Statistics IO), go N, continue after errors, timeouts, B2, B3, PROD and SqlRisk ----
+Check("Statistics IO with an empty plan buffer reports 'plan not captured' and runs each batch exactly once", () => {
+    foreach (string sql in new[] { "exec sp_who", "dbcc checkdb(master)", "checkpoint", "select 1", "exec p1\ngo\ncheckpoint\ngo\nexec sp_x" })
+    {
+        var channel = new CountingChannel { CapturesPlans = true };
+        var output = new QueryOutput();
+        var batches = SqlScript.SplitBatches(sql);
+        var summary = ScriptRunner.Run(batches, channel, output, continueOnError: false, default);
+        Assert(output.Error == null && summary.Executions == batches.Count && channel.Total == batches.Count);
+        Assert(batches.All(b => channel.Executions[b.Text] == 1));
+        // Only the plan buffer is read back, (0) then (-1), once per batch; the batch text never reaches the plan path.
+        Assert(channel.PlanReads.SequenceEqual(Enumerable.Range(0, batches.Count).SelectMany(_ => new[] { 0, -1 })) && channel.Arms == batches.Count);
+        Assert(output.Messages.Count(m => m.Text == ScriptRunner.PlanNotCaptured) == batches.Count && output.Tables.Count == 0);
+    }
+    var withPlan = new CountingChannel { CapturesPlans = true, PlanXml = "<?xml version=\"1.0\"?><query><statementNum>1</statementNum><lineNum>1</lineNum><text>select * from t</text><opTree><TableScan><act><rowCnt>1</rowCnt><lio>2</lio><pio>0</pio></act><objName>t</objName></TableScan></opTree></query>" };
+    var planned = new QueryOutput();
+    ScriptRunner.Run(SqlScript.SplitBatches("select * from t"), withPlan, planned, false, default);
+    Assert(withPlan.Total == 1 && withPlan.PlanReads.SequenceEqual(new[] { 0 }) && planned.Tables.Single().TableName == ExecutionIo.ResultHeader);
+    Assert(planned.Messages.Any(m => m.Number == 3615 && m.Text.StartsWith("Table: t logical reads: 2", StringComparison.Ordinal)) && planned.Messages.All(m => m.Text != ScriptRunner.PlanNotCaptured));
+    var off = new CountingChannel(); ScriptRunner.Run(SqlScript.SplitBatches("select 1"), off, new QueryOutput(), false, default);
+    Assert(off.Total == 1 && off.PlanReads.Count == 0 && off.Arms == 0);
+});
+Check("go N runs a batch N times like isql; counts are validated and GO inside literals is not a boundary", () => {
+    var batches = SqlScript.SplitBatches("select 1\ngo 3\nselect 2\nGO\nselect 3\n  go   2  -- twice\nselect 4");
+    Assert(batches.Select(b => (b.Text.Trim(), b.Repeat)).SequenceEqual(new[] { ("select 1", 3), ("select 2", 1), ("select 3", 2), ("select 4", 1) }) && SqlScript.Executions(batches) == 7);
+    Assert(SqlScript.Split("select 1\ngo 3\nselect 2").SequenceEqual(new[] { "select 1\n", "select 2" }));
+    var channel = new CountingChannel(); var output = new QueryOutput();
+    ScriptRunner.Run(batches, channel, output, false, default);
+    Assert(channel.Executions["select 1\n"] == 3 && channel.Executions["select 3\n"] == 2 && channel.Total == 7 && output.Messages.Any(m => m.Text == "Summary: 7 batches ok / 0 with error."));
+    foreach (string bad in new[] { "select 1\ngo 0", "select 1\ngo 1001", "select 1\nGO 99999999999" })
+        try { SqlScript.SplitBatches(bad); throw new Exception("Accepted an invalid go count: " + bad); } catch (FormatException ex) { Assert(ex.Message.Contains("1 to 1000")); }
+    Assert(SqlScript.SplitBatches("select 'a\ngo 5\nb'").Single().Repeat == 1 && SqlScript.SplitBatches("/*\ngo 5\n*/ select 1").Single().Repeat == 1);
+    Assert(SqlScript.SplitBatches("select 1\ngo abc").Single().Text.Contains("go abc"));
+    Assert(engine.Execute("select 1 as n\ngo 3").Tables.Count == 3 && engine.Execute("select 1; select 2\ngo 2").Tables.Count == 4);
+    // A plain script keeps its usual messages: no summary without go N or continue after errors.
+    var plain = new QueryOutput(); ScriptRunner.Run(SqlScript.SplitBatches("select 1\ngo\nselect 2"), new CountingChannel(), plain, false, default);
+    Assert(plain.Messages.All(m => !m.Text.StartsWith("Summary", StringComparison.Ordinal)));
+});
+Check("Continue after errors records each failure, runs the remaining batches and summarizes; off stops at the first", () => {
+    const string sql = "select 1\ngo\nbad\ngo\nselect 3";
+    var stop = new CountingChannel { Fail = b => b.StartsWith("bad") ? BatchOutcome.Failed : BatchOutcome.Ok }; var stopped = new QueryOutput();
+    var first = ScriptRunner.Run(SqlScript.SplitBatches(sql), stop, stopped, continueOnError: false, default);
+    Assert(first is { Executions: 2, Succeeded: 1, Failed: 1, Stopped: true } && !stop.Executions.ContainsKey("select 3") && stopped.Error == "fixture failure: bad\n");
+    var go = new CountingChannel { Fail = stop.Fail }; var kept = new QueryOutput();
+    var all = ScriptRunner.Run(SqlScript.SplitBatches(sql), go, kept, continueOnError: true, default);
+    Assert(all is { Executions: 3, Succeeded: 2, Failed: 1, Stopped: false } && go.Executions["select 3"] == 1);
+    Assert(kept.Messages.Any(m => m.Number == 1 && m.Text.StartsWith("Error in batch 2 of 3 · continuing", StringComparison.Ordinal)) && kept.Messages[^1].Text == "Summary: 2 batches ok / 1 with error.");
+    Assert(kept.Error!.StartsWith("1 of 3 batches failed", StringComparison.Ordinal));
+    // A lost connection (Fatal) stops even with continue after errors.
+    var fatal = new CountingChannel { Fail = b => b.StartsWith("bad") ? BatchOutcome.Fatal : BatchOutcome.Ok }; var lost = new QueryOutput();
+    Assert(ScriptRunner.Run(SqlScript.SplitBatches(sql), fatal, lost, true, default).Stopped && !fatal.Executions.ContainsKey("select 3") && lost.Messages[^1].Text == "Summary: 1 batch ok / 1 with error · 1 not run.");
+    var repeated = new CountingChannel { Fail = _ => BatchOutcome.Failed };
+    Assert(ScriptRunner.Run(SqlScript.SplitBatches("bad\ngo 3"), repeated, new QueryOutput(), true, default) is { Executions: 3, Failed: 3 });
+    // All succeed with the option on: no error, and the summary says so.
+    var clean = new QueryOutput(); ScriptRunner.Run(SqlScript.SplitBatches("select 1\ngo\nselect 2"), new CountingChannel(), clean, true, default);
+    Assert(clean.Error == null && clean.Messages[^1].Text == "Summary: 2 batches ok / 0 with error.");
+});
+Check("The runner honours cancellation before each batch and bounds batches and go N executions", () => {
+    using var cancelled = new CancellationTokenSource(); cancelled.Cancel();
+    var channel = new CountingChannel();
+    try { ScriptRunner.Run(SqlScript.SplitBatches("select 1"), channel, new QueryOutput(), false, cancelled.Token); throw new Exception("Ran after cancellation"); } catch (OperationCanceledException) { }
+    Assert(channel.Total == 0);
+    foreach (var batches in new[] { Enumerable.Range(0, 257).Select(i => new SqlBatch("select " + i)).ToList(), Enumerable.Range(0, 11).Select(i => new SqlBatch("select " + i, 1000)).ToList() })
+        try { ScriptRunner.Run(batches, channel, new QueryOutput(), false, default); throw new Exception("Accepted an oversized run"); } catch (FormatException) { }
+    Assert(channel.Total == 0);
+});
+Check("Query timeout accepts 0 (no timeout) up to 3600 s; PROD is saved with the profile and old profiles are not PROD", () => {
+    new ConnectionProfile("h", 5000, "master", "u", false, "", QueryTimeout: 0).Validate();
+    new ConnectionProfile("h", 5000, "master", "u", false, "", QueryTimeout: 3600).Validate();
+    foreach (int bad in new[] { -1, 3601 }) try { new ConnectionProfile("h", 5000, "master", "u", false, "", QueryTimeout: bad).Validate(); Assert(false); } catch (ArgumentException) { }
+    var legacy = System.Text.Json.JsonSerializer.Deserialize<ConnectionProfile>("{\"Server\":\"h\",\"Port\":1,\"Database\":\"d\",\"User\":\"u\",\"UseTls\":false,\"TrustedFile\":\"\"}")!;
+    Assert(!legacy.Production);
+    var prod = new ConnectionProfile("prod-host", 5000, "master", "dba", false, "", Production: true);
+    string json = System.Text.Json.JsonSerializer.Serialize(prod);
+    Assert(json.Contains("\"Production\":true") && System.Text.Json.JsonSerializer.Deserialize<ConnectionProfile>(json) == prod);
+});
+Check("Server groups keep RS and IQ profiles without a database, with the same platform rules as a login", () => {
+    string path = Path.Combine(Path.GetTempPath(), "ase-groups-" + Guid.NewGuid().ToString("N") + ".json");
+    try
+    {
+        var rs = new ConnectionProfile("rs-host", 5510, "", "sa", false, "", Platform: ServerPlatform.Rs);
+        var iq = new ConnectionProfile("iq-host", 2638, "", "dba", false, "", Platform: ServerPlatform.Iq);
+        var ase = new ConnectionProfile("ase-host", 5000, "master", "sa", false, "", Production: true);
+        var groups = ServerGroupStore.Upsert(ServerGroupStore.Upsert([], new ServerGroup("RS only", [rs])), new ServerGroup("Mixed", [ase, iq, rs]));
+        ServerGroupStore.Save(path, groups);
+        var loaded = ServerGroupStore.Load(path);
+        Assert(loaded.Count == 2 && loaded[0].Profiles.Single() == rs && loaded[1].Profiles.SequenceEqual(new[] { ase, iq, rs }) && loaded[1].Profiles[0].Production);
+        foreach (var bad in new[] { rs with { Database = "master" }, ase with { Database = "" }, ase with { IqServerName = "iq1" } })
+            try { ServerGroupStore.Validate([new ServerGroup("bad", [bad])]); throw new Exception("Accepted a profile the login rejects"); } catch (ArgumentException ex) { Assert(ex.Message.Contains("bad")); }
+        // Files are not checked here: a moved CA must not make every group unreadable.
+        ServerGroupStore.Validate([new ServerGroup("tls", [ase with { UseTls = true, TrustedFile = Path.Combine(Path.GetTempPath(), "missing-" + Guid.NewGuid().ToString("N") + ".pem") }])]);
+    }
+    finally { foreach (var file in Directory.GetFiles(Path.GetTempPath(), Path.GetFileName(path) + "*")) File.Delete(file); }
+});
+Check("A saved profile whose CA or identity file was deleted stays loadable and names the problem; the others are untouched", () => {
+    string ca = Path.GetTempFileName(), identity = Path.GetTempFileName();
+    try
+    {
+        var tls = new ConnectionProfile("tls-host", 5000, "master", "u", true, ca);
+        var iq = new ConnectionProfile("iq-host", 2638, "", "u", true, ca, Platform: ServerPlatform.Iq, IqIdentityFile: identity);
+        var plain = new ConnectionProfile("plain-host", 5000, "master", "u", false, "");
+        tls.Validate(); iq.Validate();
+        File.Delete(ca);
+        // The store validates structure only (ValidateFields); the login still refuses with Validate.
+        var json = System.Text.Json.JsonSerializer.Serialize(new[] { plain, tls });
+        var reloaded = System.Text.Json.JsonSerializer.Deserialize<List<ConnectionProfile>>(json, new System.Text.Json.JsonSerializerOptions { UnmappedMemberHandling = System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow })!;
+        foreach (var profile in reloaded) profile.ValidateFields();
+        Assert(reloaded.Count == 2 && reloaded[1] == tls && reloaded[0].FileProblem() == null);
+        Assert(reloaded[1].FileProblem() is { } problem && problem.Contains("trusted certificate file does not exist") && problem.Contains(ca));
+        try { tls.Validate(); Assert(false); } catch (ArgumentException ex) { Assert(ex.Message.Contains(ca)); }
+        File.Delete(identity);
+        Assert(iq.FileProblem()!.Contains("IQ client identity file does not exist"));
+        // Without TLS a stale CA path is never used, so it is not a problem.
+        Assert((tls with { UseTls = false }).FileProblem() == null);
+    }
+    finally { File.Delete(ca); File.Delete(identity); }
+});
+Check("SqlRisk names every state-changing category, including RS commands, and ignores comments, strings and names", () => {
+    var cases = new (string Sql, string Kind)[] {
+        ("exec sp_dropuser u1", "sp_dropuser"), ("sp_addlogin x, 'secret'", "sp_addlogin"), ("exec master..sp_addumpdevice 'disk', 'd', '/d'", "sp_addumpdevice"),
+        ("sp_dboption sales, 'select into', true", "sp_dboption"), ("sp_rename 't.c', 'd'", "sp_rename"), ("exec sp_configure 'max memory', 100", "sp_configure"),
+        ("dbcc checkdb(master)", "dbcc checkdb"), ("DBCC  reindex(t)", "dbcc reindex"), ("dbcc traceon(3605, 302)", "dbcc traceon"), ("dbcc purgesqlcache", "dbcc purgesqlcache"),
+        ("checkpoint", "checkpoint"), ("online database sales", "online database"), ("disk init name='d1', physname='/x', size='10M'", "disk init"),
+        ("disk resize name='d1', size='1G'", "disk resize"), ("disk mirror name='d1', mirror='/m'", "disk mirror"), ("mount database all from '/m/manifest'", "mount database"),
+        ("unmount database sales to '/m/manifest'", "unmount database"), ("quiesce database t1 hold sales", "quiesce"), ("kill 42", "kill"),
+        ("dump database sales to '/d/s.dmp'", "dump"), ("dump tran sales with truncate_only", "dump"), ("load database sales from '/d/s.dmp'", "load"), ("shutdown with nowait", "shutdown"),
+        ("truncate table t", "truncate"), ("reorg rebuild t", "reorg"), ("update statistics t", "update statistics"), ("update index statistics t i1", "update index statistics"),
+        ("update t set x = 1", "update"), ("grant select on t to u", "grant"), ("revoke select on t from u", "revoke"),
+        ("sysadmin sqm_purge_queue, 101, 0", "sysadmin"), ("ignore loss from ds1.db1 to ds2.db2", "ignore loss"), ("rebuild queues", "rebuild queues"),
+        ("allow connections", "allow connections"), ("suspend connection to ds.db", "suspend"), ("resume connection to ds.db skip transaction", "resume"),
+        ("drop connection to ds.db", "drop connection"), ("alter connection to ds.db set batch to 'off'", "alter connection"), ("create connection to ds.db set error class to rs_sqlserver_error_class", "create connection") };
+    foreach (var (sql, kind) in cases)
+        if (SqlRisk.StateChanges(sql).FirstOrDefault() != kind) throw new Exception($"{sql} → {string.Join(", ", SqlRisk.StateChanges(sql))}, expected {kind}");
+    foreach (string safe in new[] {
+        "select 'checkpoint; kill 1; dbcc checkdb(x); sp_dropuser u' as s -- shutdown; disk init\n/* sp_addlogin x; online database y; update statistics t */ select [truncate], \"dump database\" from t",
+        "select reorganized, killer, checkpoints, loaded, dumped from t", "exec sp_helpdb\nexec sp_who\nexec sp_configure 'number of locks'",
+        "dbcc traceon(3604)\ngo\ndbcc sqltext(12)\ngo\ndbcc stacktrace(12)\ngo\ndbcc traceoff(3604)", "admin who, sqm\nadmin health\nadmin version", "select * into #tmp from t\ndrop table #tmp" })
+        if (SqlRisk.StateChanges(safe).Count != 0) throw new Exception("False positive: " + string.Join(", ", SqlRisk.StateChanges(safe)));
+    using var recipes = System.Text.Json.JsonDocument.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "src", "AseIsql.Desktop", "Assets", "ase-recipes.json")));
+    var byId = recipes.RootElement.EnumerateArray().ToDictionary(r => r.GetProperty("id").GetString()!, r => r.GetProperty("sql").GetString()!);
+    Assert(SqlRisk.StateChanges(byId["ase_tablas_mas_accedidas"]).Count == 0 && SqlRisk.StateChanges(byId["ase_top10_cpu"]).Count == 0 && SqlRisk.StateChanges(byId["rs_who_sqm"]).Count == 0);
+    Assert(SqlRisk.StateChanges(byId["ase_act_kill_spid"]).Count > 0 && SqlRisk.StateChanges(byId["rs_resume_skip"]).Count > 0 && SqlRisk.StateChanges(byId["iq_drop_connection"]).Count > 0);
+});
+Check("PROD review lists each statement with its source line and names the go N repetitions of state-changing batches", () => {
+    var findings = SqlRisk.Findings("select 1\n-- delete\nupdate t set x = 'a\nb'\ngo\ndelete from t");
+    Assert(findings.Select(f => (f.Kind, f.Line, f.Statement)).SequenceEqual(new[] { ("update", 3, "update t set x = 'a"), ("delete", 6, "delete from t") }));
+    var review = SqlRisk.Review("delete from log where id < 0\ngo 5\nselect 1\ngo 3");
+    Assert(review.ChangesState && review.Repetitions.Single() == "Batch 1 runs 5 times (go 5): delete");
+    Assert(!SqlRisk.Review("select 1\ngo 3").ChangesState && SqlRisk.Review("select 1\ngo 3").Repetitions.Count == 0);
+});
 // Light palettes added in 0.3.0 must read at WCAG AA (high contrast: AAA) with the colors the app actually applies:
 // Themes.WithAccent derives OnAccent and Selection from Accent and Surface, so those two are recomputed here the same way.
 // Earlier light palettes (Alba, Sandstone) are reported, not enforced: they predate this check and stay unchanged.
@@ -800,6 +950,27 @@ static class PaletteContrast
     {
         var c = Effective(palette.Colors);
         return $"{palette.Id} · {palette.Label} · Ink/Surface {Ratio(c["Ink"], c["Surface"]):0.0} · Muted/Surface {Ratio(c["Muted"], c["Surface"]):0.0} · Accent/Surface {Ratio(c["Accent"], c["Surface"]):0.0} · OnAccent/Accent {Ratio(c["OnAccent"], c["Accent"]):0.0} · Ink/Selection {Ratio(c["Ink"], c["Selection"]):0.0}";
+    }
+}
+
+// Test double for ScriptRunner: counts every execution of each batch text and every plan read-back.
+sealed class CountingChannel : IBatchChannel
+{
+    public readonly Dictionary<string, int> Executions = new(StringComparer.Ordinal);
+    public readonly List<int> PlanReads = [];
+    public int Arms, Total;
+    public string PlanXml = "";
+    public Func<string, BatchOutcome>? Fail;
+    public string SourceTag => "ASE";
+    public bool CapturesPlans { get; set; }
+    public void ArmPlanCapture(CancellationToken cancellation) => Arms++;
+    public string? ReadPlan(int index, QueryOutput output, CancellationToken cancellation) { PlanReads.Add(index); return PlanXml; }
+    public BatchOutcome Execute(string batch, QueryOutput output, CancellationToken cancellation)
+    {
+        Executions[batch] = Executions.GetValueOrDefault(batch) + 1; Total++;
+        var outcome = Fail?.Invoke(batch) ?? BatchOutcome.Ok;
+        if (outcome != BatchOutcome.Ok) output.Error = "fixture failure: " + batch;
+        return outcome;
     }
 }
 

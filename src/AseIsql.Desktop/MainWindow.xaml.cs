@@ -49,6 +49,7 @@ public partial class MainWindow : Window
         Editor.Text = isSmoke && ShowcaseDirectory==null ? DemoSql : "";
         savedText = Editor.Text;
         InitializeSessions();
+        LoadRunSettings();
         ready = true;
         InitializeAppearance();
         SourceInitialized += (_, _) => Themes.ApplyChrome(this, Themes.Current);
@@ -75,6 +76,7 @@ public partial class MainWindow : Window
             // After the login (which starts Messages afresh), so the one-time move stays visible.
             if (!isSmoke && DataFolder.MigrationNote is { } moved) AddMessage(0, "CLIENT", moved);
             if (historyWarning != null) AddMessage(0, "CLIENT", historyWarning);
+            if (runSettingsWarning != null) AddMessage(0, "CLIENT", runSettingsWarning);
         };
     }
 
@@ -174,12 +176,13 @@ public partial class MainWindow : Window
         area.Caret.Offset = target;
         return true;
     }
-    private Task ExecuteAsync(bool lineOnly = false, bool selectionOnly = false, string? sqlOverride = null, string? label = null, bool repeatRun = false, int? replaceRun = null)
-        => ExecuteAsync(activeSession, lineOnly, selectionOnly, sqlOverride, label, repeatRun, replaceRun);
+    private Task ExecuteAsync(bool lineOnly = false, bool selectionOnly = false, string? sqlOverride = null, string? label = null, bool repeatRun = false, int? replaceRun = null, bool noTimeout = false)
+        => ExecuteAsync(activeSession, lineOnly, selectionOnly, sqlOverride, label, repeatRun, replaceRun, noTimeout);
 
     // One session's execution. The editor is read while that session is on screen; everything after the await is
     // published into the owning workspace, so another server's tab can be used, and run, while this one works.
-    private async Task ExecuteAsync(SessionWorkspace owner, bool lineOnly = false, bool selectionOnly = false, string? sqlOverride = null, string? label = null, bool repeatRun = false, int? replaceRun = null)
+    // noTimeout runs this once without the profile's query timeout (maintenance); Esc still cancels it.
+    private async Task ExecuteAsync(SessionWorkspace owner, bool lineOnly = false, bool selectionOnly = false, string? sqlOverride = null, string? label = null, bool repeatRun = false, int? replaceRun = null, bool noTimeout = false)
     {
         if (owner.Running != null || owner.Changing || owner.CatalogActions != 0) return;
         if (!repeatRun && owner.Repeat != null) { SetStatus(owner, "Stop repeating before starting another execution in this session. The repeat is still active."); return; }
@@ -211,6 +214,12 @@ public partial class MainWindow : Window
             { AddMessage(owner, 0, "CLIENT", "Run cancelled while filling parameters. SQL was not executed."); SetStatus(owner, "Cancelled · parameters"); return; }
             sql = filled;
         }
+        // A repeat was confirmed once when it started; every other run on a PROD session that changes state asks now.
+        if (!repeatRun && !ConfirmProduction(owner, sql, "This " + scope))
+        {
+            AddMessage(owner, 0, "CLIENT", "Not run: cancelled at the PROD confirmation. Nothing was sent to the server.");
+            SetStatus(owner, "Cancelled · PROD confirmation"); ShowMessages(owner); return;
+        }
         using var cancellation = new CancellationTokenSource();
         owner.ExecutingSql = sql;
         owner.Running = cancellation;
@@ -218,7 +227,9 @@ public partial class MainWindow : Window
         var executingEngine = owner.Engine;
         string runningName = executingEngine.Name;
         SetStatus(owner, "Executing · " + runningName + " · Esc cancels");
-        AddMessage(owner, 0, SourceLabelOf(owner), "Execute · " + scope);
+        AddMessage(owner, 0, SourceLabelOf(owner), "Execute · " + scope + (noTimeout ? " · no timeout" : "") + (runSettings.ContinueOnError ? " · continue after errors" : ""));
+        if (noTimeout) AddMessage(owner, 0, "CLIENT", "No query timeout for this run (maintenance): it runs until it ends or Esc cancels it.");
+        ApplyRunSettings(executingEngine);
         var timer = Stopwatch.StartNew();
         // Long batches show that the session is still working and for how long; the tick only rewrites the status line.
         var ticker = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
@@ -226,7 +237,7 @@ public partial class MainWindow : Window
         ticker.Start();
         try
         {
-            var output = await Task.Run(() => executingEngine.Execute(sql, cancellation.Token), cancellation.Token);
+            var output = await Task.Run(() => noTimeout && executingEngine is OdbcSession odbc ? odbc.Execute(sql, cancellation.Token, userRun: true, timeoutSeconds: 0) : executingEngine.Execute(sql, cancellation.Token), cancellation.Token);
             double elapsedMs = timer.Elapsed.TotalMilliseconds; ticker.Stop();
             int rowCount = output.Tables.Sum(t => t.Rows.Count);
             if (owner.Engine is DemoQueryEngine) cancellation.Token.ThrowIfCancellationRequested();
@@ -407,6 +418,7 @@ public partial class MainWindow : Window
     {
         bool idle = running == null && !changingSession && repeat == null && catalogActions == 0, online = engine is not DisconnectedQueryEngine;
         var menu = new ContextMenu { PlacementTarget = ExecuteButton, Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom };
+        lastRunMenu = menu;
         void Item(string header, string gesture, string glyph, Action action, bool enabled)
         {
             var icon = new TextBlock { Text = glyph }; icon.SetResourceReference(StyleProperty, "GlyphText");
@@ -418,6 +430,13 @@ public partial class MainWindow : Window
         menu.Items.Add(new Separator());
         Item("Run on several servers…", "Shift+F9", "", () => MultiRunClick(this, new RoutedEventArgs()), idle);
         Item(repeat != null ? "Stop repeating" : "Repeat every…", "Ctrl+Shift+F9", "", () => RepeatClick(this, new RoutedEventArgs()), repeat != null || idle && online);
+        menu.Items.Add(new Separator());
+        // isql-style execution: maintenance without the profile's timeout, and whether a failed batch stops the script.
+        Item("Run without timeout (maintenance)", "", "", () => _ = ExecuteAsync(noTimeout: true), idle && online);
+        var continueItem = new MenuItem { Header = "Continue after errors", IsCheckable = true, IsChecked = runSettings.ContinueOnError,
+            ToolTip = "Like isql: a failed batch is recorded in Messages and the next batch runs. Off stops at the first error. Kept across restarts." };
+        continueItem.Click += (_, _) => SetContinueOnError(continueItem.IsChecked);
+        menu.Items.Add(continueItem);
         menu.IsOpen = true;
     }
     // Run / F9: on a result tab, that result's SQL runs again on its session and replaces it; elsewhere the editor runs.
@@ -1213,6 +1232,7 @@ public partial class MainWindow : Window
             await VerifyTableCompletion(Require);
             await VerifyEditorObjectResolution(Require);
             await VerifySessionWorkspaces(Require);
+            await VerifyProductionGuard(Require);
         }
         catch (Exception ex) { checks.Add("FAIL: " + ex); exitCode = 1; }
         string[] args = Environment.GetCommandLineArgs();

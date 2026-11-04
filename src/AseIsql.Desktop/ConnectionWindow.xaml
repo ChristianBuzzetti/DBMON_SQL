@@ -21,6 +21,7 @@
         </Grid>
         <DockPanel x:Name="LanguageRow" Margin="0,0,0,8"><TextBlock Text="Language:" Width="90" VerticalAlignment="Center"/><ComboBox x:Name="LoginLanguage" IsEditable="True" ToolTip="ASE message language; us_english avoids inheriting the Windows regional language"/></DockPanel>
         <WrapPanel><CheckBox x:Name="EncryptPassword" Content="Encrypt password" IsChecked="True"/><CheckBox x:Name="EncryptData" Content="Encrypt data (TLS)" IsChecked="False" ToolTip="The default follows the ssl option in sql.ini. Without TLS, queries and results are not encrypted in transit."/><CheckBox x:Name="RememberPassword" Content="Remember password" IsChecked="False" ToolTip="Stores the password with the profile, encrypted for your Windows user. Saved when you save the profile or connect with it."/></WrapPanel>
+        <CheckBox x:Name="Production" Margin="0,6,0,0" ToolTip="Marks this server as production: its session shows a red PROD band, and SQL that changes data or server state asks for confirmation before it runs. Saved with the profile."><TextBlock><Run Text="Production (PROD)" FontWeight="SemiBold" Foreground="{DynamicResource ErrorInk}"/><Run Text="  · confirm before SQL that changes state" Foreground="{DynamicResource Muted}"/></TextBlock></CheckBox>
         <TextBlock x:Name="EndpointSummary" Text="No server selected" TextWrapping="Wrap" Foreground="{DynamicResource Muted}" Margin="0,5,0,8"/>
         <ComboBox x:Name="Endpoints" Visibility="Collapsed" SelectionChanged="EndpointChanged" Margin="0,0,0,8"/>
         <TextBlock Text="sql.ini file" Foreground="{DynamicResource Muted}" Margin="0,8,0,5"/>
@@ -43,7 +44,7 @@
           </StackPanel>
           <Grid Margin="0,10,0,0"><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition/><ColumnDefinition/></Grid.ColumnDefinitions>
             <StackPanel Margin="0,0,8,0"><TextBlock Text="Login timeout (s)"/><TextBox x:Name="LoginTimeout" Text="15"/></StackPanel>
-            <StackPanel Grid.Column="1" Margin="0,0,8,0"><TextBlock Text="Query timeout (s)"/><TextBox x:Name="QueryTimeout" Text="60"/></StackPanel>
+            <StackPanel Grid.Column="1" Margin="0,0,8,0"><TextBlock Text="Query timeout (s)"/><TextBox x:Name="QueryTimeout" Text="60" ToolTip="1 to 3600 seconds, or 0 for no timeout (long maintenance). Esc cancels a running query either way."/></StackPanel>
             <StackPanel Grid.Column="2"><TextBlock Text="Maximum rows"/><TextBox x:Name="MaxRows" Text="10000"/></StackPanel>
           </Grid>
         </StackPanel></Expander>

@@ -54,12 +54,13 @@ namespace AseIsql
             if (sql.Length > 100000) { output.Error = "Fixture limit: 100,000 SQL characters per execution."; return output; }
             try
             {
-                foreach (string statement in SqlScript.Split(sql, demoStatements: true, cancellation))
-                {
-                    cancellation.ThrowIfCancellationRequested();
-                    if (output.Tables.Count >= 32) throw new FormatException("Fixture limit: 32 results per execution.");
-                    output.Tables.Add(SqlDemoParser.SelectConstants(statement));
-                }
+                foreach (var statement in SqlScript.SplitBatches(sql, demoStatements: true, cancellation))
+                    for (int run = 0; run < statement.Repeat; run++)
+                    {
+                        cancellation.ThrowIfCancellationRequested();
+                        if (output.Tables.Count >= 32) throw new FormatException("Fixture limit: 32 results per execution.");
+                        output.Tables.Add(SqlDemoParser.SelectConstants(statement.Text));
+                    }
                 if (output.Tables.Count == 0) output.Error = "No query to execute.";
             }
             catch (FormatException ex) { output.Error = ex.Message; }

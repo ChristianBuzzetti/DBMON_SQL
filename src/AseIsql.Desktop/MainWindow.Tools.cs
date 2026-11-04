@@ -324,7 +324,7 @@ public partial class MainWindow
     private void PaletteClick(object sender, RoutedEventArgs e)
     {
         var actions = new (string Name, Action Run)[] {
-            ("Execute selection · Ctrl+E", () => _ = ExecuteAsync(selectionOnly: true)), ("Execute script · F9", () => _ = ExecuteAsync()), ("Repeat every… / stop repeating · Ctrl+Shift+F9", () => RepeatClick(this, new RoutedEventArgs())), ("Run on multiple servers · Shift+F9", () => MultiRunClick(this,e)),
+            ("Execute selection · Ctrl+E", () => _ = ExecuteAsync(selectionOnly: true)), ("Execute script · F9", () => _ = ExecuteAsync()), ("Repeat every… / stop repeating · Ctrl+Shift+F9", () => RepeatClick(this, new RoutedEventArgs())), ("Run on multiple servers · Shift+F9", () => MultiRunClick(this,e)), ("Run without timeout (maintenance)", () => _ = ExecuteAsync(noTimeout: true)), ("Continue after errors · on / off", () => SetContinueOnError(!runSettings.ContinueOnError)),
             ("Editor · Ctrl+Q", () => QueryClick(this,e)), ("Recipes", () => LibraryClick(this,e)), ("Save as recipe", () => SaveRecipeClick(this,e)),
             ("Find and replace · Ctrl+H", () => ReplaceClick(this,e)), ("Comment / uncomment", () => CommentClick(this,e)), ("Duplicate line", () => DuplicateLineClick(this,e)),
             ("Selection to UPPERCASE", () => UpperClick(this,e)), ("Selection to lowercase", () => LowerClick(this,e)),

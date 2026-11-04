@@ -11,7 +11,10 @@ internal sealed record SavedLogin(string Name, ConnectionProfile Profile, string
 {
     public bool HasPassword => !string.IsNullOrEmpty(Password);
     public bool HasIdentityPassword => !string.IsNullOrEmpty(IdentityPassword);
-    public override string ToString() => Name;
+    // A file the profile refers to that is gone (a moved CA or .id file). The profile still loads, lists and saves;
+    // the login names the problem and refuses to connect until the path is fixed.
+    [JsonIgnore] public string? Problem => Profile.FileProblem();
+    public override string ToString() => Problem == null ? Name : Name + "  ·  ⚠ file missing";
 }
 
 // Saved logins live inside the app's data folder as one file encrypted for the current Windows user (DPAPI). It is
@@ -39,7 +42,9 @@ internal static class ProfileStore
         {
             var logins = JsonSerializer.Deserialize<List<SavedLogin>>(plain, Json) ?? throw new JsonException("Empty profiles file.");
             if (logins.Count > MaxLogins || logins.Any(l => l == null || string.IsNullOrWhiteSpace(l.Name) || l.Profile == null)) throw new JsonException("Invalid saved profiles.");
-            foreach (var login in logins) login.Profile.Validate();
+            // Structure only, as for server groups: one profile whose CA or identity file moved must not hide all the
+            // others. It stays in the list (and in the file when it is saved again) with its Problem named.
+            foreach (var login in logins) login.Profile.ValidateFields();
             return logins;
         }
         finally { Array.Clear(plain); }
