@@ -411,7 +411,7 @@ public partial class MainWindow
             ("Find and replace · Ctrl+H", () => ReplaceClick(this,e)), ("Comment / uncomment", () => CommentClick(this,e)), ("Duplicate line", () => DuplicateLineClick(this,e)),
             ("Selection to UPPERCASE", () => UpperClick(this,e)), ("Selection to lowercase", () => LowerClick(this,e)),
             ("Word wrap", () => WrapClick(this,e)), ("Increase font size", () => Zoom(1)), ("Decrease font size", () => Zoom(-1)),
-            ("Activity monitor…", () => ActivityClick(this,e)), ("Object explorer · F4", () => BrowserClick(this,e)), ("History · Ctrl+R", () => HistoryClick(this,e)),
+            ("Server health check", () => HealthCheckClick(this,e)), ("Compare objects", () => ObjectCompareClick(this,e)), ("Activity monitor…", () => ActivityClick(this,e)), ("Object explorer · F4", () => BrowserClick(this,e)), ("History · Ctrl+R", () => HistoryClick(this,e)),
             ("Dark theme", () => SetPalette("dark")), ("Light theme", () => SetPalette("light"))
         };
         var window = new Window { Owner = this, Title = "Command palette · Ctrl+K", Width = 560, Height = 520, WindowStartupLocation = WindowStartupLocation.CenterOwner };
