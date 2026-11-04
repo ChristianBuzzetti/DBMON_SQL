@@ -2,6 +2,15 @@
 
 All notable changes to DBMON SQL are listed here. The project follows [Semantic Versioning](https://semver.org/).
 
+## [1.0.1] - Unreleased
+
+### Changed
+- **Query timeout now defaults to 0 (no limit).** The old default of 60 s made the driver cancel any slow or lock-blocked statement. A positive value (1–3600 s) still cancels automatically, and `Esc` always cancels. A run that hits the limit reports "Query timeout (N s) reached; set 0 in the connection window for no limit."
+- Saved logins and server groups now carry a format marker. Entries saved by 1.0.0 or earlier with a query timeout of 60 move to 0 once on load; an explicit 60 chosen in 1.0.0 cannot be told apart from the old default and also becomes 0 (set it again if you want it). Tool queries (Activity monitor, health check, probes) keep their own explicit short timeouts.
+
+### Added
+- **Duplicate session**: right-click a session tab, or a row in the Activity monitor, to open a new editor tab next to the current one, already connected with the same profile and credentials (held in memory only) and in the same database. The PROD flag carries over.
+
 ## [1.0.0] — 2026-11-04
 
 First full feature release after 0.4.0. Groups every tanda since that version (live messages and export, plan viewer and MDA deltas, activity monitor, health check and object compare, richer explorer / DDL / RS / IQ, and packaging tech debt). Intermediate tags `v0.5.0`–`v0.7.0` remain as pre-release markers; this is the single Latest package.

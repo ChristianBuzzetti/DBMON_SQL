@@ -9,6 +9,7 @@ void Check(string name, Action body) { body(); Console.WriteLine("PASS " + name)
 void Assert(bool value) { if (!value) throw new Exception("Assertion failed"); }
 T6Checks.Run(Check, Assert);
 OdbcSessionChecks.Run(Check);
+TimeoutChecks.Run(Check);
 Check("Streaming CSV uses RFC 4180 quoting, invariant values, Unicode and empty NULL fields", () => {
     var oldCulture = CultureInfo.CurrentCulture;
     try {

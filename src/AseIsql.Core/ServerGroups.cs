@@ -5,7 +5,7 @@ namespace AseIsql;
 
 // A named set of connection profiles for multi-server runs. Profiles never carry a password: opening a group asks
 // for each one at login, as a single profile does.
-public sealed record ServerGroup(string Name, IReadOnlyList<ConnectionProfile> Profiles);
+public sealed record ServerGroup(string Name, IReadOnlyList<ConnectionProfile> Profiles, int Version = 0);
 
 public static class ServerGroupStore
 {
@@ -19,14 +19,15 @@ public static class ServerGroupStore
         if (new FileInfo(path).Length > MaxBytes) throw new IOException("The server groups file exceeds 1 MiB.");
         var groups = JsonSerializer.Deserialize<List<ServerGroup>>(File.ReadAllText(path), Json) ?? throw new JsonException("Empty server groups file.");
         Validate(groups);
-        return groups;
+        // Groups saved before 1.0.1 have no version and an old default query timeout of 60 s (see MigrateLegacyTimeout).
+        return groups.Select(g => g.Version >= ConnectionProfile.CurrentStoreVersion ? g : g with { Profiles = g.Profiles.Select(p => p.MigrateLegacyTimeout(g.Version)).ToList(), Version = ConnectionProfile.CurrentStoreVersion }).ToList();
     }
 
     public static void Save(string path, IReadOnlyList<ServerGroup> groups)
     {
         Validate(groups);
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
-        AtomicFiles.SaveUtf8(path, JsonSerializer.Serialize(groups, Json));
+        AtomicFiles.SaveUtf8(path, JsonSerializer.Serialize(groups.Select(g => g with { Version = ConnectionProfile.CurrentStoreVersion }).ToList(), Json));
     }
 
     // Replaces a group with the same name (case-insensitive) or adds it, keeping the others in their order.

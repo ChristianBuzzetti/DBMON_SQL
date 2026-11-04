@@ -131,7 +131,9 @@ public partial class MainWindow
             grid.PreviewMouseRightButtonDown += (_, args) => {
                 if (args.OriginalSource is DependencyObject source && FindAncestor<DataGridRow>(source) is { Item: ActivityRow row }) grid.SelectedItem = row;
             };
-            var menu = new ContextMenu(); var copyItem = new MenuItem { Header = "Copy rows" }; copyItem.Click += (_, _) => CopyRows(); menu.Items.Add(copyItem); menu.Items.Add(kill); grid.ContextMenu = menu;
+            var menu = new ContextMenu(); var copyItem = new MenuItem { Header = "Copy rows" }; copyItem.Click += (_, _) => CopyRows(); menu.Items.Add(copyItem);
+            var duplicateItem = new MenuItem { Header = "Duplicate session" }; duplicateItem.Click += (_, _) => main.DuplicateFromMonitor(session, production); menu.Items.Add(duplicateItem);
+            menu.Items.Add(kill); grid.ContextMenu = menu;
             menu.Opened += (_, _) => UpdateKill();
             kill.Click += async (_, _) => await KillAsync(); split.Children.Add(grid);
             var splitter = new GridSplitter { Height = 6, HorizontalAlignment = HorizontalAlignment.Stretch, ResizeDirection = GridResizeDirection.Rows };
