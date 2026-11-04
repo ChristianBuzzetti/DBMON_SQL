@@ -265,21 +265,22 @@ public partial class MainWindow : Window
             // Results accumulate; a re-run replaces only its own earlier tabs.
             var run = NewRun(owner, sql, owner.Engine); owner.LastRunId = run.Id;
             CaptureRunText(owner, run, output);
-            PublishResults(owner, output.Tables, run, replaceRun);
+            var tablesToPublish = repeatRun ? ProcessRepeatMdaDeltas(owner, output.Tables) : output.Tables;
+            PublishResults(owner, tablesToPublish, run, replaceRun);
             // A repeat records its SQL once when it starts, not on every run.
             if (!repeatRun) RecordHistory(sql);
             owner.LastRunFailed = output.Error != null;
             if (output.Error != null) { AddMessage(owner, 1, output.ErrorSource, output.Error, output.ErrorRawText); ShowMessages(owner); }
-            else AddMessage(owner, 0, SourceLabelOf(owner), $"Done · {Counts.Of(output.Tables.Count, "result")} · {Counts.Of(rowCount, "row")} · {Elapsed(elapsedMs)}");
+            else AddMessage(owner, 0, SourceLabelOf(owner), $"Done · {Counts.Of(tablesToPublish.Count, "result")} · {Counts.Of(tablesToPublish.Sum(t => t.Rows.Count), "row")} · {Elapsed(elapsedMs)}");
             // An empty run under NOEXEC looks like a broken server; say which option produced it, every time.
             if (owner.Options.NoExec && owner.Engine is AseIsql.Odbc.OdbcSession { Platform: ServerPlatform.Ase }) AddMessage(owner, 0, "CLIENT", "NOEXEC is on: the server compiled this script and executed none of it. Tools › SAP ASE session options turns it off."
                 + (owner.Options.StatisticsSilencedByNoExec ? " Statistics IO and statistics time measure execution, so they report nothing until it is off." : ""));
             // The new result becomes this session's selection, whether or not its tab is the one on screen.
-            if (output.Tables.Count > 0 && owner.Tabs.FirstOrDefault(tab => ReferenceEquals(tab.Tag, output.Tables[0])) is { } firstTab)
+            if (tablesToPublish.Count > 0 && owner.Tabs.FirstOrDefault(tab => ReferenceEquals(tab.Tag, tablesToPublish[0])) is { } firstTab)
             {
                 if (IsOnScreen(owner)) Workspace.SelectedItem = firstTab; else owner.SelectedTab = firstTab;
             }
-            SetStatus(owner, output.Error == null ? $"Ready · {Counts.Of(output.Tables.Count, "result")} · {Counts.Of(rowCount, "row")} · {Elapsed(elapsedMs)} · {SourceLabelOf(owner)}" : "Error / partial output · see Messages");
+            SetStatus(owner, output.Error == null ? $"Ready · {Counts.Of(tablesToPublish.Count, "result")} · {Counts.Of(tablesToPublish.Sum(t => t.Rows.Count), "row")} · {Elapsed(elapsedMs)} · {SourceLabelOf(owner)}" : "Error / partial output · see Messages");
         }
         catch (OperationCanceledException) { AddMessage(owner, 0, SourceLabelOf(owner), "Execution cancelled. No new results were published."); SetStatus(owner, "Cancelled · " + SourceLabelOf(owner)); }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)

@@ -39,6 +39,7 @@ public partial class MainWindow
         public readonly Dictionary<string, string> Parameters = new(StringComparer.OrdinalIgnoreCase);
         public RepeatPlan? Repeat;
         public bool LastRunFailed;
+        public DataTable? RepeatMdaPrevious;
         // Execution belongs to the session, so one tab's query never holds the others. Only the active workspace is
         // mounted in the shell: a background run publishes into these fields and is mounted when its tab comes back.
         public CancellationTokenSource? Running;

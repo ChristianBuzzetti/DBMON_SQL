@@ -78,6 +78,7 @@ public partial class MainWindow
         Action("Transpose result", ()=> { var origin=resultOrigins[(DataTable)tab.Tag]; AddResult(ResultFormats.Transpose(VisibleResult(grid)),Workspace.Items.Count,origin.Source,origin.Sql,ResultName(tab)+" · transposed"); Workspace.SelectedIndex=Workspace.Items.Count-1; });
         foreach(string format in new[]{"JSON","Markdown","HTML report","SQL IN list","SQL INSERT"})
             Action("Export "+format+"…", ()=>ExportResult(grid,tab,format));
+        AddPlanResultTools(tab, panel, menu);
     }
 
     private void UpdateResultSelectionSummary(DataGrid grid)

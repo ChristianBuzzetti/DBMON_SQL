@@ -12,7 +12,7 @@ namespace AseIsql.Desktop;
 // SQL repeated on a timer against the current session. The text and parameter values are fixed when it starts;
 // the next run is scheduled Interval after the previous one finishes, so runs never overlap. It stops on demand,
 // after MaxRuns, on a failed run when StopOnError is set, and whenever the session it started on goes away.
-public sealed class RepeatPlan(string sql,TimeSpan interval,int? maxRuns,bool stopOnError,IQueryEngine session,string scope,bool keepEveryRun=false)
+public sealed class RepeatPlan(string sql,TimeSpan interval,int? maxRuns,bool stopOnError,IQueryEngine session,string scope,bool keepEveryRun=false,bool mdaDeltas=false)
 {
     public static readonly TimeSpan MinInterval=TimeSpan.FromSeconds(5),MaxInterval=TimeSpan.FromHours(24);
     public string Sql { get; }=sql;
@@ -23,6 +23,8 @@ public sealed class RepeatPlan(string sql,TimeSpan interval,int? maxRuns,bool st
     public string Scope { get; }=scope;
     // False: each run replaces the previous run's results. True: every run adds its own result tabs.
     public bool KeepEveryRun { get; }=keepEveryRun;
+    // MDA deltas: compute deltas between runs for cumulative MDA counters (ASE only).
+    public bool MdaDeltas { get; }=mdaDeltas;
     public int? LastRunId { get; set; }
     public int Runs { get; set; }
     public int Failures { get; set; }
@@ -84,6 +86,7 @@ public sealed class RepeatWindow:Window
     public TextBox RunsBox { get; }=new() {Width=90,Text="",ToolTip="Empty repeats until you stop it"};
     public CheckBox StopOnErrorBox { get; }=new() {Content="Stop at the first failed run",IsChecked=true};
     public CheckBox KeepEveryRunBox { get; }=new() {Content="Keep every run as a new result (otherwise each run replaces the previous one)",IsChecked=false,ToolTip="Up to 40 result tabs; the oldest unpinned ones close beyond that."};
+    public CheckBox MdaDeltasBox { get; }=new() {Content="MDA deltas (cumulative counters)",IsChecked=false,ToolTip="Compute deltas for ASE monitoring queries (monSysWaits, monOpenObjectActivity, etc.). Only applies to SAP ASE; IQ and RS runs ignore this."};
     public CheckBox Acknowledge { get; }=new() {Visibility=Visibility.Collapsed};
     public Button Start { get; }
     private readonly TextBlock problem=new() {TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,8,0,0)};
@@ -100,7 +103,7 @@ public sealed class RepeatWindow:Window
         var preview=new TextBox {Text=sql,IsReadOnly=true,AcceptsReturn=true,MaxHeight=120,VerticalScrollBarVisibility=ScrollBarVisibility.Auto,HorizontalScrollBarVisibility=ScrollBarVisibility.Auto,Margin=new Thickness(0,0,0,14)};preview.SetResourceReference(Control.FontFamilyProperty,"MonoFont");root.Children.Add(preview);
         var every=new StackPanel {Orientation=Orientation.Horizontal,Margin=new Thickness(0,0,0,10)};every.Children.Add(Label("Every"));every.Children.Add(IntervalBox);every.Children.Add(UnitBox);root.Children.Add(every);
         var runs=new StackPanel {Orientation=Orientation.Horizontal,Margin=new Thickness(0,0,0,6)};runs.Children.Add(Label("Runs"));runs.Children.Add(RunsBox);runs.Children.Add(Muted("  empty = until you stop it (Esc or Stop repeating)"));root.Children.Add(runs);
-        root.Children.Add(StopOnErrorBox);root.Children.Add(KeepEveryRunBox);
+        root.Children.Add(StopOnErrorBox);root.Children.Add(KeepEveryRunBox);root.Children.Add(MdaDeltasBox);
         if(StateChanges.Count>0){
             // A hazard callout in the same amber as the band, so the risk reads before the timer exists.
             var warning=new Border {Background=new SolidColorBrush(Color.FromRgb(0xF5,0xA5,0x24)),BorderBrush=new SolidColorBrush(Color.FromRgb(0x1A,0x14,0x06)),BorderThickness=new Thickness(1),Padding=new Thickness(12,9,12,9),Margin=new Thickness(0,12,0,0)};
@@ -135,5 +138,5 @@ public sealed class RepeatWindow:Window
         return null;
     }
     private bool Validate(){string? reason=Problem();problem.Text=reason??"";Start.IsEnabled=reason==null;return reason==null;}
-    public RepeatPlan? Plan(IQueryEngine session)=>Problem()!=null?null:new RepeatPlan(sql,Interval!.Value,RunsBox.Text.Trim().Length==0?null:int.Parse(RunsBox.Text.Trim(),CultureInfo.InvariantCulture),StopOnErrorBox.IsChecked==true,session,scope,KeepEveryRunBox.IsChecked==true);
+    public RepeatPlan? Plan(IQueryEngine session)=>Problem()!=null?null:new RepeatPlan(sql,Interval!.Value,RunsBox.Text.Trim().Length==0?null:int.Parse(RunsBox.Text.Trim(),CultureInfo.InvariantCulture),StopOnErrorBox.IsChecked==true,session,scope,KeepEveryRunBox.IsChecked==true,MdaDeltasBox.IsChecked==true);
 }

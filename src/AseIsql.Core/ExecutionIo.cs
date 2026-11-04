@@ -12,7 +12,11 @@ public sealed record ExecutionIoScan(string Operator, string Object, string? Ali
     long? ActualRows, long? LogicalReads, long? PhysicalReads, long? EstimatedRows, long? EstimatedLogicalReads, long? EstimatedPhysicalReads);
 
 // One statement's executed plan, as ASE wrote it for "set plan for show_execio_xml to message on".
-public sealed record ExecutionIoPlan(int Statement, int Line, string Text, IReadOnlyList<ExecutionIoScan> Scans, IReadOnlyList<string> MissingStatistics, string Xml);
+public sealed record ExecutionIoPlan(int Statement, int Line, string Text, IReadOnlyList<ExecutionIoScan> Scans, IReadOnlyList<string> MissingStatistics, string Xml)
+{
+    // The full operator tree (containers included), next to the flat Scans the Statistics IO table is built from.
+    public IReadOnlyList<PlanNode> Tree { get; init; } = [];
+}
 
 public sealed record ExecutionIoReport(IReadOnlyList<ExecutionIoPlan> Plans, int Unreadable);
 
@@ -73,15 +77,18 @@ public static class ExecutionIo
         var missing = (query.Element("optimizerStatistics")?.Elements("statInfo") ?? [])
             .SelectMany(info => info.Elements("missingHistogram").Elements("column").Select(column => (Value(info, "objName") ?? "?") + "." + column.Value.Trim()))
             .Distinct(StringComparer.Ordinal).ToList();
-        return new ExecutionIoPlan(Int(query, "statementNum"), Int(query, "lineNum"), text, scans, missing, xml);
+        return new ExecutionIoPlan(Int(query, "statementNum"), Int(query, "lineNum"), text, scans, missing, xml) { Tree = PlanTree.FromQuery(query) };
     }
 
-    private static string? Value(XElement? parent, string name) => parent?.Element(name)?.Value.Trim() is { Length: > 0 } value ? value : null;
-    private static long? Number(XElement? parent, string name) =>
+    internal static string? Value(XElement? parent, string name) => parent?.Element(name)?.Value.Trim() is { Length: > 0 } value ? value : null;
+    internal static long? Number(XElement? parent, string name) =>
         long.TryParse(Value(parent, name), NumberStyles.Integer, CultureInfo.InvariantCulture, out long value) ? value : null;
     private static int Int(XElement parent, string name) => (int)Math.Clamp(Number(parent, name) ?? 0, 0, int.MaxValue);
 
     public const string ResultHeader = "Statistics IO";
+    // The parsed plans behind a Statistics IO table, so the plan viewer opens the full operator trees of that tab.
+    public const string PlansProperty = "ExecutionIoPlans";
+    public static IReadOnlyList<ExecutionIoPlan> PlansOf(DataTable? table) => table?.ExtendedProperties[PlansProperty] as IReadOnlyList<ExecutionIoPlan> ?? [];
 
     // One typed row per access operator, in plan order. Values stay numbers and unknown stays NULL, so the grid's
     // sorting, filtering, aggregates and exports treat them as data.
@@ -89,6 +96,7 @@ public static class ExecutionIo
     {
         var table = new DataTable(ResultHeader);
         table.ExtendedProperties["ResultHeader"] = ResultHeader;
+        table.ExtendedProperties[PlansProperty] = plans.ToArray();
         table.Columns.Add("statement", typeof(int)); table.Columns.Add("line", typeof(int));
         table.Columns.Add("object", typeof(string)); table.Columns.Add("alias", typeof(string)); table.Columns.Add("index", typeof(string));
         table.Columns.Add("operator", typeof(string)); table.Columns.Add("scan_type", typeof(string));
