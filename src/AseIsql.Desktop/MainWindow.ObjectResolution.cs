@@ -200,6 +200,9 @@ public partial class MainWindow
         }
         else
         {
+            if (item.Type is "U" or "V" or "P" or "TR")
+                Add("Generate DDL", () => RunCatalogAction(owner => ReferenceEquals(owner, request.Owner) && ReferenceEquals(owner.Engine, request.Engine)
+                    ? GenerateObjectDdl(owner, item) : Task.CompletedTask, "Generate DDL · " + item.Name));
             Run("Describe · sp_help", "help"); Run("Dependencies · sp_depends", "depends");
             if (table) { Run("Indexes · sp_helpindex", "indexes"); Run("Rows and space · sp_spaceused", "space"); }
         }

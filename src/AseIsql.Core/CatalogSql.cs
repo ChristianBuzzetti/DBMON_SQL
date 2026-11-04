@@ -3,7 +3,7 @@ using System.Globalization;
 namespace AseIsql;
 
 // Read-only ASE metadata. Comparison reads qualify the database without changing the session's USE context.
-public static class CatalogSql
+public static partial class CatalogSql
 {
     public static string Objects(string database, CompareObjectType type)
     {

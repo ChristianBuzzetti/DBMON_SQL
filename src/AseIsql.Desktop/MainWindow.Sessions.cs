@@ -17,6 +17,7 @@ public partial class MainWindow
         public ConnectionProfile? Profile;
         public TextDocument Document = new();
         public string? Path;
+        public string? EditorLabel;
         public string SavedText = "";
         public int Caret, SelectionStart, SelectionLength;
         public double VerticalOffset, HorizontalOffset;
@@ -122,7 +123,7 @@ public partial class MainWindow
     private static void RefreshSessionHeader(SessionWorkspace workspace)
     {
         if (workspace.Label == null) return;
-        string title = workspace.Engine is DisconnectedQueryEngine ? "Not connected" :
+        string title = workspace.Engine is DisconnectedQueryEngine ? workspace.EditorLabel ?? "Not connected" :
             (workspace.Profile is { } profile ? ProfileLabel(profile) : workspace.Engine.Name) + " · " +
             (workspace.Engine is AseIsql.Odbc.OdbcSession odbc ? odbc.Platform :
                 (workspace.Engine as ISessionFacts)?.Facts.Platform ?? ServerPlatform.Ase).Tag();

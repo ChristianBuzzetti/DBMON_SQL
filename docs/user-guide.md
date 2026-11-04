@@ -17,6 +17,9 @@ Standard builds and distributed packages exclude developer UI smoke checks and s
 - [Repeat on a timer](#repeat-on-a-timer)
 - [Activity monitor](#activity-monitor)
 - [Object explorer](#object-explorer)
+- [Generate DDL](#generate-ddl)
+- [Replication Server panel](#replication-server-panel)
+- [IQ metrics](#iq-metrics)
 - [Status bar](#status-bar)
 - [Personalization and Boberto](#personalization-and-boberto)
 - [Files and local data](#files-and-local-data)
@@ -240,12 +243,36 @@ Right-click a process and choose **Kill spid…**. The first confirmation lists 
 
 `F4` or **Objects** opens the explorer.
 
-- **ASE**: databases, then Tables, Views, Procedures, Triggers, Functions and System tables per database.
+- **ASE**: databases, then Tables, Views, Procedures, Triggers, Functions, Defaults, Rules and System tables. Additional branches list indexes, constraints/foreign keys, user-defined types, users, groups, roles and segments per database; **master** also lists logins (excluding passwords). Expand these entries for read-only details.
 - **IQ**: the server's database, then Tables, Views, Procedures and System objects (SYS and dbo).
 - Groups load on demand, 100 objects at a time (*Show 100 more…*). The filter box searches names on the server (`Enter` applies, `Esc` clears).
 - Double-click an object to insert its qualified name; right-click for its actions.
 
-Replication Server has no catalog to browse; use the RS recipes.
+Expand an ASE table for **Rows, space, locks and partitions**, **Indexes and keys**, **Triggers**, **Constraints** and **Foreign-key columns**. These branches query only when opened. Row counts use the server's `row_count()` estimate; space shows reserved/used pages and table KB with the page size, and partitions show their index IDs. Index keys retain their ordinal and ASC/DESC order. Defaults/rules offer **View code** and **Describe**. User/group details include the database group; role entries are mapped through the database's local role catalog. Use Reload to discard cached details after schema changes. Permissions, version differences and local row limits can leave lists partial; their notices and Messages show that evidence.
+
+Replication Server has no relational catalog; open its panel from Tools or use the RS recipes.
+
+## Generate DDL
+
+Right-click an ASE table, index, view, procedure, trigger or user-defined type and choose **Generate DDL**. Index actions are available both in the database's Indexes branch and under a table. Resolved ASE table/code identifiers in the editor also offer this action.
+
+Generation reads catalog metadata and opens a new **DDL · name** session tab with an editable, unsaved SQL document. The tab starts offline; save/copy the script, or explicitly connect it before running. The source document stays in its own session. Scripts include `USE` and `GO` separators and are never executed by generation.
+
+Table scripts include column types/lengths/precision, nullability, identity, defaults and bound rules, lock scheme, primary/unique constraints, indexes (clustered/nonclustered, uniqueness and key direction), check constraints and foreign keys, including referenced database/owner names. Shared bound default/rule definitions appear once before the table and are rebound afterward. Referenced tables and alias types must already exist. Alias types use ASE's `sp_addtype`; the script identifies the required owner and any existing default/rule prerequisites. Views, procedures and triggers reuse stored source in `number, colid2, colid` fragment order, as documented in [ASE syscomments](https://infocenter.sybase.com/help/topic/com.sybase.infocenter.dc36274.1570/html/tables/X19576.htm).
+
+Review scripts before use. Grants, physical placement, partition layout and storage options are excluded. Computed/encrypted columns and function-based indexes need a server-specific script. Missing/protected source, invalid metadata, incomplete keys and partial reads stop generation. Use unchained mode with no open transaction and disable NOEXEC before requesting DDL. Catalog access and the connection's local row limit still apply.
+
+## Replication Server panel
+
+On an RS session, choose **Tools → Replication Server panel…**. Tabs run `admin who`, `admin who_is_down`, `admin health`, `admin disk_space`, `admin show_connections` and `admin who, sqm`. Each loads when selected; **Refresh selected tab** replaces its snapshot. DOWN/suspended thread rows use the current theme's warning colors. Partition **Usage %** is used segments divided by total segments, following [RS admin disk_space](https://infocenter.sybase.com/help/topic/com.sybase.infocenter.dc32410.1571/doc/html/san1273713904372.html). NULL means the percentage is unknown, including invalid or zero capacity. All result sets and server messages remain available.
+
+**Suspend connection…** and **Resume connection…** ask for the registered data server and database. They accept simple RCL identifiers (letters, digits, `_`, `$`, `#`, `@`, with a letter or underscore first). Two separate confirmations show the original RS server and exact command; Cancel is the default. PROD adds its usual statement review through the existing execution path. Confirmed actions publish results in the original session; refresh the panel afterward to see the new state.
+
+## IQ metrics
+
+On an IQ session, choose **Tools → IQ metrics…**. Read-only tabs show `sp_iqstatus` key/value pairs, `sp_iqdbspace` with numeric **Usage %**, `sp_iqconnection`, and `sp_iqtransaction` as both raw details and counts/workspace KB grouped by state. The transaction list is the server's transaction-control-block output, including completed versions; see [IQ sp_iqtransaction](https://help.sap.com/docs/PRODUCT_ID/a898e08b84f21015969fa437e89860c8/a5bb670c84f21015b392b24dcf28be14.html). Unknown workspace totals remain NULL. Dbspace percentages use the server's [Usage column](https://infocenter.sybase.com/help/topic/com.sybase.infocenter.dc38151.1510/html/iqrefbb/CIHDAEDC.htm); sizes with units are preserved as raw fields.
+
+Tabs load on demand and **Refresh selected tab** takes a new snapshot. RS and IQ panels stay attached to the session/connection that opened them, even when the main session tab changes. They share that session's execution lane, so stop repeats and wait for running work before refreshing. A closed/replaced connection requires reopening the panel. Partial results, permission errors and unrecognized result shapes are labeled; raw results and messages remain visible when metric parsing is unavailable. No automatic polling runs.
 
 ## Status bar
 

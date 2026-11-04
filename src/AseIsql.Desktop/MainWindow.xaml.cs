@@ -259,7 +259,9 @@ public partial class MainWindow : Window
             if (!messages.Reported) AddOutputMessages(owner, output);
             else RefreshMessages(owner);
             int rowCount = output.Tables.Sum(t => t.Rows.Count);
+#if DBMON_SMOKE
             if (owner.Engine is DemoQueryEngine) cancellation.Token.ThrowIfCancellationRequested();
+#endif
             // Results accumulate; a re-run replaces only its own earlier tabs.
             var run = NewRun(owner, sql, owner.Engine); owner.LastRunId = run.Id;
             CaptureRunText(owner, run, output);
