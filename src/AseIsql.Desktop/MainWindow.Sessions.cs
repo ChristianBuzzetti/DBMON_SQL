@@ -22,6 +22,7 @@ public partial class MainWindow
         public double VerticalOffset, HorizontalOffset;
         public readonly List<TextAnchor> Bookmarks = [];
         public readonly ObservableCollection<LogMessage> Messages = [];
+        public readonly HeadTailBuffer<LogMessage> MessageBuffer = new();
         public readonly List<TabItem> Tabs = [];
         public TabItem? SelectedTab;
         public readonly HashSet<DataTable> Pins = [];
@@ -171,6 +172,7 @@ public partial class MainWindow
             Messages.ItemsSource = log; LogCount.Text = Counts.Of(log.Count, "message");
             SetLogVisible(logVisible);
             Workspace.SelectedItem = workspace.SelectedTab != null && Workspace.Items.Contains(workspace.SelectedTab) ? workspace.SelectedTab : QueryTab;
+            RefreshRunText();
             SessionTabs.SelectedItem = workspace.Header;
             SyncRepeatBanner();
             RefreshConnection(); StatusText.Text = workspace.Status;

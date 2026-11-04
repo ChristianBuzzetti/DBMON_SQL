@@ -106,12 +106,22 @@ Right-clicking an identifier (`orders`, `dbo.orders`, `sales..orders`, `[my tabl
 
 Scripts are split on `GO` lines, exactly like `isql`; `GO` inside strings, comments or brackets is not a separator. Each execution shows its elapsed time in the status bar while it runs.
 
+### Export a query directly to a file
+
+Choose **Export query to file…** in **Tools** or **Run ▾**, then choose a CSV, TSV or JSON Lines (`.jsonl`) file. It runs the current editor selection, or the whole script when nothing is selected, including `GO` batches and repetitions. Parameters and the usual PROD confirmation apply before the file is opened or SQL is sent. Existing files are replaced after the save dialog's overwrite confirmation.
+
+Every result set streams to disk row by row without creating grid tabs. The grid's row, 64 MiB, cell, column and result-set limits do not apply; SQL/script limits and the profile's query timeout still apply. The status bar shows rows written. **Esc** or **Cancel** requests cancellation; the chosen file stays on disk and the status bar and Messages identify its path and row count as **partial**. Errors also retain and report partial output. ODBC cancellation is best effort: verify the session state before continuing.
+
+Files use UTF-8 without a BOM. CSV/TSV use CRLF row endings and RFC 4180 quoting (also applied to tabs in TSV); NULL and empty strings both produce empty fields. Multiple sets share one file, with a blank line and a new header for each set, including empty sets. Numbers and dates use invariant culture, dates retain their fractional seconds, and binary values use `0x` hex.
+
+JSON Lines writes one object per row: `{"resultSet":1,"columns":["name","amount"],"values":["José",null]}`. The one-based result-set index continues across batches; empty result sets advance the index without producing a line. Column/value arrays preserve duplicate or empty column names. Numbers and booleans remain typed, NULL is JSON `null`, and dates use ISO text. Export follows **Continue after errors**; any failed batch marks the overall file partial. Statistics IO plan tables are not added to the export.
+
 ### isql-style execution
 
 - **`go N`** (also `GO N`, with any spaces) runs the batch above it N times in a row, as `isql` does. N is 1 to 1000; anything else is refused before anything runs. Messages ends with a summary such as *Summary: 5 batches ok / 0 with error*.
 - **Continue after errors** (Run ▾, or *Query → Continue after errors*): when a batch fails, its error is recorded in Messages and the next batch runs, like `isql` told to continue. Off by default: the first failed batch stops the script. The choice is kept across restarts (`run.json`). The final summary counts the batches that succeeded and failed. A lost connection or `Esc` always stops the script.
 - **Run without timeout (maintenance)** (Run ▾, or *Query → Execute without timeout*): runs the selection or script once without the profile's query timeout, for long `dbcc`, `reorg` or `dump` work. A profile can also use query timeout `0` for no timeout at all. `Esc` cancels in both cases.
-- **Statistics IO** (*Tools → SAP ASE session options*) reads the plan the server kept for each batch. When the server returns no plan, Messages says *plan not captured* for that batch; the batch is never run a second time to obtain one.
+- **Statistics IO** (*Tools → SAP ASE session options*) sends `set plan for show_execio_xml to message on` and reads the plan the server kept for each batch. It initializes `textsize` to 16 MiB once per connection when capture first runs, unless your SQL has already issued `set textsize`. Your own `set textsize` takes precedence for the rest of that connection, including after toggling Statistics IO. When the server returns no plan, Messages says *plan not captured* for that batch; the batch is never run a second time to obtain one.
 
 ### PROD protection
 
@@ -124,6 +134,12 @@ What counts as changing state: `insert`, `update`, `delete`, `merge`, `select �
 ## Results
 
 Every result set opens in its own tab: **Result 1**, **Result 2**…
+
+Choose **Text output (isql style)** beside Messages, or on a result's toolbar, to read the whole run as monospace text. Each result set has headers, dashes and `(N rows affected)` for the rows received locally. Grid filters and sorting do not change this text. Long cells wrap at 120 characters without dropping their contents; `NULL` is explicit. **Copy** copies the whole run and **Save as .txt…** saves UTF-8 text. Selecting an older result shows that result's run; Query shows the latest run. Sessions keep their own output, including runs with messages or errors and no result tables.
+
+The current engine provides separate result and message lists: text shows result sets first, followed by server messages in their received order, plus errors and any retention notice. Exact message/result interleaving is unavailable from these lists. Row counts on partial results describe only the received rows; the error explains the limit or cancellation.
+
+When output contains recognized `sp_sysmon` headings followed by dashes, **sp_sysmon sections** appears beside the text. Select a section (or use the arrow keys) to scroll to its heading. The recipes **sp_sysmon 1 minute** and **sp_sysmon 5 minutes** collect reports; allow enough query timeout, or use **Run without timeout (maintenance)**.
 
 - **Accumulate**: a new execution adds its tabs after the existing ones. Up to 40 result tabs are kept; beyond that the oldest unpinned ones close and Messages says so.
 - **Typed values**: numbers, dates and binary values keep their types; `NULL` is shown as blank but stays a real `NULL` for copying and exporting. Binary values are shown as hex.
@@ -151,6 +167,8 @@ Results from a multi-server run are re-run with *Run on…* (`Shift+F9`); result
 ## Messages
 
 The panel under the workspace lists the latest execution's messages: time, code, source and text. Server prints, warnings, errors, "rows affected" and client notes appear here and never as result grids. Right-click a message and choose *View original diagnostic* to see the driver's full text (with your password redacted).
+
+Messages appear while the batch runs, as the driver delivers them, with the panel refreshed about every 250 ms. For long output such as `sp_sysmon` or `dbcc`, the first 250 and last 250 messages are retained in order, with one **… N messages omitted …** row between them. Client notes also count toward the panel's retention limit.
 
 The panel can be hidden from *View → Server messages*; it reopens by itself when an execution reports an error.
 
@@ -264,7 +282,7 @@ Builds before 16 October 2026 used `%LOCALAPPDATA%\ASE ISQL Desktop`; the first 
 | Result sets per execution / columns per result | 128 / 1,024 |
 | Result tabs | 40 (oldest unpinned close first) |
 | Pinned results | 8, 64 MiB in total |
-| Messages per execution | 500 (older ones are counted as omitted) |
+| Messages per execution | First 250 + last 250, with one counted marker for the omitted middle |
 | Query history | 100 queries across sessions · newest first · 32 MiB file limit |
 | Repeat interval | 5 seconds to 24 hours |
 

@@ -11,6 +11,11 @@ namespace AseIsql
     {
         string Name { get; }
         QueryOutput Execute(string sql, CancellationToken cancellation = default);
+        // Existing fixture engines can keep the simple overload; live engines report every message as it arrives.
+        QueryOutput Execute(string sql, CancellationToken cancellation, IProgress<QueryMessage>? messages) => Execute(sql, cancellation);
+        // Streaming engines send rows directly to the writer; never fall back to bounded grid results.
+        QueryOutput Export(string sql, QueryExportWriter writer, CancellationToken cancellation = default) =>
+            new() { Error = "This query engine does not support streaming export." };
     }
 
     // What the server reports about the session itself, for the status bar. Never credentials; unknown stays null.
@@ -27,8 +32,10 @@ namespace AseIsql
     public sealed class QueryOutput
     {
         public readonly List<DataTable> Tables = new List<DataTable>();
-        public readonly List<QueryMessage> Messages = new();
-        public int OmittedMessages;
+        public readonly HeadTailBuffer<QueryMessage> Messages;
+        public int OmittedMessages => Messages.OmittedCount;
+        public QueryOutput(IProgress<QueryMessage>? messages = null)
+        { Messages = new(message => messages?.Report(message)); }
         public string? Error;
         public string? ErrorRawText;
         public string ErrorSource = "CLIENT";
@@ -38,7 +45,7 @@ namespace AseIsql
     {
         public string Name => "Disconnected";
         public QueryOutput Execute(string sql, CancellationToken cancellation = default)
-        { cancellation.ThrowIfCancellationRequested(); return new QueryOutput { Error = "Connect to ASE to execute a query." }; }
+        { cancellation.ThrowIfCancellationRequested(); return new QueryOutput { Error = "Connect to a server to execute a query." }; }
     }
 
     // This local demonstrator evaluates a deliberately small SQL subset.
@@ -46,6 +53,27 @@ namespace AseIsql
     public sealed class DemoQueryEngine : IQueryEngine
     {
         public string Name { get { return "Test fixture · no ASE connection"; } }
+
+        public QueryOutput Export(string sql, QueryExportWriter writer, CancellationToken cancellation = default)
+        {
+            cancellation.ThrowIfCancellationRequested();
+            var output = new QueryOutput();
+            if (sql.Length > 100000) { output.Error = "Fixture limit: 100,000 SQL characters per execution."; return output; }
+            try
+            {
+                foreach (var statement in SqlScript.SplitBatches(sql, demoStatements: true, cancellation))
+                    for (int run = 0; run < statement.Repeat; run++)
+                    {
+                        cancellation.ThrowIfCancellationRequested();
+                        using var table = SqlDemoParser.SelectConstants(statement.Text);
+                        using var reader = table.CreateDataReader();
+                        writer.Write(reader, cancellation);
+                    }
+                if (writer.ResultSets == 0) output.Error = "No query to execute.";
+            }
+            catch (FormatException ex) { output.Error = ex.Message; }
+            return output;
+        }
 
         public QueryOutput Execute(string sql, CancellationToken cancellation = default)
         {
