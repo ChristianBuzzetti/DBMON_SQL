@@ -57,6 +57,7 @@ public partial class MainWindow
     {
         if (owner.Repeat is not { } plan) return;
         owner.Repeat = null;
+        owner.RepeatMdaPrevious = null;
         if (sessions.All(session => session.Repeat == null)) repeatClock?.Stop();
         SyncRepeatBanner();
         AddMessage(owner, plan.Failures > 0 ? 1 : 0, "CLIENT", "Repeat ended · " + reason + " " + Counts.Of(plan.Runs, "run") +

@@ -29,6 +29,9 @@ public partial class MainWindow
         items.Add(new Separator());
         Toggle("Statistics IO", aseOptions.StatisticsIo, aseOptions with { StatisticsIo = !aseOptions.StatisticsIo },
             "set plan for show_execio_xml to message on / set plan for show_execio_xml off · per-table logical and physical reads from the executed plan, in Messages and in a Statistics IO tab.");
+        var estimated = new MenuItem { Header = "Estimated plan (no exec)", IsEnabled = AseOptionsAvailable, ToolTip = "Compiles the selection or script under set noexec on with show_final_plan_xml and opens its operator tree. Nothing is executed." };
+        estimated.Click += (_, _) => EstimatePlan();
+        items.Add(estimated);
         Toggle("Statistics time", aseOptions.StatisticsTime, aseOptions with { StatisticsTime = !aseOptions.StatisticsTime },
             "set statistics time on/off · parse, compile and execution time, as server messages.");
         items.Add(new Separator());

@@ -1334,6 +1334,141 @@ Check("ExecutionIo parses concatenated showplan_in_xml(0) documents, matches isq
     var table = ExecutionIo.ToTable(report.Plans);
     Assert((string?)table.ExtendedProperties["ResultHeader"] == "Statistics IO" && table.Rows.Count == 3);
     Assert((string)table.Rows[2]["object"] == "master..syscolumns" && (string)table.Rows[2]["alias"] == "c" && (long)table.Rows[2]["logical_reads"] == 162L && (long)table.Rows[2]["est_logical_reads"] == 214L);
+    var tree = report.Plans[1].Tree;
+    Assert(tree.Count == 1 && string.Join(",", PlanTree.Flatten(tree).Select(n => n.Operator)) == "Emit,ScalarAgg,NestLoopJoin,IndexScan,IndexScan");
+});
+Check("PlanTree parses every opTree operator with est/act counts and flags estimate-vs-actual deviations", () => {
+    const string xml = """
+<?xml version="1.0" encoding="UTF-8"?>
+<query><statementNum>1</statementNum><lineNum>1</lineNum><text><![CDATA[select * from t1 a, t2 b where a.id = b.id order by a.id]]></text>
+<opTree><Emit><est><rowCnt>50</rowCnt></est><act><rowCnt>2000</rowCnt></act>
+  <Sort><est><rowCnt>50</rowCnt><lio>6</lio></est><act><rowCnt>2000</rowCnt><lio>6</lio></act>
+    <HashJoin><est><rowCnt>50</rowCnt></est><act><rowCnt>2000</rowCnt></act>
+      <TableScan><est><rowCnt>10</rowCnt><lio>4</lio><pio>1</pio></est><act><rowCnt>2000</rowCnt><lio>40</lio><pio>0</pio></act><objName>db..t1</objName><corrName>a</corrName><scanType>TableScan</scanType></TableScan>
+      <IndexScan><est><rowCnt>100</rowCnt><lio>5</lio><pio>0</pio></est><act><rowCnt>120</rowCnt><lio>60</lio><pio>2</pio></act><objName>db..t2</objName><corrName>b</corrName><indName>t2_id</indName></IndexScan>
+      <TableScan><est><rowCnt>0</rowCnt><lio>0</lio></est><act><rowCnt>0</rowCnt><lio>0</lio></act><objName>db..t3</objName></TableScan>
+      <TableScan><est><rowCnt>0</rowCnt></est><act><rowCnt>3</rowCnt></act><objName>db..t3</objName></TableScan>
+    </HashJoin>
+  </Sort>
+</Emit></opTree></query>
+""";
+    var report = ExecutionIo.Parse(xml);
+    var nodes = PlanTree.Flatten(report.Plans.Single().Tree).ToList();
+    Assert(string.Join(",", nodes.Select(n => n.Operator)) == "Emit,Sort,HashJoin,TableScan,IndexScan,TableScan,TableScan");
+    Assert(nodes.Select(n => n.Depth).SequenceEqual(new[] { 0, 1, 2, 3, 3, 3, 3 }));
+    Assert(nodes[3].Key == "Emit/Sort/HashJoin/TableScan[db..t1 a]" && nodes[6].Key == "Emit/Sort/HashJoin/TableScan[db..t3]#1" && nodes.Select(n => n.Key).Distinct().Count() == nodes.Count);
+    Assert(nodes[4].Object == "db..t2" && nodes[4].Alias == "b" && nodes[4].Index == "t2_id" && nodes[4].Label == "IndexScan (db..t2 b, t2_id)" && nodes[1].Label == "Sort");
+    Assert(nodes[3].Estimated == new PlanMetrics(10, 4, 1) && nodes[3].Actual == new PlanMetrics(2000, 40, 0) && nodes[0].Estimated == new PlanMetrics(50, null, null));
+    // ToTable/Summary keep listing only the objects read; the containers live in Tree only.
+    Assert(ExecutionIo.ToTable(report.Plans).Rows.Count == 4 && report.Plans[0].Scans.Count == 4);
+    // Rules: >= 10x either way warns, >= 100x or est 0 with act > 0 is an error; missing act is never a problem.
+    Assert(PlanTree.Classify(10, 100) == PlanSeverity.Warning && PlanTree.Classify(10, 99) == PlanSeverity.None && PlanTree.Classify(100, 10) == PlanSeverity.Warning);
+    Assert(PlanTree.Classify(100, 11) == PlanSeverity.None && PlanTree.Classify(1, 100) == PlanSeverity.Error && PlanTree.Classify(500, 0) == PlanSeverity.Error);
+    Assert(PlanTree.Classify(0, 1) == PlanSeverity.Error && PlanTree.Classify(0, 0) == PlanSeverity.None && PlanTree.Classify(10, null) == PlanSeverity.None && PlanTree.Classify(null, 10) == PlanSeverity.None);
+    Assert(PlanTree.Severity(nodes[0]) == PlanSeverity.Warning && PlanTree.Severity(nodes[1]) == PlanSeverity.Warning && PlanTree.Severity(nodes[5]) == PlanSeverity.None && PlanTree.Severity(nodes[6]) == PlanSeverity.Error);
+    var scan = PlanTree.Assess(nodes[3]);
+    Assert(scan.Count == 2 && scan[0].Metric == "rows" && scan[0].Severity == PlanSeverity.Error && scan[0].Message == "rows: actual 2,000 vs estimated 10 (200x over estimate)");
+    Assert(scan[1].Metric == "logical reads" && scan[1].Severity == PlanSeverity.Warning);
+    var index = PlanTree.Assess(nodes[4]);
+    Assert(index.Count == 1 && index[0].Metric == "logical reads" && index[0].Message == "logical reads: actual 60 vs estimated 5 (12x over estimate)");
+    Assert(PlanTree.Assess(nodes[6]).Single().Message == "rows: actual 3 vs estimated 0 (estimate 0)");
+    // An estimated plan (no act sections) shows its estimates and flags nothing.
+    var estimated = PlanTree.Parse(xml.Replace("<act>", "<!--").Replace("</act>", "-->"));
+    Assert(estimated.Count == 1 && PlanTree.Flatten(estimated).All(n => n.Actual.IsEmpty && PlanTree.Assess(n).Count == 0) && PlanTree.Flatten(estimated).First().Estimated.Rows == 50);
+    Assert(PlanTree.Parse(null).Count == 0 && PlanTree.Parse("<query><opTree/></query>").Count == 0 && PlanTree.Parse("<query><text>x</text></query>").Count == 0);
+});
+Check("PlanCompare lines up two plans by operator path: only-A, only-B and est/act rows/lio differences", () => {
+    static string Plan(string inner) => "<?xml version=\"1.0\"?><query><statementNum>1</statementNum><lineNum>1</lineNum><text>select</text><opTree><Emit><NestLoopJoin>" + inner + "</NestLoopJoin></Emit></opTree></query>";
+    string a = Plan("<TableScan><est><rowCnt>10</rowCnt><lio>4</lio></est><act><rowCnt>2000</rowCnt><lio>40</lio></act><objName>db..t1</objName></TableScan>"
+        + "<IndexScan><est><rowCnt>5</rowCnt><lio>3</lio></est><act><rowCnt>5</rowCnt><lio>3</lio></act><objName>db..t2</objName><indName>t2_id</indName></IndexScan>");
+    string b = Plan("<TableScan><est><rowCnt>1800</rowCnt><lio>4</lio></est><act><rowCnt>2000</rowCnt><lio>40</lio></act><objName>db..t1</objName></TableScan>"
+        + "<TableScan><est><rowCnt>5</rowCnt><lio>30</lio></est><act><rowCnt>5</rowCnt><lio>30</lio></act><objName>db..t2</objName></TableScan>");
+    var planA = ExecutionIo.Parse(a).Plans.Single(); var planB = ExecutionIo.Parse(b).Plans.Single();
+    var diff = PlanCompare.Compare(planA, planB);
+    Assert(string.Join("|", diff.Select(d => d.Kind + ":" + d.Key)) ==
+        "Same:Emit|Same:Emit/NestLoopJoin|Different:Emit/NestLoopJoin/TableScan[db..t1]|OnlyA:Emit/NestLoopJoin/IndexScan[db..t2]|OnlyB:Emit/NestLoopJoin/TableScan[db..t2]");
+    Assert(diff[2].Changed.SequenceEqual(new[] { "est_rows" }) && diff[3].B == null && diff[4].A == null && diff[4].Node.Estimated.LogicalReads == 30);
+    var actOnly = PlanCompare.Compare(planA.Tree, ExecutionIo.Parse(a.Replace("<lio>40</lio></act>", "<lio>41</lio></act>").Replace("<indName>t2_id</indName>", "<indName>t2_other</indName>")).Plans.Single().Tree);
+    Assert(actOnly[2].Changed.SequenceEqual(new[] { "act_lio" }) && actOnly[3].Kind == PlanDiffKind.Different && actOnly[3].Changed.SequenceEqual(new[] { "index" }));
+    Assert(PlanCompare.Compare(planA, planA).All(d => d.Kind == PlanDiffKind.Same) && PlanCompare.Compare([], planB.Tree).All(d => d.Kind == PlanDiffKind.OnlyB));
+    var table = PlanCompare.ToTable(diff);
+    Assert((string?)table.ExtendedProperties["ResultHeader"] == "Plan compare" && table.Rows.Count == 5);
+    Assert((string)table.Rows[2]["status"] == "different" && (long)table.Rows[2]["a_est_rows"] == 10L && (long)table.Rows[2]["b_est_rows"] == 1800L && (string)table.Rows[2]["changed"] == "est_rows");
+    Assert((string)table.Rows[3]["status"] == "only in A" && table.Rows[3]["b_est_rows"] == DBNull.Value && (string)table.Rows[3]["index"] == "t2_id" && (string)table.Rows[4]["status"] == "only in B");
+    var io = ExecutionIo.ToTable([planA, planB]);
+    Assert(ExecutionIo.PlansOf(io).SequenceEqual(new[] { planA, planB }) && ExecutionIo.PlansOf(table).Count == 0 && ExecutionIo.PlansOf(null).Count == 0);
+});
+Check("EstimatedPlan brackets the script with noexec, restores tracked options and refuses scripts that touch noexec", () => {
+    Assert(EstimatedPlan.Prepare(AseSessionOptions.Default).SequenceEqual(new[] { "set plan for show_final_plan_xml to message on", "set noexec on" }));
+    Assert(EstimatedPlan.Restore(AseSessionOptions.Default).SequenceEqual(new[] { "set plan for show_final_plan_xml off" }));
+    var both = AseSessionOptions.Default with { NoExec = true, StatisticsIo = true };
+    Assert(EstimatedPlan.Prepare(both).SequenceEqual(new[] { "set noexec off", "set plan for show_final_plan_xml to message on", "set noexec on" }));
+    Assert(EstimatedPlan.Restore(both).SequenceEqual(new[] { "set plan for show_final_plan_xml off", "set plan for show_execio_xml to message on", "set noexec on" }));
+    Assert(EstimatedPlan.Lift == "/* dbmon_execio */ set noexec off" && EstimatedPlan.Read(-1) == "/* dbmon_execio */ select showplan_in_xml(-1)");
+    Assert(SqlScript.SplitBatches(EstimatedPlan.Batches(EstimatedPlan.Prepare(both))).Count == 3);
+    Assert(EstimatedPlan.Refusal("select 1") == null && EstimatedPlan.Refusal("  ") != null && EstimatedPlan.Refusal("set NOEXEC off\ngo\ndelete t") != null);
+    string est = "<?xml version=\"1.0\"?><query><statementNum>1</statementNum><lineNum>1</lineNum><text>select * from t</text><opTree><Emit><TableScan><est><rowCnt>50</rowCnt><lio>7</lio></est><objName>t</objName></TableScan></Emit></opTree></query>";
+    string own = "<?xml version=\"1.0\"?><query><statementNum>1</statementNum><lineNum>1</lineNum><text>/* dbmon_execio */ select showplan_in_xml(0)</text><opTree><Emit/></opTree></query>";
+    string set = "<?xml version=\"1.0\"?><query><statementNum>1</statementNum><lineNum>1</lineNum><text>set noexec on</text></query>";
+    var cells = new DataTable(); cells.Columns.Add("xml", typeof(string)); cells.Rows.Add(est); cells.Rows.Add(own + set); cells.Rows.Add(DBNull.Value);
+    var plans = EstimatedPlan.Plans(EstimatedPlan.Xml([cells]));
+    Assert(plans.Count == 1 && plans[0].Text == "select * from t" && PlanTree.Flatten(plans[0].Tree).All(n => n.Actual.IsEmpty && PlanTree.Severity(n) == PlanSeverity.None));
+});
+static DataTable MdaTable(string columns, params object[][] rows)
+{
+    var table = new DataTable();
+    foreach (var spec in columns.Split(',')) { var p = spec.Split(':'); table.Columns.Add(p[0], p[1] switch { "i" => typeof(int), "l" => typeof(long), "d" => typeof(decimal), "f" => typeof(double), "t" => typeof(DateTime), "o" => typeof(object), _ => typeof(string) }); }
+    foreach (var row in rows) table.Rows.Add(row);
+    return table;
+}
+Check("MDA snapshot detection needs a cumulative mon table in code, a row key and numeric counters", () => {
+    var waits = MdaTable("WaitEventID:i,Waits:i,WaitTime:i,Description:s", [1, 10, 100, "a"]);
+    var shape = MdaDelta.Detect(waits, "select * from master..monSysWaits -- every wait")!;
+    Assert(shape.Table == "monSysWaits" && shape.Keys.SequenceEqual(new[] { "WaitEventID" }) && shape.Counters.SequenceEqual(new[] { "Waits", "WaitTime" }));
+    Assert(MdaDelta.MonitorTable("select * from master.dbo.MONOPENOBJECTACTIVITY") == null && MdaDelta.MonitorTable("select * from master.dbo.monOpenObjectActivity") == "monOpenObjectActivity");
+    Assert(MdaDelta.Detect(waits, "select * from master..monLocks") == null && MdaDelta.Detect(waits, "select 'monSysWaits' /* monSysWaits */ from t") == null && MdaDelta.Detect(waits, "") == null);
+    Assert(MdaDelta.Detect(waits) != null && MdaDelta.Detect(MdaTable("Waits:i,WaitTime:i", [1, 2])) == null && MdaDelta.Detect(MdaTable("WaitEventID:i,Description:s", [1, "a"])) == null);
+    var statements = MdaDelta.Detect(MdaTable("SPID:i,KPID:i,BatchID:i,LineNumber:i,LogicalReads:i,ProcNestLevel:i,HashKey:i,SsqlId:i,ServerUserID:i,StartTime:t"), "select * from monSysStatement")!;
+    Assert(statements.Keys.SequenceEqual(new[] { "SPID", "KPID", "BatchID", "LineNumber", "SsqlId" }) && statements.Counters.SequenceEqual(new[] { "LogicalReads" }));
+    var byName = MdaDelta.Detect(MdaTable("DBName:s,ObjectName:s,LogicalReads:i,Note:o", ["db", "t", 1, "x"]), "select * from monOpenObjectActivity")!;
+    Assert(byName.Keys.SequenceEqual(new[] { "DBName", "ObjectName" }) && byName.Counters.SequenceEqual(new[] { "LogicalReads" }));
+    Assert(MdaDelta.Detect(MdaTable("DBID:i,ObjectID:i,IndexID:i,DBName:s,ObjectName:s,LogicalReads:i", [1, 2, 0, "db", "t", 5]))!.Keys.SequenceEqual(new[] { "DBID", "ObjectID", "IndexID" }));
+});
+Check("MDA deltas subtract counters per key, keep new keys, list gone keys and give NULL for NULL counters", () => {
+    var prev = MdaTable("WaitEventID:i,Waits:i,WaitTime:i,Description:s", [1, 10, 100, "a"], [2, 5, DBNull.Value, "b"], [3, 7, 70, "c"]);
+    var next = MdaTable("WaitEventID:i,Waits:i,WaitTime:i,Description:s", [1, 15, 130, "a"], [2, 9, 40, "b"], [4, 3, 30, "d"]);
+    var delta = MdaDelta.Compute(prev, next, MdaDelta.Detect(next, "select * from master..monSysWaits"));
+    Assert(string.Join(",", delta.Columns.Cast<DataColumn>().Select(c => c.ColumnName)) == "WaitEventID,delta_status,Waits,WaitTime");
+    Assert((string?)delta.ExtendedProperties["ResultHeader"] == MdaDelta.ResultHeader && (string?)delta.ExtendedProperties["MdaTable"] == "monSysWaits");
+    Assert(delta.Columns["Waits"]!.DataType == typeof(long) && delta.Columns["WaitEventID"]!.DataType == typeof(int) && delta.Rows.Count == 4);
+    string Row(DataRow r) => string.Join("|", r.ItemArray.Select(v => v is DBNull ? "NULL" : Convert.ToString(v, CultureInfo.InvariantCulture)));
+    Assert(string.Join(";", delta.Rows.Cast<DataRow>().Select(Row)) == "1||5|30;2||4|NULL;4|new|3|30;3|gone|NULL|NULL");
+    Assert(MdaDelta.ChartColumn(delta) == "WaitTime" && MdaDelta.ChartColumn(MdaDelta.Compute(prev, prev)) == null);
+    Assert(MdaDelta.Compute(next, MdaTable("WaitEventID:i,Waits:i,WaitTime:i")).Rows.Cast<DataRow>().All(r => (string)r[MdaDelta.StatusColumn] == MdaDelta.Gone));
+    bool threw = false;
+    try { MdaDelta.Compute(MdaTable("Waits:i,WaitTime:i", [1, 2]), next); } catch (ArgumentException) { threw = true; }
+    Assert(threw); threw = false;
+    try { MdaDelta.Compute(MdaTable("Waits:i", [1]), MdaTable("Waits:i", [2])); } catch (ArgumentException) { threw = true; }
+    Assert(threw);
+});
+Check("MDA deltas match composite keys across int/long runs, treat a drop as a reset and ignore non-numeric columns", () => {
+    var prev = MdaTable("DBID:i,ObjectID:i,IndexID:i,ObjectName:s,LogicalReads:i,PhysicalReads:d,LastUsedDate:t,Mixed:o,Ratio:f",
+        [4, 100, 0, "orders", 1000, 10m, DateTime.Today, "text", 1.5], [4, 100, 2, "orders", 50, 1m, DateTime.Today, 1, 0.5], [4, 200, 0, "lines", 100, 10m, DateTime.Today, 2, 2.0]);
+    var next = MdaTable("DBID:l,ObjectID:l,IndexID:l,ObjectName:s,LogicalReads:i,PhysicalReads:d,LastUsedDate:t,Mixed:o,Ratio:f",
+        [4L, 100L, 0L, "orders  ", 1600, 12m, DateTime.Today, 3, 2.0], [4L, 100L, 2L, "orders", 80, 1m, DateTime.Today, DBNull.Value, 0.75], [4L, 200L, 0L, "lines", 20, 12m, DateTime.Today, 2, 3.0]);
+    var delta = MdaDelta.Compute(prev, next);
+    // Mixed holds text in the first run, so it is no counter there; the date and name are never subtracted.
+    Assert(string.Join(",", delta.Columns.Cast<DataColumn>().Select(c => c.ColumnName)) == "DBID,ObjectID,IndexID,delta_status,LogicalReads,PhysicalReads,Ratio");
+    Assert(delta.Columns["DBID"]!.DataType == typeof(object) && delta.Columns["PhysicalReads"]!.DataType == typeof(decimal) && delta.Columns["Ratio"]!.DataType == typeof(double));
+    Assert(delta.Rows.Count == 3 && delta.Rows.Cast<DataRow>().All(r => (string)r[MdaDelta.StatusColumn] != MdaDelta.New));
+    Assert((long)delta.Rows[0]["LogicalReads"] == 600 && (decimal)delta.Rows[0]["PhysicalReads"] == 2m && (double)delta.Rows[0]["Ratio"] == 0.5);
+    Assert((long)delta.Rows[1]["LogicalReads"] == 30 && (decimal)delta.Rows[1]["PhysicalReads"] == 0m && (double)delta.Rows[1]["Ratio"] == 0.25);
+    Assert((string)delta.Rows[2][MdaDelta.StatusColumn] == MdaDelta.Reset && (long)delta.Rows[2]["LogicalReads"] == 20 && (decimal)delta.Rows[2]["PhysicalReads"] == 12m);
+    // Untyped numeric counters with NULLs, string keys compared without trailing blanks, duplicate keys summed.
+    var a = MdaTable("CacheName:s,PhysicalReads:o", ["default data cache ", 10], ["default data cache", 5], ["tempdb cache", DBNull.Value]);
+    var b = MdaTable("CacheName:s,PhysicalReads:o", ["default data cache", 40], ["tempdb cache", 7]);
+    var cache = MdaDelta.Compute(a, b, MdaDelta.Detect(b, "select CacheName, PhysicalReads from master..monCachePool"));
+    Assert(cache.Rows.Count == 2 && (decimal)cache.Rows[0]["PhysicalReads"] == 25m && cache.Rows[1]["PhysicalReads"] == DBNull.Value && (string)cache.Rows[1][MdaDelta.StatusColumn] == "");
 });
 Console.WriteLine($"{passed} checks passed. No ASE server was contacted.");
 
