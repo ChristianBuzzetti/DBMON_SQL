@@ -25,7 +25,7 @@
       "aseisql.odbc": {
         "type": "Project",
         "dependencies": {
-          "AseIsql.Core": "[0.1.0, )",
+          "AseIsql.Core": "[1.0.0, )",
           "System.Data.Odbc": "[10.0.13, )"
         }
       }
