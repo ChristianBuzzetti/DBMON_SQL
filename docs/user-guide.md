@@ -13,6 +13,7 @@ DBMON SQL is a Windows workbench for writing and running SQL against SAP ASE, SA
 - [Parameters](#parameters)
 - [Run on several servers](#run-on-several-servers)
 - [Repeat on a timer](#repeat-on-a-timer)
+- [Activity monitor](#activity-monitor)
 - [Object explorer](#object-explorer)
 - [Status bar](#status-bar)
 - [Personalization and Boberto](#personalization-and-boberto)
@@ -220,6 +221,18 @@ A form asks for each value when you **insert a recipe**, when you **run SQL** th
 - SQL that changes data or server state (`insert`, `update`, `delete`, `drop`, `kill`, `resume`…; temporary `#tables` excluded; the full list is under [PROD protection](#prod-protection)) needs an explicit acknowledgement before it can start. On a PROD session the PROD confirmation is asked once more when the repeat starts, never on each run.
 
 While repeating, an amber band shows *REPEATING*, the interval, the run count, the server, the SQL and a countdown with a progress rail, plus **Run now** and **Stop repeating**. The window title starts with `⚠ REPEATING`. The repeat stops on Stop, `Esc`, the run limit, a failure (when set), disconnecting or closing the app; Messages records why. It belongs to its own session: other tabs keep running their own SQL while it ticks, and its band reappears when you return to its tab.
+
+## Activity monitor
+
+Open **Tools → Activity monitor…** (also in command search). The regular login opens a **dedicated connection**; confirm the server and credentials there. The monitor runs in its own window and connection, so refreshes and detail queries can run while an editor session is busy. Closing the monitor cancels its requests and closes its connection. SAP IQ and Replication Server show **not supported for this platform yet**.
+
+Choose **2 s**, **5 s** (default), **10 s** or **30 s** refresh, or **Pause**. **Refresh now** works while paused. Requests run one at a time, with a ten-second query timeout. The process list reads `master..sysprocesses`: SPID, status, login, host, program, database, command, CPU, physical IO, memory, blocked-by SPID, seconds blocked and transaction name. Counters are server values, not rates. The login's maximum-row setting applies; increase it in the monitor login if the server has more processes than that limit.
+
+The **SPID / blocking tree** column indents blocked processes below their blockers. **HEAD** marks a head blocker in the palette's notice colors. **cycle** marks circular blocking; one edge is cut for display so each SPID appears once. **blocker absent** means that blocker was not returned in the snapshot. Filters keep matching processes and their ancestors. Click any column header to toggle its sort direction within each branch, preserving the tree. Select rows and use **Copy rows**, its context-menu entry or `Ctrl+C` to copy tab-separated values with headers.
+
+Select a SPID for its **Current SQL** and **Locks**. The monitor reads ordered `monProcessSQLText` fragments matched to `monSysStatement`; if statement monitoring is unavailable or its history has no matching statement yet, it tries batch SQL text alone. Locks come from `monLocks`. If MDA tables are disabled, missing or not permitted, the affected pane hides and the detail heading explains why. The monitor does not enable server monitoring or change permissions. After an administrator changes access, select **Retry MDA**. No current text or no lock rows can also mean the SPID is idle or has already ended.
+
+Right-click a process and choose **Kill spid…**. The first confirmation lists its server, SPID, login, host, program and command. The second requires typing the exact SPID number. PROD profiles show an extra production warning. **Cancel** is the default in the identity review; cancelling either dialog sends nothing. System processes (`suid <= 0`), missing logins, the monitor itself and known editor sessions on the same server cannot be killed. Killing is disabled if the monitor cannot identify its own SPID. After confirmation, the process is read again; an identity change cancels the action. The KILL batch repeats the identity and system-process checks on the server. Your ASE permissions still decide whether KILL is allowed. A successful submission may start a long rollback; refresh to see the result. A process snapshot can change at any moment, including between the final check and execution.
 
 ## Object explorer
 

@@ -4,6 +4,14 @@ All notable changes to DBMON SQL are listed here. The project follows [Semantic 
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-11-04
+
+### Added
+- **Activity monitor…** in Tools and command search: a dedicated ASE connection with 2/5/10/30-second refresh, pause, a blocking tree, theme-colored head blockers, cycle markers, filtering, sorting within branches and copying selected rows. The editor session remains independent.
+- Selected-SPID details show current SQL from `monSysStatement` / `monProcessSQLText` and locks from `monLocks` when accessible. Unavailable MDA panes hide with an explanation; **Retry MDA** checks access again. IQ and Replication Server display an explicit unsupported message.
+- **Kill spid…** requires a process-identity review and typing the SPID, with extra PROD warnings. Monitor/editor SPIDs, system processes (`suid <= 0`) and missing logins are protected. Process identity and guards are checked again before sending KILL; server permissions still apply.
+- Core checks cover process parsing, blocking chains, multiple heads, cycles, filtering/sorting and kill guards.
+
 ## [0.5.0] — 2026-11-04
 
 ### Added
