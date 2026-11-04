@@ -125,6 +125,12 @@ What counts as changing state: `insert`, `update`, `delete`, `merge`, `select �
 
 Every result set opens in its own tab: **Result 1**, **Result 2**…
 
+Choose **Text output (isql style)** beside Messages, or on a result's toolbar, to read the whole run as monospace text. Each result set has headers, dashes and `(N rows affected)` for the rows received locally. Grid filters and sorting do not change this text. Long cells wrap at 120 characters without dropping their contents; `NULL` is explicit. **Copy** copies the whole run and **Save as .txt…** saves UTF-8 text. Selecting an older result shows that result's run; Query shows the latest run. Sessions keep their own output, including runs with messages or errors and no result tables.
+
+The current engine provides separate result and message lists: text shows result sets first, followed by server messages in their received order, plus errors and any retention notice. Exact message/result interleaving is unavailable from these lists. Row counts on partial results describe only the received rows; the error explains the limit or cancellation.
+
+When output contains recognized `sp_sysmon` headings followed by dashes, **sp_sysmon sections** appears beside the text. Select a section (or use the arrow keys) to scroll to its heading. The recipes **sp_sysmon 1 minute** and **sp_sysmon 5 minutes** collect reports; allow enough query timeout, or use **Run without timeout (maintenance)**.
+
 - **Accumulate**: a new execution adds its tabs after the existing ones. Up to 40 result tabs are kept; beyond that the oldest unpinned ones close and Messages says so.
 - **Typed values**: numbers, dates and binary values keep their types; `NULL` is shown as blank but stays a real `NULL` for copying and exporting. Binary values are shown as hex.
 - **Columns** open wide enough for their first rows (up to 520 px) and can be resized, reordered and sorted. Unnamed expressions are labelled *(no column name)*.

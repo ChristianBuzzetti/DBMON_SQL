@@ -87,6 +87,8 @@ public partial class MainWindow
             double elapsedMs = timer.Elapsed.TotalMilliseconds; ticker.Stop();
             // Multi-server results accumulate like any run; they are registered without a session, so F9 points to Run on….
             int firstNew = owner.Tabs.Count; var multiRun = NewRun(owner, sql, null);
+            CaptureRunText(owner, multiRun, () => string.Join(Environment.NewLine, outcomes.Select(outcome =>
+                "-- " + outcome.Target.Label + Environment.NewLine + ResultFormats.Isql(outcome.Output))));
             foreach (var combined in MultiRun.Combine(outcomes))
             {
                 if (combined.Table != null)

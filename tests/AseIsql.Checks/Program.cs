@@ -8,6 +8,67 @@ int passed = 0;
 void Check(string name, Action body) { body(); Console.WriteLine("PASS " + name); passed++; }
 void Assert(bool value) { if (!value) throw new Exception("Assertion failed"); }
 var engine = new DemoQueryEngine();
+Check("isql text formats every set with headers, dashes and received row counts", () => {
+    var table = new DataTable(); table.Columns.Add("name"); table.Columns.Add("n", typeof(int));
+    table.Rows.Add("Ada", 12); table.Rows.Add("Bo", DBNull.Value);
+    var empty = table.Clone();
+    var output = new QueryOutput(); output.Tables.Add(table); output.Tables.Add(empty);
+    string expected = string.Join(Environment.NewLine, new[] { "name n   ", "---- ----", "Ada  12  ", "Bo   NULL", "(2 rows affected)", "name n", "---- -", "(0 rows affected)", "" });
+    Assert(ResultFormats.Isql(output) == expected);
+    Assert(table.Rows.Count == 2 && table.DefaultView.RowFilter == "");
+});
+Check("isql ordered entries interleave messages and results without losing diagnostics", () => {
+    var table = new DataTable(); table.Columns.Add("v"); table.Rows.Add("value");
+    string text = ResultFormats.Isql([new(Message: "before"), new(Table: table), new(Message: "between"), new(Table: table.Clone()), new(Message: "Rows affected: 7"), new(Message: "after")]);
+    Assert(text.StartsWith("before" + Environment.NewLine) && text.EndsWith("after" + Environment.NewLine));
+    Assert(text.IndexOf("(1 rows affected)", StringComparison.Ordinal) < text.IndexOf("between", StringComparison.Ordinal));
+    Assert(text.IndexOf("between", StringComparison.Ordinal) < text.IndexOf("(0 rows affected)", StringComparison.Ordinal));
+    Assert(text.Contains("(7 rows affected)") && !text.Contains("Rows affected: 7"));
+    var output = new QueryOutput { Error = "Partial output: cancelled" }; output.Messages.Append(Array.Empty<QueryMessage>(), 3);
+    output.Tables.Add(table); output.Messages.Add(new(0, "ASE", "first")); output.Messages.Add(new(0, "ASE", "second"));
+    text = ResultFormats.Isql(output);
+    Assert(text.IndexOf("first", StringComparison.Ordinal) < text.IndexOf("second", StringComparison.Ordinal));
+    Assert(text.Contains(HeadTailBuffer<QueryMessage>.OmissionText(3)) && text.EndsWith("Partial output: cancelled" + Environment.NewLine));
+    Assert(ResultFormats.Isql(new QueryOutput()) == "");
+});
+Check("isql cells preserve types, multiline and long values without local grid filtering", () => {
+    var table = new DataTable(); table.Columns.Add("value", typeof(object));
+    table.Rows.Add(new object[] { "line1\r\nline2\tend\rline3" });
+    table.Rows.Add(new object[] { new string('x', 245) });
+    table.Rows.Add(new object[] { new byte[] { 0, 255 } });
+    table.Rows.Add(true); table.Rows.Add(12.5m);
+    table.Rows.Add(new DateTime(2026, 11, 4, 12, 30, 5).AddTicks(1234567));
+    table.Rows.Add(DBNull.Value); table.Rows.Add("");
+    table.DefaultView.RowFilter = "value IS NULL";
+    var culture = CultureInfo.CurrentCulture;
+    try {
+        CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("es-AR");
+        string text = ResultFormats.Isql([new(Table: table)]);
+        Assert(text.Contains("line1") && text.Contains("line2    end") && text.Contains("line3"));
+        Assert(text.Replace("0x00FF", "", StringComparison.Ordinal).Count(c => c == 'x') == 245 && text.Contains("0x00FF") && text.Contains("12.5"));
+        Assert(text.Contains("2026-11-04 12:30:05.1234567") && text.Contains("NULL") && text.Contains("(8 rows affected)"));
+        Assert(text.Split(Environment.NewLine).Where(line => line.Length > 0 && !line.StartsWith('(')).All(line => line.Length == 120));
+    } finally { CultureInfo.CurrentCulture = culture; }
+});
+Check("sp_sysmon index recognizes underlined sections and preserves original navigation offsets", () => {
+    const string sample = "sp_sysmon report\r\n  Kernel Utilization  \r\n -------------------- \r\nCPU: 12%\nLock Management\n---\nlocks: 2\rNetwork I/O Management\r----------------------\rpackets: 4\r\nTask Management\r\nnot an underline\r\nOther heading\r\n---------\r\nKernel Utilization\r\n---";
+    var sections = ResultFormats.SysmonSections(sample);
+    Assert(sections.Select(section => section.Heading).SequenceEqual(new[] { "Kernel Utilization", "Lock Management", "Network I/O Management", "Kernel Utilization" }));
+    Assert(sections.Select(section => section.Line).SequenceEqual(new[] { 1, 4, 7, 14 }));
+    foreach (var section in sections) Assert(sample[section.Offset..].TrimStart().StartsWith(section.Heading, StringComparison.Ordinal));
+    Assert(ResultFormats.SysmonSections("").Count == 0 && ResultFormats.SysmonSections("Lock Management\n--\nTask Management").Count == 0);
+    string[] headings = ["Kernel Utilization", "Worker Process Management", "Parallel Query Management", "Task Management", "Application Management", "ESP Management", "Transaction Profile", "Transaction Management", "Index Management", "Metadata Cache Management", "Lock Management", "Data Cache Management", "Procedure Cache Management", "Memory Management", "Recovery Management", "Disk I/O Management", "Network I/O Management"];
+    Assert(ResultFormats.SysmonSections(string.Join("\n", headings.Select(heading => heading + "\n---"))).Count == headings.Length);
+    var report = new QueryOutput(); report.Messages.Add(new(0, "ASE", "Kernel Utilization")); report.Messages.Add(new(0, "ASE", "------------------"));
+    report.Messages.Add(new(0, "ASE", "CPU: 12%\nLock Management\n---------------\nlocks: 2"));
+    Assert(ResultFormats.SysmonSections(ResultFormats.Isql(report)).Count == 2);
+    report.Messages.Clear(); report.Messages.Add(new(0, "ASE", "Kernel Utilization\r\n")); report.Messages.Add(new(0, "ASE", "------------------\r\n"));
+    report.Messages.Add(new(0, "ASE", "CPU: 12%\nLock Management\n---------------\nlocks: 2"));
+    Assert(ResultFormats.SysmonSections(ResultFormats.Isql(report)).Count == 2);
+    var table = new DataTable(); table.Columns.Add("report"); table.Rows.Add("Task Management\n---------------\ntasks: 3");
+    report.Tables.Add(table);
+    Assert(ResultFormats.SysmonSections(ResultFormats.Isql(report)).Count == 3);
+});
 Check("Head/tail retention preserves all messages through 500, in arrival order without a marker", () => {
     foreach (int count in new[] { 0, 1, 249, 250, 251, 499, 500 })
     {
@@ -565,12 +626,15 @@ Check("Parameter values are escaped inside quotes and limited to one token outsi
 Check("Packaged recipes are generic: no site procedures or logins, and every placeholder is English", () => {
     using var recipes = System.Text.Json.JsonDocument.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "src", "AseIsql.Desktop", "Assets", "ase-recipes.json")));
     var entries = recipes.RootElement.EnumerateArray().ToList();
-    Assert(entries.All(r => r.GetProperty("engine").GetString() is "ASE" or "IQ" or "RS") && entries.Count(r => r.GetProperty("engine").GetString() == "ASE") == 52 && entries.Count(r => r.GetProperty("engine").GetString() == "IQ") == 21 && entries.Count(r => r.GetProperty("engine").GetString() == "RS") == 21);
+    Assert(entries.All(r => r.GetProperty("engine").GetString() is "ASE" or "IQ" or "RS") && entries.Count(r => r.GetProperty("engine").GetString() == "ASE") == 54 && entries.Count(r => r.GetProperty("engine").GetString() == "IQ") == 21 && entries.Count(r => r.GetProperty("engine").GetString() == "RS") == 21);
+    Assert(entries.Select(r => r.GetProperty("id").GetString()).Distinct().Count() == entries.Count);
+    Assert(entries.Single(r => r.GetProperty("name").GetString() == "sp_sysmon 1 minute").GetProperty("sql").GetString() == "sp_sysmon \"00:01:00\"");
+    Assert(entries.Single(r => r.GetProperty("name").GetString() == "sp_sysmon 5 minutes").GetProperty("sql").GetString() == "sp_sysmon \"00:05:00\"");
     // Replication Server speaks RCL: its recipes never use SELECT; IQ recipes never use ASE-only catalogs.
     Assert(entries.Where(r => r.GetProperty("engine").GetString() == "RS").All(r => !r.GetProperty("sql").GetString()!.Contains("select", StringComparison.OrdinalIgnoreCase)));
     Assert(entries.Where(r => r.GetProperty("engine").GetString() == "IQ").All(r => !r.GetProperty("sql").GetString()!.Contains("master..", StringComparison.OrdinalIgnoreCase)));
     var sql = entries.Select(r => r.GetProperty("sql").GetString()!).ToList();
-    Assert(sql.Count == 94 && sql.All(s => !s.Contains("sp_reporte_tablas", StringComparison.OrdinalIgnoreCase) && !s.Contains("create proc", StringComparison.OrdinalIgnoreCase) && !s.Contains("'monitor'", StringComparison.Ordinal)));
+    Assert(sql.Count == 96 && sql.All(s => !s.Contains("sp_reporte_tablas", StringComparison.OrdinalIgnoreCase) && !s.Contains("create proc", StringComparison.OrdinalIgnoreCase) && !s.Contains("'monitor'", StringComparison.Ordinal)));
     var allowed = new HashSet<string>(["interval", "min_spid", "idle_seconds", "spid", "table", "database", "open_minutes", "date_column", "history_table", "min_change_pct", "pattern", "login", "object", "since", "orig_db", "xactname", "databases", "data_server", "connection_id"]);
     Assert(sql.SelectMany(SqlParameters.Names).All(allowed.Contains));
 });
