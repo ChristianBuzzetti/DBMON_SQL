@@ -4,6 +4,13 @@ All notable changes to DBMON SQL are listed here. The project follows [Semantic 
 
 ## [Unreleased]
 
+### Added
+- **Richer ASE explorer**: lazy, paged indexes, constraints/foreign keys, defaults/rules, user-defined types, users/groups/roles, segments and master logins. Expand tables for estimated row counts (`row_count()`), reserved/used space, lock scheme, partitions, index keys, triggers and constraints.
+- **Generate DDL** on ASE tables, indexes, views, procedures, triggers and alias types opens a new offline editor tab. Scripts preserve column types, lengths/precision, nullability, identity, defaults/rules, lock scheme, primary/unique keys, index clustering/sort order and foreign keys; stored code uses ordered catalog fragments. Partial/protected metadata and unsupported computed/encrypted columns are refused. Grants and physical storage/partition layout are excluded.
+- **Replication Server panel** in Tools: threads (theme warning colors for DOWN/suspended), down threads, health, partition usage, connections and SQM queues; lazy tabs and manual refresh. Suspend/resume validates RCL names, requires two confirmations, and uses the existing PROD confirmation and execution lane.
+- **IQ metrics** in Tools: status key/value pairs, dbspace usage, connections and transaction summaries/details, with read-only snapshots and manual refresh. Unknown percentages remain NULL. Both panels retain their original session/connection and expose partial output and server messages.
+- Fake-DataTable core checks for DDL generation, malformed/incomplete metadata, RS state/space parsing and command validation, and IQ metrics/transaction summaries.
+
 ## [0.5.0] — 2026-11-04
 
 ### Added

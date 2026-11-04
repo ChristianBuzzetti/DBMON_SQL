@@ -2,7 +2,7 @@ using System.Globalization;
 
 namespace AseIsql;
 
-public static class CatalogSql
+public static partial class CatalogSql
 {
     // Prefix is the already-quoted database prefix (or empty for the current database).
     public static string ObjectText(string prefix, string name) =>

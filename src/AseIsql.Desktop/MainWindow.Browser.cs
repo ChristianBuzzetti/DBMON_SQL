@@ -30,7 +30,7 @@ public partial class MainWindow
     }
     private const int CatalogPage = 100;
     private string browserFilter { get => activeSession.Filter; set => activeSession.Filter = value; }
-    private static readonly (string Type, string Label)[] CatalogGroups = [("U","Tables"),("V","Views"),("P","Procedures"),("TR","Triggers"),("SF","Functions"),("S","System tables")];
+    private static readonly (string Type, string Label)[] CatalogGroups = [("U","Tables"),("V","Views"),("P","Procedures"),("TR","Triggers"),("SF","Functions"),("D","Defaults"),("R","Rules"),("S","System tables")];
     // IQ: base and global temporary tables, views, procedures (functions included) and the SYS/dbo system objects.
     private static readonly (string Type, string Label)[] IqCatalogGroups = [("U","Tables"),("V","Views"),("P","Procedures"),("S","System objects")];
     private static IReadOnlyList<(string Type, string Label)> CatalogGroupsFor(ServerPlatform platform) => platform == ServerPlatform.Iq ? IqCatalogGroups : CatalogGroups;
@@ -83,7 +83,7 @@ public partial class MainWindow
     {
         if(owner.Engine is not OdbcSession { IsOpen:true }) { PublishCatalog(owner,[new TreeViewItem { Header="Connect to browse databases." }]); return; }
         var platform=PlatformOf(owner);
-        if(platform==ServerPlatform.Rs) { PublishCatalog(owner,[new TreeViewItem { Header="Replication Server has no catalog to browse. Use the RS recipes: admin who, admin health." }]); return; }
+        if(platform==ServerPlatform.Rs) { PublishCatalog(owner,[new TreeViewItem { Header="Replication Server has no catalog to browse. Open Tools → Replication Server panel for threads, health and queues." }]); return; }
         // IQ serves one database: the tree starts at it without a query, and its groups page on demand.
         if(platform==ServerPlatform.Iq) {
             string iqDatabase=(owner.Engine as ISessionFacts)?.Facts.Database is {Length:>0} name?name:"IQ database";
@@ -128,6 +128,7 @@ public partial class MainWindow
             };
             node.Items.Add(group);
         }
+        if(platform==ServerPlatform.Ase)AddAseCatalogBranches(node,owner,database);
     }
     // Keyset paging: the next page starts after the last (name, id) shown, so pages stay stable without OFFSET.
     private static string ObjectsPageSql(string database,string type,string filter,CatalogObject? after)
@@ -182,7 +183,7 @@ public partial class MainWindow
         var (page,more)=PageObjects(output.Tables.Count==0?[]:ParseCatalogObjects(output.Tables[0],database,platform));
         if(after==null)group.Items.Clear();
         else foreach(var stale in group.Items.OfType<TreeViewItem>().Where(item=>item.Tag is "more").ToArray())group.Items.Remove(stale);
-        foreach(var item in page)group.Items.Add(ObjectNode(item));
+        foreach(var item in page)group.Items.Add(ObjectNode(item,owner));
         int shown=group.Items.OfType<TreeViewItem>().Count(item=>item.Tag is CatalogObject);
         group.Header=label+" · "+shown+(more?"+":"")+(filter.Length>0?" · \""+filter+"\"":"");
         if(shown==0)group.Items.Add(new TreeViewItem {Header=filter.Length>0?"No names contain \""+filter+"\"":"No objects"});
@@ -194,14 +195,16 @@ public partial class MainWindow
         if(output.Error!=null)group.Items.Add(new TreeViewItem {Header="Partial list · "+output.Error});
         return true;
     }
-    private TreeViewItem ObjectNode(CatalogObject item)
+    private TreeViewItem ObjectNode(CatalogObject item,SessionWorkspace? origin=null)
     {
+        var owner=origin??activeSession;
         var node=new TreeViewItem { Header=(item.Owner??"?")+"."+item.Name,Tag=item,ToolTip=item.Database+"."+(item.Owner??"?")+"."+item.Name };
         var menu=new ContextMenu();
         var insert=new MenuItem {Header="Insert object name"};insert.Click+=(_,_)=> {try{QueryClick(this,new RoutedEventArgs());Editor.Document.Replace(Editor.SelectionStart,Editor.SelectionLength,item.QualifiedName);}catch(ArgumentException ex){ShowError(ex.Message);}};menu.Items.Add(insert);
         menu.Items.Add(new Separator());
-        if(item.Platform==ServerPlatform.Iq)AddIqObjectActions(menu,item.Target,item.Type,item);else AddObjectActions(menu,item.Target,item.Type);
+        if(item.Platform==ServerPlatform.Iq)AddIqObjectActions(menu,item.Target,item.Type,item);else { AddObjectActions(menu,item.Target,item.Type); AddDdlAction(menu,item,owner); }
         node.ContextMenu=menu;
+        if(item.Platform==ServerPlatform.Ase && item.Type is "U" or "S")AddAseTableChildren(node,owner,item);
         node.MouseDoubleClick+=(_,args)=> {if(args.Source!=node)return;args.Handled=true;try{QueryClick(this,new RoutedEventArgs());Editor.Document.Replace(Editor.SelectionStart,Editor.SelectionLength,item.QualifiedName);}catch(ArgumentException ex){ShowError(ex.Message);}};
         return node;
     }
@@ -215,7 +218,7 @@ public partial class MainWindow
             var item=new MenuItem {Header=header,InputGestureText=gesture??"",IsEnabled=!needsSession||connected};
             item.Click+=(_,_)=> {try{action();}catch(ArgumentException ex){ShowError(ex.Message);}};menu.Items.Add(item);
         }
-        bool relation=type is null or "U" or "S" or "V",code=type is null or "P" or "V" or "TR" or "SF";
+        bool relation=type is null or "U" or "S" or "V",code=type is null or "P" or "V" or "TR" or "SF" or "D" or "R";
         if(relation)Add("Select TOP 100 rows",null,()=>RunHelper(ObjectHelperSql("top",target),"TOP 100 · "+target.Display));
         if(code)Add("View code",null,()=>RunCatalogAction(owner=>ObjectCode(owner,target),"Code of "+target.Display));
         Add("Describe · sp_help",null,()=>RunHelper(ObjectHelperSql("help",target),"sp_help · "+target.Display));
