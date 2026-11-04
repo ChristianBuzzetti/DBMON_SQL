@@ -160,10 +160,12 @@ public partial class MainWindow
         }
         private void AddColumn(string header, string path, string sort, double width) => grid.Columns.Add(new DataGridTextColumn { Header = header, Binding = new Binding(path), SortMemberPath = sort, Width = width });
         private async Task<QueryOutput> QueryAsync(string sql) => await Task.Run(() => session.Execute(sql, cancellation.Token, userRun: false, timeoutSeconds: 10), cancellation.Token);
-        private static DataTable Table(QueryOutput output)
+        private static DataTable Table(QueryOutput output, bool processes = true)
         {
             if (output.Error != null) throw new InvalidOperationException(output.Error);
-            return output.Tables.FirstOrDefault() ?? throw new InvalidOperationException("The server returned no activity result.");
+            return (processes ? ActivityMonitor.PickProcessTable(output.Tables) :
+                output.Tables.FirstOrDefault(table => ResultColumns.Find(table, "monitor_spid") != null)) ??
+                output.Tables.FirstOrDefault() ?? throw new InvalidOperationException("The server returned no activity result.");
         }
         private async Task DisposeSessionAsync()
         {
@@ -190,8 +192,8 @@ public partial class MainWindow
             status.Text = "Refreshing…";
             if (ownSpid == null)
             {
-                var identity = Table(await QueryAsync(ActivityMonitor.IdentitySql));
-                if (identity.Rows.Count > 0 && int.TryParse(Convert.ToString(identity.Rows[0][0], CultureInfo.InvariantCulture), out int n) && n > 0) ownSpid = n;
+                var identity = Table(await QueryAsync(ActivityMonitor.IdentitySql), processes: false);
+                ownSpid = ActivityMonitor.ParseIdentity(identity);
             }
             var processes = ActivityMonitor.Parse(Table(await QueryAsync(ActivityMonitor.ProcessesSql)));
             if (closed) return;

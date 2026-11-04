@@ -52,12 +52,12 @@ public static class MdaDelta
         string? source = MonitorTable(sql);
         if (sql != null && source == null) return null;
         var columns = table.Columns.Cast<DataColumn>().ToList();
-        DataColumn? Find(string name) => columns.FirstOrDefault(c => string.Equals(c.ColumnName, name, StringComparison.OrdinalIgnoreCase));
-        var keys = IdKeys.Select(Find).OfType<DataColumn>().ToList();
-        if (keys.Count == 0) keys = NameKeys.Select(Find).OfType<DataColumn>().ToList();
+        DataColumn? Find(string name) => ResultColumns.Find(table, name);
+        var keys = IdKeys.Select(Find).OfType<DataColumn>().Distinct().ToList();
+        if (keys.Count == 0) keys = NameKeys.Select(Find).OfType<DataColumn>().Distinct().ToList();
         if (keys.Count == 0) return null;
-        var counters = columns.Where(c => !keys.Contains(c) && IsCounter(c, table)).Select(c => c.ColumnName).ToList();
-        return counters.Count == 0 ? null : new MdaSnapshot(source, keys.Select(c => c.ColumnName).ToList(), counters);
+        var counters = columns.Where(c => !keys.Contains(c) && IsCounter(c, table)).Select(ResultColumns.Name).ToList();
+        return counters.Count == 0 ? null : new MdaSnapshot(source, keys.Select(ResultColumns.Name).ToList(), counters);
     }
 
     // next - prev per row key. Keys only in next are "new" (their counters started at zero, so the delta is the value);
@@ -67,19 +67,26 @@ public static class MdaDelta
     public static DataTable Compute(DataTable prev, DataTable next, MdaSnapshot? shape = null)
     {
         shape ??= Detect(next) ?? throw new ArgumentException("The result has no MDA row key (WaitEventID, ObjectID, SPID, ...) or no numeric counters.");
-        var missing = shape.Keys.Where(k => !prev.Columns.Contains(k) || !next.Columns.Contains(k)).ToList();
+        var missing = shape.Keys.Where(k => ResultColumns.Find(prev, k) == null || ResultColumns.Find(next, k) == null).ToList();
         if (missing.Count > 0) throw new ArgumentException("Both runs must return the key column(s) " + string.Join(", ", missing) + ".");
-        var counters = shape.Counters.Where(c => next.Columns.Contains(c) && prev.Columns.Contains(c)
-            && IsCounter(next.Columns[c]!, next) && IsCounter(prev.Columns[c]!, prev)).ToList();
+        var counters = shape.Counters.Where(c => ResultColumns.Find(next, c) is { } n && ResultColumns.Find(prev, c) is { } p
+            && IsCounter(n, next) && IsCounter(p, prev)).ToList();
         var before = Index(prev, shape.Keys, counters, out _);
         var after = Index(next, shape.Keys, counters, out var order);
 
         var result = new DataTable(ResultHeader);
         result.ExtendedProperties["ResultHeader"] = ResultHeader;
         if (shape.Table != null) result.ExtendedProperties["MdaTable"] = shape.Table;
-        foreach (var key in shape.Keys) result.Columns.Add(next.Columns[key]!.ColumnName, KeyType(prev.Columns[key]!, next.Columns[key]!));
+        void AddColumn(string name, bool counter)
+        {
+            var previous = ResultColumns.Find(prev, name)!;
+            var current = ResultColumns.Find(next, name)!;
+            var column = result.Columns.Add(current.ColumnName, counter ? CounterType(previous, current) : KeyType(previous, current));
+            column.Caption = current.Caption; column.ExtendedProperties["SourceName"] = ResultColumns.Name(current);
+        }
+        foreach (var key in shape.Keys) AddColumn(key, counter: false);
         result.Columns.Add(StatusColumn, typeof(string));
-        foreach (var counter in counters) result.Columns.Add(next.Columns[counter]!.ColumnName, CounterType(prev.Columns[counter]!, next.Columns[counter]!));
+        foreach (var counter in counters) AddColumn(counter, counter: true);
 
         void Emit(object[] key, string status, Func<int, object> value)
         {
@@ -111,7 +118,7 @@ public static class MdaDelta
     // The counter whose deltas add up to the most (absolute), the default series for a top-N chart; null when none moved.
     public static string? ChartColumn(DataTable delta)
     {
-        int first = delta.Columns.IndexOf(StatusColumn);
+        int first = ResultColumns.Find(delta, StatusColumn)?.Ordinal ?? -1;
         if (first < 0) return null;
         string? best = null; decimal most = 0;
         for (int c = first + 1; c < delta.Columns.Count; c++)
@@ -125,8 +132,8 @@ public static class MdaDelta
 
     static Dictionary<object[], object[]> Index(DataTable table, IReadOnlyList<string> keys, IReadOnlyList<string> counters, out List<object[]> order)
     {
-        var keyOrdinals = keys.Select(k => table.Columns.IndexOf(k)).ToArray();
-        var counterOrdinals = counters.Select(c => table.Columns.IndexOf(c)).ToArray();
+        var keyOrdinals = keys.Select(k => ResultColumns.Find(table, k)!.Ordinal).ToArray();
+        var counterOrdinals = counters.Select(c => ResultColumns.Find(table, c)!.Ordinal).ToArray();
         var rows = new Dictionary<object[], object[]>(KeyComparer.Instance);
         order = [];
         foreach (DataRow row in table.Rows)
@@ -141,7 +148,8 @@ public static class MdaDelta
 
     static bool IsCounter(DataColumn column, DataTable table)
     {
-        if (NotCounters.Contains(column.ColumnName) || column.ColumnName.EndsWith("ID", StringComparison.OrdinalIgnoreCase)) return false;
+        string name = ResultColumns.Name(column);
+        if (NotCounters.Contains(name) || name.EndsWith("ID", StringComparison.OrdinalIgnoreCase)) return false;
         if (IsNumericType(column.DataType)) return true;
         // Untyped (object) columns qualify only when every non-NULL value is numeric and at least one is present.
         if (column.DataType != typeof(object)) return false;

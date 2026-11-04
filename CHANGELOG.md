@@ -2,6 +2,13 @@
 
 All notable changes to DBMON SQL are listed here. The project follows [Semantic Versioning](https://semver.org/).
 
+## [1.0.1] - Unreleased
+
+### Fixed
+- Activity monitor resolves live ASE and MDA column aliases, selects the process result after status results, and reads SQL text and monitor identity by their server names. Missing SPID errors list the received headings.
+- MDA repeat deltas match keys and counters by server aliases across result column order changes, exclude ID/gauge fields, and preserve server headings in results and charts.
+- Catalog comparison, DDL, health, IQ and Replication Server parsers share column lookup across binding names, captions and source names, including trimmed and case-insensitive headings. IQ and RS derived metrics detect existing server headings correctly.
+
 ## [1.0.0] — 2026-11-04
 
 First full feature release after 0.4.0. Groups every tanda since that version (live messages and export, plan viewer and MDA deltas, activity monitor, health check and object compare, richer explorer / DDL / RS / IQ, and packaging tech debt). Intermediate tags `v0.5.0`–`v0.7.0` remain as pre-release markers; this is the single Latest package.

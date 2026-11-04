@@ -62,9 +62,10 @@ public partial class MainWindow
     // Builds a top-N bar chart of MDA deltas as a DataTable for display. Returns null if no deltas worth charting.
     private DataTable? BuildMdaDeltaChart(DataTable delta, string counterColumn, string? tableName)
     {
-        int statusIndex = delta.Columns.IndexOf(MdaDelta.StatusColumn);
-        int counterIndex = delta.Columns.IndexOf(counterColumn);
+        int statusIndex = ResultColumns.Find(delta, MdaDelta.StatusColumn)?.Ordinal ?? -1;
+        int counterIndex = ResultColumns.Find(delta, counterColumn)?.Ordinal ?? -1;
         if (statusIndex < 0 || counterIndex < 0) return null;
+        string counterHeader = delta.Columns[counterIndex].Caption;
         // Collect rows with non-zero deltas: (label, value).
         var rows = new List<(string Label, decimal Value)>();
         foreach (DataRow row in delta.Rows)
@@ -89,10 +90,11 @@ public partial class MainWindow
         if (rows.Count == 0) return null;
         // Top 15 by absolute value.
         var top = rows.OrderByDescending(r => Math.Abs(r.Value)).Take(15).ToList();
-        var chart = new DataTable("MDA deltas · " + counterColumn);
-        chart.ExtendedProperties["ResultHeader"] = "MDA deltas · " + counterColumn + (tableName != null ? " · " + tableName : "");
+        var chart = new DataTable("MDA deltas · " + counterHeader);
+        chart.ExtendedProperties["ResultHeader"] = "MDA deltas · " + counterHeader + (tableName != null ? " · " + tableName : "");
         chart.Columns.Add("Row", typeof(string));
-        chart.Columns.Add(counterColumn, typeof(decimal));
+        var counter = chart.Columns.Add(counterColumn, typeof(decimal)); counter.Caption = counterHeader;
+        counter.ExtendedProperties["SourceName"] = ResultColumns.Name(delta.Columns[counterIndex]);
         foreach (var (label, value) in top) chart.Rows.Add(label, value);
         return chart;
     }

@@ -22,7 +22,7 @@ internal static class CatalogData
 {
     public static bool TryValue(DataRow row, string name, out object value)
     {
-        var column = row.Table.Columns.Cast<DataColumn>().FirstOrDefault(c => c.ColumnName.Equals(name, StringComparison.OrdinalIgnoreCase) || c.Caption.Equals(name, StringComparison.OrdinalIgnoreCase) || string.Equals(c.ExtendedProperties["SourceName"] as string, name, StringComparison.OrdinalIgnoreCase));
+        var column = ResultColumns.Find(row.Table, name);
         value = column == null ? DBNull.Value : row[column]; return column != null;
     }
     public static object Value(DataRow row, string name) => TryValue(row, name, out var value) ? value : throw new FormatException("Missing catalog column: " + name);
@@ -130,7 +130,7 @@ public static class ObjectCompare
     public static string TableDefinition(DataTable columns, DataTable indexes)
     {
         string[] fields = ["name", "type", "length", "nullable", "identity"];
-        fields = fields.Concat(new[] { "precision", "scale" }.Where(f => columns.Columns.Cast<DataColumn>().Any(c => c.ColumnName == f || c.Caption == f))).ToArray();
+        fields = fields.Concat(new[] { "precision", "scale" }.Where(f => ResultColumns.Find(columns, f) != null)).ToArray();
         var lines = new List<string> { "COLUMNS (catalog order)" };
         foreach (DataRow row in columns.Rows)
         {

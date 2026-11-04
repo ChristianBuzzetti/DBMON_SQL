@@ -18,9 +18,9 @@ public static class RsMonitor
         var table = source.Copy();
         var state = MetadataRows.Require(table, "State", "Thread State");
         const string warning = "Needs attention";
-        if (table.Columns.Contains(warning)) throw new FormatException("Duplicate thread warning column.");
-        table.Columns.Add(warning, typeof(bool));
-        foreach (DataRow row in table.Rows) row[warning] = NeedsAttention(row[state] is DBNull ? null : Convert.ToString(row[state]));
+        if (ResultColumns.Find(table, warning) != null) throw new FormatException("Duplicate thread warning column.");
+        var column = table.Columns.Add(warning, typeof(bool));
+        foreach (DataRow row in table.Rows) row[column] = NeedsAttention(row[state] is DBNull ? null : Convert.ToString(row[state]));
         return table;
     }
     public static DataTable DiskSpace(DataTable source)
