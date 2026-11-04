@@ -25,7 +25,10 @@ public static class IqMetrics
     {
         var result = source.Copy();
         var usage = MetadataRows.Find(result, "Usage", "Usage Percent", "Percent Used");
-        if (usage != null && usage.ColumnName == "Usage %") { usage.ColumnName = "Usage (server)"; usage.Caption = "Usage (server)"; }
+        if (usage != null && ResultColumns.Find(result, "Usage %") == usage) {
+            if (string.Equals(usage.ColumnName.Trim(), "Usage %", StringComparison.OrdinalIgnoreCase)) usage.ColumnName = "Usage (server)";
+            usage.Caption = "Usage (server)"; usage.ExtendedProperties["SourceName"] = "Usage (server)";
+        }
         if (usage != null) MetadataRows.AddPercent(result, "Usage %", row => {
             var number = MetadataRows.Number(row[usage]); return number is >= 0 and <= 100 ? number : null;
         });

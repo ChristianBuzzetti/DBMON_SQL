@@ -3,13 +3,12 @@ using System.Globalization;
 
 namespace AseIsql;
 
-// Live ResultReader tables use column_N names and keep server headings in Caption.
+// Live ResultReader tables use column_N names and keep server headings in Caption/SourceName.
 // Those headings vary in whitespace, punctuation and case across releases.
 internal static class MetadataRows
 {
     internal static string Key(string name) => new(name.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray());
-    internal static DataColumn? Find(DataTable table, params string[] names) => table.Columns.Cast<DataColumn>()
-        .FirstOrDefault(c => names.Any(n => Key(n) == Key(c.Caption)));
+    internal static DataColumn? Find(DataTable table, params string[] names) => ResultColumns.Find(table, names) ?? ResultColumns.Find(table, names, Key);
     internal static DataColumn Require(DataTable table, params string[] names) => Find(table, names) ??
         throw new FormatException("Missing metadata column: " + string.Join(" / ", names));
     internal static string Text(DataRow row, string name, bool required = true)
@@ -36,8 +35,8 @@ internal static class MetadataRows
     }
     internal static void AddPercent(DataTable table, string name, Func<DataRow, decimal?> value)
     {
-        if (table.Columns.Contains(name)) throw new FormatException("Duplicate derived metric: " + name);
-        table.Columns.Add(name, typeof(decimal));
-        foreach (DataRow row in table.Rows) row[name] = value(row) is { } number ? number : DBNull.Value;
+        if (ResultColumns.Find(table, name) != null) throw new FormatException("Duplicate derived metric: " + name);
+        var column = table.Columns.Add(name, typeof(decimal));
+        foreach (DataRow row in table.Rows) row[column] = value(row) is { } number ? number : DBNull.Value;
     }
 }

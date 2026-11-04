@@ -25,11 +25,11 @@ public partial class MainWindow
             throw new FormatException("DDL metadata is unavailable or partial. Check transaction mode, catalog permissions and row limits; no script was generated.");
         return output.Tables.Select(NamedCatalogTable).ToArray();
     }
-    // ResultReader uses column_N as its stable binding name; SQL aliases live in Caption.
+    // ResultReader uses column_N as its stable binding name; SQL aliases live in Caption/SourceName.
     // These internal metadata queries have unique aliases, so name a copy for the UI's direct lookups.
     private static DataTable NamedCatalogTable(DataTable source)
     {
-        var names = source.Columns.Cast<DataColumn>().Select(column => column.Caption).ToArray();
+        var names = source.Columns.Cast<DataColumn>().Select(ResultColumns.Name).ToArray();
         if (names.Any(string.IsNullOrWhiteSpace) || names.Distinct(StringComparer.OrdinalIgnoreCase).Count() != names.Length)
             throw new FormatException("The catalog returned missing or duplicate column headings.");
         var table = source.Copy();

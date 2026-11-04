@@ -40,30 +40,41 @@ public static class ActivityMonitor
 
     public static IReadOnlyList<ActivityProcess> Parse(DataTable table)
     {
-        var columns = table.Columns.Cast<DataColumn>().ToDictionary(c => c.ColumnName, StringComparer.OrdinalIgnoreCase);
-        if (!columns.ContainsKey("spid")) throw new ArgumentException("Activity result has no spid column.", nameof(table));
-        object? Value(DataRow row, string name) => columns.TryGetValue(name, out var column) && !row.IsNull(column) ? row[column] : null;
-        string Text(DataRow row, string name) => Convert.ToString(Value(row, name), CultureInfo.InvariantCulture)?.Trim() ?? "";
-        long? Number(DataRow row, string name) => long.TryParse(Text(row, name), NumberStyles.Integer, CultureInfo.InvariantCulture, out long n) ? n : null;
-        int? Integer(DataRow row, string name) => Number(row, name) is long n && n >= int.MinValue && n <= int.MaxValue ? (int)n : null;
+        if (ResultColumns.Find(table, "spid") == null)
+            throw new ArgumentException("Activity result has no spid column; received: " + ResultColumns.Describe(table));
+        object? Value(DataRow row, string[] names) => ResultColumns.Find(table, names) is { } column && !row.IsNull(column) ? row[column] : null;
+        string Text(DataRow row, params string[] names) => Convert.ToString(Value(row, names), CultureInfo.InvariantCulture)?.Trim() ?? "";
+        long? Number(DataRow row, params string[] names) => long.TryParse(Text(row, names), NumberStyles.Integer, CultureInfo.InvariantCulture, out long n) ? n : null;
+        int? Integer(DataRow row, params string[] names) => Number(row, names) is long n && n >= int.MinValue && n <= int.MaxValue ? (int)n : null;
         var result = new List<ActivityProcess>();
         foreach (DataRow row in table.Rows)
         {
             if (Integer(row, "spid") is not int spid || spid <= 0) continue;
             string login = Text(row, "loginame");
-            if (login.Length == 0) login = Text(row, "suser_name");
-            result.Add(new(spid, Text(row, "status"), login, Text(row, "hostname"), Text(row, "program_name"),
-                Text(row, "dbname"), Text(row, "cmd"), Number(row, "cpu") ?? 0, Number(row, "physical_io") ?? 0,
-                Number(row, "memusage") ?? 0, Integer(row, "blocked") ?? 0, Number(row, "time_blocked") ?? 0,
-                Text(row, "tran_name"), Integer(row, "suid")));
+            if (login.Length == 0) login = Text(row, "suser_name", "Login");
+            result.Add(new(spid, Text(row, "status"), login, Text(row, "hostname", "Host"), Text(row, "program_name", "Application"),
+                Text(row, "dbname", "DBID"), Text(row, "cmd", "Command"), Number(row, "cpu", "CPUTime") ?? 0, Number(row, "physical_io", "PhysicalReads") ?? 0,
+                Number(row, "memusage", "MemUsageKB") ?? 0, Integer(row, "blocked", "BlockingSPID") ?? 0, Number(row, "time_blocked", "SecondsWaiting") ?? 0,
+                Text(row, "tran_name", "TransactionName"), Integer(row, "suid", "ServerUserID")));
         }
         // Parallel workers may repeat a SPID; prefer an external blocking edge over a worker self-reference.
         return result.GroupBy(p => p.Spid).Select(g => g.OrderByDescending(p => p.BlockedBy > 0 && p.BlockedBy != p.Spid).First()).ToList();
     }
 
+    public static DataTable? PickProcessTable(IReadOnlyList<DataTable> tables) =>
+        tables.FirstOrDefault(table => ResultColumns.Find(table, "spid") != null);
+
+    public static int? ParseIdentity(DataTable table)
+    {
+        if (table.Rows.Count == 0 || table.Columns.Count == 0) return null;
+        var column = ResultColumns.Find(table, "monitor_spid") ?? table.Columns[0];
+        return int.TryParse(Convert.ToString(table.Rows[0][column], CultureInfo.InvariantCulture), NumberStyles.Integer,
+            CultureInfo.InvariantCulture, out int spid) && spid > 0 ? spid : null;
+    }
+
     public static string ParseSqlText(DataTable table)
     {
-        var column = table.Columns.Cast<DataColumn>().FirstOrDefault(c => c.ColumnName.Equals("SQLText", StringComparison.OrdinalIgnoreCase));
+        var column = ResultColumns.Find(table, "SQLText");
         return column == null ? "" : string.Concat(table.Rows.Cast<DataRow>().Select(r => r.IsNull(column) ? "" : Convert.ToString(r[column], CultureInfo.InvariantCulture)));
     }
 
