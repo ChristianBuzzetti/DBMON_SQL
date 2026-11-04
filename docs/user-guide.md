@@ -235,6 +235,50 @@ On the right: the caret position, then the session facts reported by the server.
 
 **Boberto** is the companion in the header band. Click him (or the pencil) to open **Boberto Studio**: gestures, costumes, accessories, skins, backgrounds and frames. The X hides him and suspends his renderer; *View → Boberto companion* brings him back.
 
+## Server health check
+
+Open **Tools → Server health check** (also in Search commands). Select up to eight connected servers, use **Add server** to log in with a profile, or **Groups → Open** to log in to a saved server group. The editor SQL is unrelated to this tool. All probes are fixed, read-only queries; each server runs independently in parallel using MultiRun, with probes executed serially within its session.
+
+The matrix has one server per row and one probe per column. **OK**, **WARN** and **FAIL** use the current palette's success, notice and error colors; the overall state is the worst probe state. **—** means that a probe belongs to another platform. Select a cell for its SQL, values, messages and failure details. **Export CSV** and **Export HTML** save the complete matrix. **Run health check** refreshes it; **Cancel run** cancels all outstanding probes.
+
+| Platform | Probes |
+|---|---|
+| ASE | `@@version`; uptime from `tempdb` creation time; database status/status2 flags; data and log allocated/free pages and usage per database; last transaction dump and age where applicable; blocked processes; user connections and configured maximum. |
+| IQ | `@@version`; `sp_iqstatus` main and temporary IQ block usage, with the full status output in details. |
+| Replication Server | `admin health` (including mode and loss status when present); `admin who_is_down`. |
+
+ASE suspect/offline/for-load databases and suspect pages fail the flag probe; dbo-only/single-user databases warn. Capacity warns **above 85%** and fails **above 95%**. Blocking warns at **1** blocked process and fails at **10**. Last transaction dump age warns above **24 hours** and fails above **48 hours**. The dump probe excludes the first three system databases, names beginning `syb`, and databases with trunc-log-on-checkpoint; `dumptrdate` is a transaction-log-dump timestamp, not proof of a full database backup. Missing dump times or unrecognized/empty metrics warn; query errors, permission failures and timeouts fail only the affected probes. An empty RS down-thread result is OK.
+
+Data space uses `sysusages` and `curunreservedpgs`; log space uses `lct_admin('logsegment_freepages', dbid)`. These are capacity snapshots, not table-level accounting. In databases sharing data/log devices the capacities overlap; inspect both probes together. Offline/suspect/for-load databases are omitted from capacity queries and remain visible in the database-flags probe. Catalog visibility and supported server version determine which metrics are available. ASE flag meanings follow SAP's [sysdatabases reference](https://infocenter.sybase.com/help/topic/com.sybase.infocenter.dc36274.1600/doc/html/san1393052470321.html); IQ parsing follows [sp_iqstatus](https://help.sap.com/docs/SAP_IQ/a898e08b84f21015969fa437e89860c8/a5b8569b84f210159be8f2c13b8ea3fb.html).
+
+Defaults work without a settings file. To customize them, create `%LOCALAPPDATA%\DBMON_SQL\health-check.json`:
+
+```json
+{
+  "UsageWarnPercent": 85,
+  "UsageFailPercent": 95,
+  "BlockedWarnCount": 1,
+  "BlockedFailCount": 10,
+  "DumpWarnHours": 24,
+  "DumpFailHours": 48,
+  "ServerTimeoutSeconds": 60
+}
+```
+
+The timeout is a total deadline per server (1–3600 seconds), independent of a profile's unlimited-query setting. Warning thresholds must be below failure thresholds. Invalid settings are reported before a run starts. Cancellation asks the ODBC driver to cancel and waits for it to release the sessions; closing an active dialog requests cancellation and keeps it open until the driver returns. Tools suppress user execution options, plan/IO capture and trailing user SQL. Stop repeat execution before opening a tool.
+
+## Object comparison
+
+Open **Tools → Compare objects**, add/log in to profiles or open a group, and select at least two SAP ASE connections. In the comparison window choose the **Left** and **Right** connections, each side's **database**, and **Tables**, **Procedures**, **Views** or **Triggers**. Click **Compare objects**. IQ and RS are supported by health checks; this object's catalog comparison currently targets ASE.
+
+Objects match on separate, case-sensitive **owner and name** fields. The list shows **Only in left**, **Only in right**, **Different**, **Same**, or **Unavailable**. Select an object for a unified line diff (minus lines from the left; plus lines from the right) or the two definitions side by side. These views support selection and copying. Nothing is applied to either server and no migration SQL is executed.
+
+Code reads ordered `syscomments` text through `CatalogSql.ObjectText`; hidden, missing or inaccessible definitions are unavailable, never reported as equal empty code. **Normalize SQL whitespace** collapses formatting outside literals, quoted identifiers and comments when calculating object status. Changing it reuses the captured definitions; the displayed diff always preserves original text and line numbers, so it can still show formatting differences for a normalized **Same** object. Line endings compare consistently across Windows and Unix text.
+
+Tables compare column order, name, datatype, length, nullability, identity, precision and scale, plus logical index names, descriptions and ordered keys from `sp_helpindex`. Physical index IDs and storage counters do not affect equality. Constraints, defaults, permissions and table data are outside this comparison. Inventories reflect what the login can see; an object absent from that inventory is reported only on the other side. A failed/partial inventory stops comparison rather than treating unread objects as missing. Individual definition errors appear as **Unavailable** while other objects continue.
+
+Comparisons allow 2,000 objects per side, 4 MiB of definition characters per object and 32 MiB per side, in addition to the profile's result limits. Both sides read concurrently, with a 60-second command timeout and a five-minute overall deadline. A large line diff exceeding four million working LCS cells directs you to the side-by-side definitions. **Cancel run** also waits for both drivers before releasing the sessions. Metadata can change during a scan; use suitable snapshots or a quiet period when a consistent catalog view is needed.
+
 ## Files and local data
 
 Everything the app stores lives in `%LOCALAPPDATA%\DBMON_SQL`:
@@ -245,6 +289,7 @@ Everything the app stores lives in `%LOCALAPPDATA%\DBMON_SQL`:
 | `profiles.dat` | Saved logins, DPAPI-encrypted for your Windows user. |
 | `library.json` | My recipes. |
 | `server-groups.json` | Saved server groups for multi-server runs (any server type; Replication Server and IQ entries without a database are kept). |
+| `health-check.json` | Optional health thresholds and per-server timeout. |
 | `run.json` | Run settings: *Continue after errors*. |
 | `BobertoRuntime\` | The companion's WebView2 profile (his look). |
 

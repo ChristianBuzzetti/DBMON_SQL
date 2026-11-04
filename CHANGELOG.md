@@ -2,6 +2,13 @@
 
 All notable changes to DBMON SQL are listed here. The project follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **Server health check** under Tools: choose connected profiles or open a server group, then run fixed read-only ASE, IQ and RS probes in parallel through MultiRun. A theme-colored server × probe matrix shows OK/WARN/FAIL, per-cell SQL/results/messages, independent server deadlines, cancellation, and CSV/HTML export. Optional `health-check.json` configures capacity, blocking, log-dump-age thresholds and the deadline.
+- **Compare objects** under Tools: compare two ASE connections and their databases for tables, procedures, views or triggers. Lists objects only in either side, different, same or unavailable; compares columns and logical index definitions, and shows unified LCS line diffs plus side-by-side definitions. Optional SQL whitespace normalization preserves quoted contents. Reads use qualified catalogs and never change the session database.
+- Core fixtures cover health thresholds, platform result parsing, matrix aggregation, parallel failure isolation/deadlines, object sets, line diffs, column/index changes, and incomplete metadata.
+
 ## [0.4.0] — 2026-11-04
 
 ### Fixed

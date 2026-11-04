@@ -8,6 +8,7 @@ int passed = 0;
 void Check(string name, Action body) { body(); Console.WriteLine("PASS " + name); passed++; }
 void Assert(bool value) { if (!value) throw new Exception("Assertion failed"); }
 var engine = new DemoQueryEngine();
+HealthObjectChecks.Run(Check, Assert);
 Check("Query clipboard report preserves submitted SQL and escapes it before the table", () => {
     const string query = "select '<script>José & 🐱</script>'\r\nfrom t;";
     string report = ResultHtmlClipboard.QueryAndTable(query, ["n"], [new object?[] { 1 }]);

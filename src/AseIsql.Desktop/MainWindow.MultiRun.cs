@@ -227,18 +227,19 @@ public partial class MainWindow
         private readonly Button add = new();
         private readonly Button groups = new();
         private readonly Dictionary<RunTarget, CheckBox> toggles = [];
+        private readonly string? tool;
         public IReadOnlyList<RunTarget>? Chosen { get; private set; }
 
-        public MultiRunWindow(MainWindow main, string sql, string scope)
+        public MultiRunWindow(MainWindow main, string sql, string scope, string? tool = null)
         {
-            this.main = main; Owner = main; Title = "Run on multiple servers"; Width = 700; SizeToContent = SizeToContent.Height;
+            this.main = main; this.tool = tool; Owner = main; Title = tool ?? "Run on multiple servers"; Width = 700; SizeToContent = SizeToContent.Height;
             ResizeMode = ResizeMode.NoResize; WindowStartupLocation = WindowStartupLocation.CenterOwner;
             SourceInitialized += (_, _) => Themes.ApplyChrome(this, Themes.Current);
             var layout = new StackPanel { Margin = new Thickness(22, 18, 22, 18) };
-            var heading = new TextBlock { Text = "◤  Run on multiple servers", FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 6) };
+            var heading = new TextBlock { Text = "◤  " + (tool ?? "Run on multiple servers"), FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 6) };
             heading.SetResourceReference(TextBlock.FontSizeProperty, "SectionFontSize");
             layout.Children.Add(heading);
-            layout.Children.Add(Muted("The same SQL runs in parallel, one session per server. Each server keeps its own row limit, timeout, results and messages; results with the same columns are also combined under a server column and compared in a Diff tab.", wrap: true));
+            layout.Children.Add(Muted(tool == null ? "The same SQL runs in parallel, one session per server. Each server keeps its own row limit, timeout, results and messages; results with the same columns are also combined under a server column and compared in a Diff tab." : "Choose connected servers, add profiles using the login window, or open a saved group. This tool reads metadata only. Passwords are not stored by the tool.", wrap: true));
             layout.Children.Add(Section("SERVERS"));
             layout.Children.Add(rows);
             add.Content = "+  Add server…"; add.HorizontalAlignment = HorizontalAlignment.Left; add.Margin = new Thickness(0, 8, 0, 0);
@@ -249,9 +250,9 @@ public partial class MainWindow
             groups.Click += (_, _) => ShowGroups();
             var serverActions = new StackPanel { Orientation = Orientation.Horizontal }; serverActions.Children.Add(add); serverActions.Children.Add(groups);
             layout.Children.Add(serverActions);
-            layout.Children.Add(Section("SQL"));
+            layout.Children.Add(Section(tool == null ? "SQL" : "READ-ONLY TOOL"));
             int lines = sql.Split('\n').Length;
-            layout.Children.Add(Muted($"{char.ToUpperInvariant(scope[0])}{scope[1..]} · {Counts.Of(lines, "line")} · {Counts.Of(sql.Length, "character")}"));
+            if (tool == null) layout.Children.Add(Muted($"{char.ToUpperInvariant(scope[0])}{scope[1..]} · {Counts.Of(lines, "line")} · {Counts.Of(sql.Length, "character")}"));
             var preview = new TextBlock { Text = sql.Trim().Split('\n')[0].TrimEnd('\r'), TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 4, 0, 0) };
             preview.SetResourceReference(TextBlock.FontFamilyProperty, "MonoFont");
             layout.Children.Add(preview);
@@ -315,7 +316,7 @@ public partial class MainWindow
         private void UpdateRun()
         {
             int count = toggles.Values.Count(toggle => toggle.IsChecked == true);
-            run.Content = count == 0 ? "Run" : $"Run on {Counts.Of(count, "server")}";
+            run.Content = tool != null ? "Continue · " + Counts.Of(count, "server") : count == 0 ? "Run" : $"Run on {Counts.Of(count, "server")}";
             run.IsEnabled = count > 0;
         }
 
