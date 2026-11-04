@@ -52,11 +52,21 @@ public partial class MainWindow
         RefreshConnection();Workspace.SelectedItem=QueryTab;Editor.Focus();
     }
 
-    private async void DisconnectClick(object sender, RoutedEventArgs e) => await DisconnectSessionAsync();
+    private async void DisconnectClick(object sender, RoutedEventArgs e) => await DisconnectSessionAsync(activeSession);
 
-    private async Task DisconnectSessionAsync()
+    // Connect opens the login on screen, so it needs its tab mounted; a login already open on the active tab holds the strip.
+    private bool CanConnect(SessionWorkspace owner) => !activeSession.Changing && !owner.Changing;
+    private static bool CanDisconnect(SessionWorkspace owner) => owner.Engine is OdbcSession && owner.Running == null && !owner.Changing;
+
+    // Connect applies to the tab that was right-clicked: it is mounted first, under the same guard as a tab switch.
+    private void ConnectSession(SessionWorkspace owner)
     {
-        var owner = activeSession;
+        if (!sessions.Contains(owner) || !CanConnect(owner) || !SelectSession(owner)) return;
+        ConnectClick(this, new RoutedEventArgs());
+    }
+
+    private async Task DisconnectSessionAsync(SessionWorkspace owner)
+    {
         if (owner.Running != null || owner.Changing || owner.RepeatBusy || owner.CatalogActions != 0 || owner.Engine is DisconnectedQueryEngine) return;
         var session = owner.Engine;
         StopRepeat(owner, "Stopped: disconnecting.");
@@ -80,12 +90,10 @@ public partial class MainWindow
         bool ownsSession = engine is OdbcSession;
         bool live = engine is OdbcSession { IsOpen: true };
         CancelButton.IsEnabled = running != null;
-        ConnectMenu.IsEnabled = !changingSession;
         bool offline = engine is DisconnectedQueryEngine;
         ExecuteButton.IsEnabled = running == null && !changingSession && repeat == null && !offline;
         ExecuteButton.ToolTip = offline ? "Connect to SAP ASE, IQ or Replication Server to execute SQL" : "Execute selection or script · F9";
         OfflineBanner.Visibility = offline ? Visibility.Visible : Visibility.Collapsed;
-        DisconnectMenu.IsEnabled = ownsSession && running == null && !changingSession;
         // An interrupted ODBC session no longer vouches for its facts; fixtures without a connection report their own.
         SessionFacts? facts = engine is ISessionFacts source && (live || engine is not OdbcSession) ? source.Facts : null;
         SessionFactsPanel.Visibility = facts != null ? Visibility.Visible : Visibility.Collapsed;
