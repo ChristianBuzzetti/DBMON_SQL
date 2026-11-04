@@ -2,6 +2,11 @@
 
 All notable changes to DBMON SQL are listed here. The project follows [Semantic Versioning](https://semver.org/).
 
+## [1.0.1] - Unreleased
+
+### Added
+- **Health check rules**: configure enabled probes, maximum severity and per-probe thresholds separately for PROD and non-PROD servers through **Rules…**. Disabled probes do not execute; ignored probes never raise Overall. Last log dump is ignored by default on non-PROD. Rules are saved in versioned `health-rules.json`; corrupt files fall back to defaults with a visible warning.
+
 ## [1.0.0] — 2026-11-04
 
 First full feature release after 0.4.0. Groups every tanda since that version (live messages and export, plan viewer and MDA deltas, activity monitor, health check and object compare, richer explorer / DDL / RS / IQ, and packaging tech debt). Intermediate tags `v0.5.0`–`v0.7.0` remain as pre-release markers; this is the single Latest package.

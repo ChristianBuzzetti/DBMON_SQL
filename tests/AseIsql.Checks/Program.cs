@@ -139,6 +139,7 @@ Check("Query engine streaming exports GO repetitions directly without grid resul
 });
 var engine = new DemoQueryEngine();
 HealthObjectChecks.Run(Check, Assert);
+HealthRuleChecks.Run(Check, Assert);
 
 ActivityProcess Process(int spid, int blocked = 0) => new(spid, "sleeping", "alice", "workstation", "client", "master", "SELECT", 5, 2, 3, blocked, 0, "", 7);
 Check("Activity parses fake sysprocesses values, nulls, aliases and worker duplicates", () => {
