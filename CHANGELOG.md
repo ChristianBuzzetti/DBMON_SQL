@@ -2,6 +2,11 @@
 
 All notable changes to DBMON SQL are listed here. The project follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **Export query to file…** in Tools and Run ▾ runs the selection/script directly into UTF-8 CSV, TSV or JSON Lines, bypassing grid result limits. CSV/TSV repeat headers after a blank line for each result set; JSON Lines includes a one-based `resultSet` index and column/value arrays. The usual PROD confirmation applies. The status bar counts rows, Esc cancels, and cancellation or errors preserve the file with its path clearly reported as partial.
+
 ## [0.4.0] — 2026-11-04
 
 ### Fixed

@@ -8,6 +8,13 @@ namespace AseIsql;
 
 public static class ResultFormats
 {
+    private static readonly JsonSerializerOptions JsonLineOptions = new() { NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals };
+    // Arrays retain duplicate/empty column names and avoid collisions with the resultSet metadata.
+    public static string JsonLine(int resultSet, IReadOnlyList<string> columns, IReadOnlyList<object?> values) => JsonSerializer.Serialize(new {
+        resultSet, columns,
+        values = values.Select(v => v is DBNull ? null : v is byte[] bytes ? (object)("0x" + Convert.ToHexString(bytes)) : v)
+    }, JsonLineOptions);
+
     private static string Display(object? value) => value switch { null or DBNull => "", byte[] bytes => "0x"+Convert.ToHexString(bytes), DateTime date => date.ToString("O",CultureInfo.InvariantCulture), bool bit => bit ? "1" : "0", _=>Convert.ToString(value,CultureInfo.InvariantCulture)??"" };
     // What a result cell shows on screen. Dates keep every digit the value carries: ASE datetime holds 1/300 of a
     // second and bigdatetime microseconds, and a cell that hides them makes two different rows look identical.

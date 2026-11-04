@@ -12,6 +12,85 @@ namespace AseIsql.Desktop;
 
 public partial class MainWindow
 {
+    private async void ExportQueryClick(object sender, RoutedEventArgs e) => await ExportQueryAsync();
+
+    private async Task ExportQueryAsync()
+    {
+        var owner = activeSession;
+        if (owner.Busy) { SetStatus(owner, "Wait for this session's current operation to finish before exporting."); return; }
+        if (owner.Engine is DisconnectedQueryEngine) { SetStatus(owner, "Connect before exporting a query."); return; }
+        string scope = Editor.SelectionLength > 0 ? "selection" : "script";
+        string sql = Editor.SelectionLength > 0 ? Editor.SelectedText : Editor.Text;
+        if (string.IsNullOrWhiteSpace(sql)) { SetStatus(owner, "No SQL to export."); return; }
+        var dialog = new SaveFileDialog {
+            Title = "Export query to file", FileName = "query", DefaultExt = ".csv", AddExtension = true,
+            Filter = "CSV (*.csv)|*.csv|TSV (*.tsv)|*.tsv|JSON Lines (*.jsonl)|*.jsonl", OverwritePrompt = true
+        };
+        if (dialog.ShowDialog(this) != true) return;
+        if (FillParameters(sql, scope == "selection" ? "Selection" : "Query", "Export") is not { } filled)
+        { SetStatus(owner, "Cancelled · export parameters"); return; }
+        sql = filled;
+        if (!ConfirmProduction(owner, sql, "This export " + scope))
+        {
+            AddMessage(owner, 0, "CLIENT", "Export not run: cancelled at the PROD confirmation. Nothing was sent to the server.");
+            SetStatus(owner, "Cancelled · PROD confirmation"); ShowMessages(owner); return;
+        }
+        var format = Path.GetExtension(dialog.FileName).ToLowerInvariant() switch {
+            ".csv" => QueryExportFormat.Csv, ".tsv" => QueryExportFormat.Tsv, ".jsonl" => QueryExportFormat.JsonLines,
+            _ => dialog.FilterIndex == 2 ? QueryExportFormat.Tsv : dialog.FilterIndex == 3 ? QueryExportFormat.JsonLines : QueryExportFormat.Csv
+        };
+        string path = dialog.FileName;
+        var executingEngine = owner.Engine;
+        using var cancellation = new CancellationTokenSource();
+        owner.Running = cancellation; owner.ExecutingSql = sql; owner.LastRunFailed = true;
+        ClearMessages(owner); ApplyRunSettings(executingEngine); RefreshFor(owner);
+        AddMessage(owner, 0, SourceLabelOf(owner), "Export · " + scope + " · " + path);
+        QueryExportWriter? exportWriter = null;
+        bool fileCreated = false;
+        long Rows() => Volatile.Read(ref exportWriter)?.RowsWritten ?? 0;
+        void Progress() => SetStatus(owner, "Exporting · " + Counts.Of(Rows(), "row") + " written · Esc cancels");
+        var ticker = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
+        ticker.Tick += (_, _) => Progress(); Progress(); ticker.Start();
+        try
+        {
+            var output = await Task.Run(() => {
+                cancellation.Token.ThrowIfCancellationRequested();
+                // Intentionally write to the chosen file: Esc preserves the rows already received.
+                using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read, 1 << 16);
+                fileCreated = true;
+                using var text = new StreamWriter(stream, new System.Text.UTF8Encoding(false, true), 1 << 16);
+                var writer = new QueryExportWriter(text, format); Volatile.Write(ref exportWriter, writer);
+                return executingEngine.Export(sql, writer, cancellation.Token);
+            });
+            ticker.Stop();
+            foreach (var message in output.Messages) AddMessage(owner, message.Number, message.Source, message.Text, message.RawText);
+            if (output.OmittedMessages > 0) AddMessage(owner, 0, "CLIENT", $"{output.OmittedMessages} earlier messages were omitted by the retention limit.");
+            RecordHistory(sql);
+            owner.LastRunFailed = output.Error != null || cancellation.IsCancellationRequested;
+            if (owner.LastRunFailed)
+            {
+                if (output.Error != null) AddMessage(owner, 1, output.ErrorSource, output.Error, output.ErrorRawText);
+                ReportPartial(cancellation.IsCancellationRequested ? "Export cancelled" : "Export failed");
+            }
+            else
+            {
+                string done = "Exported · " + Counts.Of(Rows(), "row") + " · " + Counts.Of(exportWriter!.ResultSets, "result set") + " · " + path;
+                AddMessage(owner, 0, "CLIENT", done); SetStatus(owner, done);
+            }
+        }
+        catch (OperationCanceledException) { ReportPartial("Export cancelled"); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException or NotSupportedException or System.Text.Json.JsonException)
+        { AddMessage(owner, 1, "CLIENT", "Export failed: " + ex.Message); ReportPartial("Export failed"); }
+        finally { ticker.Stop(); owner.Running = null; RefreshFor(owner); }
+
+        void ReportPartial(string reason)
+        {
+            ticker.Stop();
+            string detail = reason + " · " + Counts.Of(Rows(), "row") + " written · " + (fileCreated ? "partial file kept: " : "file was not opened: ") + path;
+            AddMessage(owner, 1, "CLIENT", detail); SetStatus(owner, detail); ShowMessages(owner);
+        }
+    }
+
     private MessageBoxResult ShowMessage(string title,string text,bool unsaved=false)
     {
         var window=new Window {Owner=this,Title=title,Width=580,SizeToContent=SizeToContent.Height,MaxHeight=640,ResizeMode=ResizeMode.NoResize,WindowStartupLocation=WindowStartupLocation.CenterOwner};

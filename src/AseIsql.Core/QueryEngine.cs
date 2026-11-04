@@ -11,6 +11,9 @@ namespace AseIsql
     {
         string Name { get; }
         QueryOutput Execute(string sql, CancellationToken cancellation = default);
+        // Streaming engines send rows directly to the writer; never fall back to bounded grid results.
+        QueryOutput Export(string sql, QueryExportWriter writer, CancellationToken cancellation = default) =>
+            new() { Error = "This query engine does not support streaming export." };
     }
 
     // What the server reports about the session itself, for the status bar. Never credentials; unknown stays null.
@@ -46,6 +49,27 @@ namespace AseIsql
     public sealed class DemoQueryEngine : IQueryEngine
     {
         public string Name { get { return "Test fixture · no ASE connection"; } }
+
+        public QueryOutput Export(string sql, QueryExportWriter writer, CancellationToken cancellation = default)
+        {
+            cancellation.ThrowIfCancellationRequested();
+            var output = new QueryOutput();
+            if (sql.Length > 100000) { output.Error = "Fixture limit: 100,000 SQL characters per execution."; return output; }
+            try
+            {
+                foreach (var statement in SqlScript.SplitBatches(sql, demoStatements: true, cancellation))
+                    for (int run = 0; run < statement.Repeat; run++)
+                    {
+                        cancellation.ThrowIfCancellationRequested();
+                        using var table = SqlDemoParser.SelectConstants(statement.Text);
+                        using var reader = table.CreateDataReader();
+                        writer.Write(reader, cancellation);
+                    }
+                if (writer.ResultSets == 0) output.Error = "No query to execute.";
+            }
+            catch (FormatException ex) { output.Error = ex.Message; }
+            return output;
+        }
 
         public QueryOutput Execute(string sql, CancellationToken cancellation = default)
         {

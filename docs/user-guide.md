@@ -106,6 +106,16 @@ Right-clicking an identifier (`orders`, `dbo.orders`, `sales..orders`, `[my tabl
 
 Scripts are split on `GO` lines, exactly like `isql`; `GO` inside strings, comments or brackets is not a separator. Each execution shows its elapsed time in the status bar while it runs.
 
+### Export a query directly to a file
+
+Choose **Export query to file…** in **Tools** or **Run ▾**, then choose a CSV, TSV or JSON Lines (`.jsonl`) file. It runs the current editor selection, or the whole script when nothing is selected, including `GO` batches and repetitions. Parameters and the usual PROD confirmation apply before the file is opened or SQL is sent. Existing files are replaced after the save dialog's overwrite confirmation.
+
+Every result set streams to disk row by row without creating grid tabs. The grid's row, 64 MiB, cell, column and result-set limits do not apply; SQL/script limits and the profile's query timeout still apply. The status bar shows rows written. **Esc** or **Cancel** requests cancellation; the chosen file stays on disk and the status bar and Messages identify its path and row count as **partial**. Errors also retain and report partial output. ODBC cancellation is best effort: verify the session state before continuing.
+
+Files use UTF-8 without a BOM. CSV/TSV use CRLF row endings and RFC 4180 quoting (also applied to tabs in TSV); NULL and empty strings both produce empty fields. Multiple sets share one file, with a blank line and a new header for each set, including empty sets. Numbers and dates use invariant culture, dates retain their fractional seconds, and binary values use `0x` hex.
+
+JSON Lines writes one object per row: `{"resultSet":1,"columns":["name","amount"],"values":["José",null]}`. The one-based result-set index continues across batches; empty result sets advance the index without producing a line. Column/value arrays preserve duplicate or empty column names. Numbers and booleans remain typed, NULL is JSON `null`, and dates use ISO text. Export follows **Continue after errors**; any failed batch marks the overall file partial. Statistics IO plan tables are not added to the export.
+
 ### isql-style execution
 
 - **`go N`** (also `GO N`, with any spaces) runs the batch above it N times in a row, as `isql` does. N is 1 to 1000; anything else is refused before anything runs. Messages ends with a summary such as *Summary: 5 batches ok / 0 with error*.
