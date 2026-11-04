@@ -227,9 +227,15 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
 
     public QueryOutput Execute(string sql, CancellationToken cancellation, IProgress<QueryMessage>? messages) => Execute(sql, cancellation, userRun: true, messages: messages);
 
+    public QueryOutput Export(string sql, QueryExportWriter writer, CancellationToken cancellation = default) =>
+        ExecuteCore(sql, cancellation, userRun: true, timeoutSeconds: null, export: writer, messages: null);
+
     // timeoutSeconds replaces the profile's query timeout for this run only; 0 means no timeout. Esc (the
     // cancellation token) still cancels the statement either way.
     public QueryOutput Execute(string sql, CancellationToken cancellation, bool userRun, int? timeoutSeconds = null, IProgress<QueryMessage>? messages = null)
+        => ExecuteCore(sql, cancellation, userRun, timeoutSeconds, export: null, messages: messages);
+
+    private QueryOutput ExecuteCore(string sql, CancellationToken cancellation, bool userRun, int? timeoutSeconds, QueryExportWriter? export, IProgress<QueryMessage>? messages)
     {
         cancellation.ThrowIfCancellationRequested();
         var output = new QueryOutput(messages);
@@ -241,7 +247,7 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
         {
             var batches = SqlScript.SplitBatches(sql, cancellation: cancellation);
             if (batches.Count == 0) { output.Error = "No SQL to execute."; return output; }
-            var channel = new SessionChannel(this, new ResultBudget(profile.MaxRows), userRun, timeoutSeconds ?? profile.QueryTimeout, cancellation);
+            var channel = new SessionChannel(this, new ResultBudget(profile.MaxRows), userRun, timeoutSeconds ?? profile.QueryTimeout, cancellation, export);
             // SQL_ATTR_CURRENT_CATALOG can remain at the login database after a T-SQL USE.
             // Keep the server's db_name() facts; the guarded probe below refreshes them after USE.
             ScriptRunner.Run(batches, channel, output, userRun && ContinueOnError, cancellation);
@@ -330,10 +336,10 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
     // The driver side of ScriptRunner for one run. Execute is the only path that sends user SQL, once per call; the
     // plan read-back only selects showplan_in_xml. An empty plan buffer is reported as "plan not captured" by the
     // runner and the batch is never executed a second time (that doubled exec, dbcc and checkpoint effects).
-    private sealed class SessionChannel(OdbcSession session, ResultBudget budget, bool userRun, int timeoutSeconds, CancellationToken run) : IBatchChannel
+    private sealed class SessionChannel(OdbcSession session, ResultBudget budget, bool userRun, int timeoutSeconds, CancellationToken run, QueryExportWriter? export = null) : IBatchChannel
     {
         public string SourceTag => session.profile.Platform.Tag();
-        public bool CapturesPlans => userRun && session.profile.Platform == ServerPlatform.Ase && session.CaptureExecutionIo && !run.IsCancellationRequested;
+        public bool CapturesPlans => export == null && userRun && session.profile.Platform == ServerPlatform.Ase && session.CaptureExecutionIo && !run.IsCancellationRequested;
         public void ArmPlanCapture(CancellationToken cancellation) => session.ArmExecutionIo(cancellation);
 
         public string? ReadPlan(int index, QueryOutput output, CancellationToken cancellation)
@@ -362,8 +368,12 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
                 });
                 if (session.profile.Platform == ServerPlatform.Ase) session.textSize.ObserveBatch(batch);
                 using var reader = command.ExecuteReader();
-                try { ResultReader.Read(reader, output, budget, cancellation); }
-                catch (Exception ex) when (ex is ResultLimitException or ResultValueException or OperationCanceledException)
+                try
+                {
+                    if (export == null) ResultReader.Read(reader, output, budget, cancellation);
+                    else ResultReader.Stream(reader, export, cancellation);
+                }
+                catch
                 {
                     try { command.Cancel(); } catch (OdbcException cancelError) { output.Messages.Add(new QueryMessage(0, "ODBC", "Cancellation was not confirmed. Open the original diagnostic for details.", session.RedactSecrets(cancelError.Message))); }
                     throw;

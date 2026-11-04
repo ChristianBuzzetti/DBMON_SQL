@@ -66,6 +66,20 @@ public static class ResultReader
         } while (reader.NextResult());
     }
 
+    // No DataTables, row/result budget or grid cell limit. Keep the same precision-preserving ODBC conversions.
+    public static void Stream(DbDataReader reader, QueryExportWriter writer, CancellationToken cancellation)
+    {
+        do
+        {
+            cancellation.ThrowIfCancellationRequested();
+            if (reader.FieldCount == 0) continue;
+            var plans = PlanColumns(reader);
+            writer.WriteResult(reader, cancellation, field => ReadCell(reader, null, field, ref plans[field],
+                writer.RowsWritten + 1, cancellation, long.MaxValue));
+            cancellation.ThrowIfCancellationRequested();
+        } while (reader.NextResult());
+    }
+
     // The column types are decided once per result, before any value is fetched: System.Data.Odbc caches the
     // converted cell, so a column that would overflow must never be asked for its native value first. Drivers that
     // do not report a precision leave the overflow to be discovered on the first wide row.
@@ -104,7 +118,7 @@ public static class ResultReader
         catch (Exception ex) when (ex is InvalidCastException or FormatException or OverflowException) { return 0; }
     }
 
-    private static object ReadCell(DbDataReader reader, DataTable table, int field, ref ColumnPlan plan, int row, CancellationToken cancellation)
+    private static object ReadCell(DbDataReader reader, DataTable? table, int field, ref ColumnPlan plan, long row, CancellationToken cancellation, long maxCellBytes = ResultBudget.MaxCellBytes)
     {
         bool asText = plan.AsText;
         // The server's own text comes first for these columns. System.Data.Odbc caches the converted cell, so any
@@ -112,12 +126,12 @@ public static class ResultReader
         // rounded decimal, the time without its fraction. Nothing has touched the cell at this point.
         if (asText || plan.Verify)
         {
-            string? text = TryReadText(reader, field, cancellation);
+            string? text = TryReadText(reader, field, cancellation, maxCellBytes);
             if (text is { Length: > 0 })
             {
                 if (!plan.Verify) return text;
                 if (Typed(text, plan.SourceType) is { } typed) return typed;
-                PromoteColumnToText(table, field, plan.SourceType);
+                if (table != null) PromoteColumnToText(table, field, plan.SourceType);
                 plan = plan with { Type = typeof(string), AsText = true };
                 return text;
             }
@@ -133,18 +147,18 @@ public static class ResultReader
         {
             try
             {
-                return plan.Type == typeof(string) ? ReadText(reader, field, cancellation)
-                    : plan.Type == typeof(byte[]) ? ReadBytes(reader, field, cancellation)
+                return plan.Type == typeof(string) ? ReadText(reader, field, cancellation, maxCellBytes)
+                    : plan.Type == typeof(byte[]) ? ReadBytes(reader, field, cancellation, maxCellBytes)
                     : reader.GetValue(field);
             }
             catch (Exception ex) when (ex is OverflowException or InvalidCastException or FormatException) { asText = true; }
         }
         if (!plan.AsText)
         {
-            PromoteColumnToText(table, field, plan.SourceType);
+            if (table != null) PromoteColumnToText(table, field, plan.SourceType);
             plan = plan with { Type = typeof(string), AsText = true };
         }
-        try { return ReadDriverText(reader, field, cancellation); }
+        try { return ReadDriverText(reader, field, cancellation, maxCellBytes); }
         catch (Exception ex) when (ex is OverflowException or InvalidCastException or FormatException or ArgumentException or NotSupportedException)
         {
             throw new ResultValueException($"Column '{plan.Name}' (row {row}) holds a value the driver could not hand over as {plan.SourceType.Name} or as text: {ex.Message} Output is partial; no value was truncated or replaced.");
@@ -196,9 +210,9 @@ public static class ResultReader
 
     // The driver's own text for this cell, or null when it refuses every text conversion. Unlike ReadDriverText it
     // never falls back to the typed value, whose text would be the shortened one this path exists to avoid.
-    private static string? TryReadText(DbDataReader reader, int field, CancellationToken cancellation)
+    private static string? TryReadText(DbDataReader reader, int field, CancellationToken cancellation, long maxCellBytes)
     {
-        try { return ReadText(reader, field, cancellation); }
+        try { return ReadText(reader, field, cancellation, maxCellBytes); }
         catch (Exception ex) when (ex is InvalidCastException or NotSupportedException or InvalidOperationException or IndexOutOfRangeException or ArgumentException or FormatException or OverflowException) { }
         try { return reader.GetString(field); }
         catch (Exception ex) when (ex is InvalidCastException or NotSupportedException or InvalidOperationException or IndexOutOfRangeException or ArgumentException or FormatException or OverflowException) { }
@@ -213,36 +227,36 @@ public static class ResultReader
 
     // A value whose server type is wider than its .NET counterpart. The driver's own text conversion is asked for
     // first, so the digits arrive exactly as the server prints them.
-    private static string ReadDriverText(DbDataReader reader, int field, CancellationToken cancellation)
+    private static string ReadDriverText(DbDataReader reader, int field, CancellationToken cancellation, long maxCellBytes)
     {
-        try { return ReadText(reader, field, cancellation); }
+        try { return ReadText(reader, field, cancellation, maxCellBytes); }
         catch (Exception ex) when (ex is InvalidCastException or NotSupportedException or InvalidOperationException or IndexOutOfRangeException or ArgumentException) { }
         try { return reader.GetString(field); }
         catch (Exception ex) when (ex is InvalidCastException or NotSupportedException or InvalidOperationException or IndexOutOfRangeException or ArgumentException) { }
         return Convert.ToString(reader.GetValue(field), CultureInfo.InvariantCulture) ?? "";
     }
 
-    private static string ReadText(DbDataReader reader, int field, CancellationToken cancellation)
+    private static string ReadText(DbDataReader reader, int field, CancellationToken cancellation, long maxCellBytes)
     {
         char[] buffer = new char[4096]; var text = new StringBuilder();
         long count;
         while ((count = reader.GetChars(field, text.Length, buffer, 0, buffer.Length)) != 0)
         {
             cancellation.ThrowIfCancellationRequested();
-            if ((text.Length + count) * 2 > ResultBudget.MaxCellBytes) throw new ResultLimitException("A cell exceeds 1 MiB. Output is partial; the value was not replaced by truncated data.");
+            if ((text.Length + count) * 2 > maxCellBytes) throw new ResultLimitException("A cell exceeds 1 MiB. Output is partial; the value was not replaced by truncated data.");
             text.Append(buffer, 0, (int)count);
         }
         return text.ToString();
     }
 
-    private static byte[] ReadBytes(DbDataReader reader, int field, CancellationToken cancellation)
+    private static byte[] ReadBytes(DbDataReader reader, int field, CancellationToken cancellation, long maxCellBytes)
     {
         byte[] buffer = new byte[4096]; using var stream = new MemoryStream();
         long count;
         while ((count = reader.GetBytes(field, stream.Length, buffer, 0, buffer.Length)) != 0)
         {
             cancellation.ThrowIfCancellationRequested();
-            if (stream.Length + count > ResultBudget.MaxCellBytes) throw new ResultLimitException("A binary cell exceeds 1 MiB. Output is partial.");
+            if (stream.Length + count > maxCellBytes) throw new ResultLimitException("A binary cell exceeds 1 MiB. Output is partial.");
             stream.Write(buffer, 0, (int)count);
         }
         return stream.ToArray();

@@ -7,6 +7,134 @@ using System.Data.Odbc;
 int passed = 0;
 void Check(string name, Action body) { body(); Console.WriteLine("PASS " + name); passed++; }
 void Assert(bool value) { if (!value) throw new Exception("Assertion failed"); }
+Check("Streaming CSV uses RFC 4180 quoting, invariant values, Unicode and empty NULL fields", () => {
+    var oldCulture = CultureInfo.CurrentCulture;
+    try {
+        CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("fr-FR");
+        var table = new DataTable();
+        foreach (string name in new[] { "head,one", "quote", "date", "number", "null", "empty" }) table.Columns.Add(name, typeof(object));
+        var date = new DateTime(2026, 11, 4, 13, 46, 30).AddTicks(1234567);
+        table.Rows.Add("José,漢\r\nline", "a\"b", date, 10.13m, DBNull.Value, "");
+        using var reader = new ExportTestReader(table);
+        using var text = new StringWriter();
+        var writer = new QueryExportWriter(text, QueryExportFormat.Csv); writer.Write(reader);
+        Assert(text.ToString() == "\"head,one\",quote,date,number,null,empty\r\n\"José,漢\r\nline\",\"a\"\"b\",2026-11-04T13:46:30.1234567,10.13,,\r\n");
+        Assert(writer.RowsWritten == 1 && writer.ResultSets == 1 && !reader.IsClosed);
+    } finally { CultureInfo.CurrentCulture = oldCulture; }
+});
+Check("Streaming CSV and TSV repeat headers across empty sets and separate GO batches", () => {
+    foreach (var format in new[] { QueryExportFormat.Csv, QueryExportFormat.Tsv }) {
+        var first = new DataTable(); first.Columns.Add("n", typeof(int)); first.Rows.Add(1);
+        var empty = new DataTable(); empty.Columns.Add("empty");
+        var last = new DataTable(); last.Columns.Add("a\tb"); last.Rows.Add("x\"y\nz");
+        using var reader = new ExportTestReader(new DataTable(), first, empty);
+        using var nextBatch = new ExportTestReader(last);
+        using var text = new StringWriter(); var writer = new QueryExportWriter(text, format);
+        writer.Write(reader); writer.Write(nextBatch);
+        string header = format == QueryExportFormat.Tsv ? "\"a\tb\"" : "a\tb";
+        Assert(text.ToString() == "n\r\n1\r\n\r\nempty\r\n\r\n" + header + "\r\n\"x\"\"y\nz\"\r\n");
+        Assert(writer.ResultSets == 3 && writer.RowsWritten == 2);
+    }
+});
+Check("Streaming JSON Lines preserves NULL, types, duplicate headers and result-set indices", () => {
+    var empty = new DataTable(); empty.Columns.Add("empty");
+    var table = new DataTable();
+    foreach (string name in new[] { "a", "b", "c", "d", "e", "f" }) table.Columns.Add(name, typeof(object));
+    var date = new DateTime(2026, 11, 4, 13, 46, 30, DateTimeKind.Utc);
+    table.Rows.Add(10.13m, DBNull.Value, "quote\"\nJosé", new byte[] { 0, 255 }, true, date);
+    using var reader = new ExportTestReader(empty, table) { ColumnName = _ => "resultSet" };
+    using var text = new StringWriter(); var writer = new QueryExportWriter(text, QueryExportFormat.JsonLines);
+    writer.Write(reader);
+    using var next = new ExportTestReader(table); writer.Write(next);
+    string[] lines = text.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries);
+    Assert(lines.Length == 2 && writer.RowsWritten == 2 && writer.ResultSets == 3);
+    using var first = System.Text.Json.JsonDocument.Parse(lines[0]);
+    var root = first.RootElement; var values = root.GetProperty("values");
+    Assert(root.GetProperty("resultSet").GetInt32() == 2);
+    Assert(root.GetProperty("columns").EnumerateArray().All(c => c.GetString() == "resultSet"));
+    Assert(values[0].GetDecimal() == 10.13m && values[1].ValueKind == System.Text.Json.JsonValueKind.Null);
+    Assert(values[2].GetString() == "quote\"\nJosé" && values[3].GetString() == "0x00FF" && values[4].GetBoolean());
+    Assert(values[5].GetDateTime() == date);
+    using var second = System.Text.Json.JsonDocument.Parse(lines[1]);
+    Assert(second.RootElement.GetProperty("resultSet").GetInt32() == 3);
+});
+Check("Streaming cancellation stops before reading and keeps complete UTF-8 rows in a partial file", () => {
+    var table = new DataTable(); table.Columns.Add("text");
+    for (int i = 0; i < 5; i++) table.Rows.Add("José 漢 " + i);
+    foreach (var format in Enum.GetValues<QueryExportFormat>()) {
+        using var cancelled = new CancellationTokenSource(); cancelled.Cancel();
+        using var unopened = new ExportTestReader(table); using var untouched = new StringWriter();
+        var before = new QueryExportWriter(untouched, format);
+        try { before.Write(unopened, cancelled.Token); Assert(false); } catch (OperationCanceledException) { }
+        Assert(unopened.ReadCalls == 0 && before.ResultSets == 0 && untouched.ToString() == "");
+        string path = Path.Combine(Path.GetTempPath(), "dbmon-partial-" + Guid.NewGuid().ToString("N"));
+        try {
+            using var stop = new CancellationTokenSource();
+            using var reader = new ExportTestReader(table, table);
+            QueryExportWriter writer;
+            using (var file = new StreamWriter(path, false, new System.Text.UTF8Encoding(false, true))) {
+                writer = new QueryExportWriter(file, format);
+                reader.BeforeRead = count => {
+                    Assert(writer.RowsWritten == count - 1); // visible progress advances after each complete row
+                    if (count == 3) stop.Cancel();
+                };
+                try { writer.Write(reader, stop.Token); Assert(false); } catch (OperationCanceledException) { }
+            }
+            byte[] bytes = File.ReadAllBytes(path);
+            string partial = new System.Text.UTF8Encoding(false, true).GetString(bytes);
+            Assert(!bytes.AsSpan().StartsWith(new byte[] { 0xEF, 0xBB, 0xBF }));
+            Assert(writer.RowsWritten == 2 && reader.ReadCalls == 3 && reader.NextResultCalls == 0);
+            Assert(partial.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length == (format == QueryExportFormat.JsonLines ? 2 : 3));
+            if (format == QueryExportFormat.JsonLines) {
+                foreach (string line in partial.Split('\n', StringSplitOptions.RemoveEmptyEntries)) {
+                    using var json = System.Text.Json.JsonDocument.Parse(line);
+                    Assert(json.RootElement.GetProperty("values")[0].GetString()!.StartsWith("José 漢"));
+                }
+            } else Assert(partial.Contains("José 漢 1") && !partial.Contains("José 漢 2"));
+        } finally { File.Delete(path); }
+    }
+});
+Check("Streaming cancellation at a result-set boundary writes no next header", () => {
+    var table = new DataTable(); table.Columns.Add("n", typeof(int)); table.Rows.Add(1);
+    using var stop = new CancellationTokenSource();
+    using var reader = new ExportTestReader(table, table) { BeforeNextResult = () => stop.Cancel() };
+    using var text = new StringWriter(); var writer = new QueryExportWriter(text, QueryExportFormat.Csv);
+    try { writer.Write(reader, stop.Token); Assert(false); } catch (OperationCanceledException) { }
+    Assert(writer.ResultSets == 1 && writer.RowsWritten == 1 && text.ToString() == "n\r\n1\r\n");
+});
+Check("ODBC streaming bypasses 10k rows, 64 MiB, cell and result-set grid limits", () => {
+    var table = new DataTable(); table.Columns.Add("payload");
+    string payload = new('x', 4096);
+    for (int row = 0; row < 10001; row++) table.Rows.Add(payload);
+    using var reader = new StreamingTestReader(table);
+    var writer = new QueryExportWriter(TextWriter.Null, QueryExportFormat.Csv);
+    ResultReader.Stream(reader, writer, CancellationToken.None);
+    Assert(writer.RowsWritten == 10001 && 10001L * payload.Length * 2 > ResultBudget.MaxBytes);
+    var large = new DataTable(); large.Columns.Add("text"); large.Columns.Add("binary", typeof(byte[]));
+    large.Rows.Add(new string('é', ResultBudget.MaxCellBytes), new byte[ResultBudget.MaxCellBytes + 1]);
+    using var cells = new StreamingTestReader(large); ResultReader.Stream(cells, writer, CancellationToken.None);
+    var empty = new DataTable(); empty.Columns.Add("n");
+    using var sets = new StreamingTestReader(Enumerable.Repeat(empty, 129).ToArray());
+    ResultReader.Stream(sets, writer, CancellationToken.None);
+    Assert(writer.RowsWritten == 10002 && writer.ResultSets == 131);
+});
+Check("ODBC streaming retains wide decimals, fractional times and NULL without grid tables", () => {
+    const string wide = "12345678901234567890123456789012345678";
+    using var numbers = new WideNumericTestReader("wide", 38, [wide, null]);
+    using var text = new StringWriter(); var writer = new QueryExportWriter(text, QueryExportFormat.Csv);
+    ResultReader.Stream(numbers, writer, CancellationToken.None);
+    using var time = new WideNumericTestReader("time", 0, ["16:30:45.123456"], fieldType: typeof(TimeSpan));
+    ResultReader.Stream(time, writer, CancellationToken.None);
+    Assert(text.ToString() == "wide\r\n" + wide + "\r\n\r\n\r\ntime\r\n16:30:45.1234560\r\n");
+    Assert(numbers.ValueCalls == 0 && writer.RowsWritten == 3 && writer.ResultSets == 2);
+});
+Check("Query engine streaming exports GO repetitions directly without grid results", () => {
+    IQueryEngine fixture = new DemoQueryEngine(); using var text = new StringWriter();
+    var writer = new QueryExportWriter(text, QueryExportFormat.Csv);
+    var output = fixture.Export("select 1 as n\ngo 2\nselect NULL as nil", writer);
+    Assert(output.Error == null && output.Tables.Count == 0 && writer.RowsWritten == 3 && writer.ResultSets == 3);
+    Assert(text.ToString() == "n\r\n1\r\n\r\nn\r\n1\r\n\r\nnil\r\n\r\n");
+});
 var engine = new DemoQueryEngine();
 Check("isql text formats every set with headers, dashes and received row counts", () => {
     var table = new DataTable(); table.Columns.Add("name"); table.Columns.Add("n", typeof(int));
@@ -940,6 +1068,7 @@ Check("New light palettes meet WCAG contrast for text, syntax, accent and select
     if (failures.Count > 0) throw new Exception("Contrast below floor: " + string.Join("; ", failures));
     foreach (var palette in catalog.Where(p => enforced.ContainsKey(p.Id))) Console.WriteLine("INFO contrast " + PaletteContrast.Report(palette));
 });
+if (OperatingSystem.IsWindows())
 using (var iqDriver = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\ODBC\ODBCINST.INI\SAP IQ"))
 {
     if (iqDriver?.GetValue("Driver") is not string iqLibrary || !File.Exists(iqLibrary))
@@ -962,6 +1091,7 @@ using (var iqDriver = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWAR
         } finally { File.Delete(ca); File.Delete(identity); }
     });
 }
+else Console.WriteLine("SKIP native IQ TLS parser check: Windows registry is unavailable.");
 Check("Replication Server profiles use the ASE driver without a database and test with RCL", () => {
     var profile = new ConnectionProfile("rs-host", 5510, "", "sa", false, "", Platform: ServerPlatform.Rs);
     var builder = new OdbcConnectionStringBuilder(OdbcSession.BuildConnectionString(profile, "secret"));
@@ -1175,4 +1305,47 @@ sealed class ThrowingEngine : IQueryEngine
 sealed class MessageProgress(Action<QueryMessage> report) : IProgress<QueryMessage>
 {
     public void Report(QueryMessage message) => report(message);
+}
+
+// Fake IDataReader with observable reads and result transitions; no database or driver is involved.
+sealed class ExportTestReader(params DataTable[] tables) : IDataReader
+{
+    private readonly DataTableReader inner = new(tables);
+    public Action<int>? BeforeRead;
+    public Action? BeforeNextResult;
+    public Func<int, string>? ColumnName;
+    public int ReadCalls, NextResultCalls;
+    public bool Read() { ReadCalls++; BeforeRead?.Invoke(ReadCalls); return inner.Read(); }
+    public bool NextResult() { NextResultCalls++; BeforeNextResult?.Invoke(); return inner.NextResult(); }
+    public object GetValue(int i) => inner.GetValue(i);
+    public string GetName(int i) => ColumnName?.Invoke(i) ?? inner.GetName(i);
+    public int FieldCount => inner.FieldCount;
+    public int Depth => inner.Depth;
+    public bool IsClosed => inner.IsClosed;
+    public int RecordsAffected => inner.RecordsAffected;
+    public object this[int i] => inner[i];
+    public object this[string name] => inner[name];
+    public void Close() => inner.Close();
+    public void Dispose() => inner.Dispose();
+    public DataTable? GetSchemaTable() => inner.GetSchemaTable();
+    public bool GetBoolean(int i) => inner.GetBoolean(i);
+    public byte GetByte(int i) => inner.GetByte(i);
+    public long GetBytes(int i, long offset, byte[]? buffer, int start, int length) => inner.GetBytes(i, offset, buffer, start, length);
+    public char GetChar(int i) => inner.GetChar(i);
+    public long GetChars(int i, long offset, char[]? buffer, int start, int length) => inner.GetChars(i, offset, buffer, start, length);
+    public IDataReader GetData(int i) => throw new NotSupportedException();
+    public string GetDataTypeName(int i) => inner.GetDataTypeName(i);
+    public DateTime GetDateTime(int i) => inner.GetDateTime(i);
+    public decimal GetDecimal(int i) => inner.GetDecimal(i);
+    public double GetDouble(int i) => inner.GetDouble(i);
+    public Type GetFieldType(int i) => inner.GetFieldType(i);
+    public float GetFloat(int i) => inner.GetFloat(i);
+    public Guid GetGuid(int i) => inner.GetGuid(i);
+    public short GetInt16(int i) => inner.GetInt16(i);
+    public int GetInt32(int i) => inner.GetInt32(i);
+    public long GetInt64(int i) => inner.GetInt64(i);
+    public int GetOrdinal(string name) => inner.GetOrdinal(name);
+    public string GetString(int i) => inner.GetString(i);
+    public int GetValues(object[] values) => inner.GetValues(values);
+    public bool IsDBNull(int i) => inner.IsDBNull(i);
 }

@@ -4,9 +4,12 @@ All notable changes to DBMON SQL are listed here. The project follows [Semantic 
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-11-04
+
 ### Added
 - **Text output (isql style)** beside Messages, with fixed-width result tables, row counts, server messages, Copy and UTF-8 `.txt` saving. Each result's toolbar opens its whole run; sessions retain their own text output. Long cells wrap without losing values. When the engine supplies separate result/message lists, text shows results first, then messages in their received order.
 - A navigable **sp_sysmon sections** list in the text view recognizes underlined report headings. Recipes **sp_sysmon 1 minute** and **sp_sysmon 5 minutes** sample ASE performance.
+- **Export query to file…** in Tools and Run ▾ runs the selection/script directly into UTF-8 CSV, TSV or JSON Lines, bypassing grid result limits. CSV/TSV repeat headers after a blank line for each result set; JSON Lines includes a one-based `resultSet` index and column/value arrays. The usual PROD confirmation applies. The status bar counts rows, Esc cancels, and cancellation or errors preserve the file with its path clearly reported as partial.
 
 ### Changed
 - Server messages (including `print`, `sp_sysmon` and `dbcc` output) appear while a batch runs, refreshed about every 250 ms. Message retention keeps the first 250 and last 250 rows, with one counted omission marker between them; error diagnostics use the same limit.

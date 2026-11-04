@@ -432,6 +432,7 @@ public partial class MainWindow : Window
         }
         Item("Run selection", "Ctrl+E", "", () => _ = ExecuteAsync(selectionOnly: true), idle && online && Editor.SelectionLength > 0);
         Item("Run current line", "Alt+F9", "", () => _ = ExecuteAsync(lineOnly: true), idle && online);
+        Item("Export query to file…", "", "", () => ExportQueryClick(this, new RoutedEventArgs()), idle && online);
         menu.Items.Add(new Separator());
         Item("Run on several servers…", "Shift+F9", "", () => MultiRunClick(this, new RoutedEventArgs()), idle);
         Item(repeat != null ? "Stop repeating" : "Repeat every…", "Ctrl+Shift+F9", "", () => RepeatClick(this, new RoutedEventArgs()), repeat != null || idle && online);
