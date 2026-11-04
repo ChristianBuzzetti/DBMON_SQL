@@ -241,7 +241,7 @@ public partial class MainWindow : Window
         string runningName = executingEngine.Name;
         SetStatus(owner, "Executing · " + runningName + " · Esc cancels");
         AddMessage(owner, 0, SourceLabelOf(owner), "Execute · " + scope + (noTimeout ? " · no timeout" : "") + (runSettings.ContinueOnError ? " · continue after errors" : ""));
-        if (noTimeout) AddMessage(owner, 0, "CLIENT", "No query timeout for this run (maintenance): it runs until it ends or Esc cancels it.");
+        if (noTimeout) AddMessage(owner, 0, "CLIENT", owner.Profile?.QueryTimeout == 0 ? "This profile has no query timeout: the run lasts until it ends or Esc cancels it." : "No query timeout for this run (maintenance): it runs until it ends or Esc cancels it.");
         ApplyRunSettings(executingEngine);
         var messages = new SessionMessageProgress(owner);
         var timer = Stopwatch.StartNew();

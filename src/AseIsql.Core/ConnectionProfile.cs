@@ -19,10 +19,15 @@ public static class Platforms
 
 // Database is required for ASE, optional for IQ (DatabaseName) and unused by Replication Server, which has none.
 // IqServerName is the IQ engine name, optional when one server listens on the host and port.
-public sealed record ConnectionProfile(string Server, int Port, string Database, string User, bool UseTls, string TrustedFile, int LoginTimeout = 15, int QueryTimeout = 60, int MaxRows = 10000, string Charset = "ServerDefault", string ClientHostname = "", bool EncryptPassword = true, string ServerAlias = "", string SqlIniPath = "", string Language = "us_english", ServerPlatform Platform = ServerPlatform.Ase, string IqServerName = "", string IqIdentityFile = "", string IqCertificateName = "", bool Production = false)
+public sealed record ConnectionProfile(string Server, int Port, string Database, string User, bool UseTls, string TrustedFile, int LoginTimeout = 15, int QueryTimeout = 0, int MaxRows = 10000, string Charset = "ServerDefault", string ClientHostname = "", bool EncryptPassword = true, string ServerAlias = "", string SqlIniPath = "", string Language = "us_english", ServerPlatform Platform = ServerPlatform.Ase, string IqServerName = "", string IqIdentityFile = "", string IqCertificateName = "", bool Production = false)
 {
     // QueryTimeout 0 means no timeout, as in isql: long maintenance (dbcc, reorg, dump) runs until it ends or Esc cancels it.
     public const int MaxQueryTimeout = 3600;
+    // Saved profiles and server groups written by 1.0.0 and earlier carry no format marker (version 0) and a query timeout
+    // default of 60 s, which cancelled any slow or lock-blocked statement. Format 2 defaults to 0 (no timeout).
+    public const int CurrentStoreVersion = 2;
+    // An explicit 60 saved by 1.0.0 cannot be told apart from the old untouched default, so it becomes 0 once.
+    public ConnectionProfile MigrateLegacyTimeout(int storeVersion) => storeVersion < CurrentStoreVersion && QueryTimeout == 60 ? this with { QueryTimeout = 0 } : this;
     [System.Text.Json.Serialization.JsonIgnore]
     public string EffectiveCharset => Charset.Length == 0 ? "ServerDefault" : Charset;
     // Production marks the profile as PROD: its session shows a red PROD band and SQL that changes state asks first.
