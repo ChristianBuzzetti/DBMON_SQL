@@ -21,7 +21,7 @@ DBMON SQL is a Windows workbench for writing and running SQL against SAP ASE, SA
 
 ## Connecting
 
-The login opens when the app starts (and with `F11` or **Connection → Connect…**).
+The login opens when the app starts (and with `F11`, or **Connect…** when you right-click a session tab).
 
 | Field | Notes |
 |---|---|
@@ -63,7 +63,7 @@ Use **+ Session** to open the existing login in a new workspace in the same wind
 
 Switch tabs to return to that session's SQL document, undo history, caret, bookmarks, results, pins, messages and cached object explorer. ASE options and the current database belong to that connection. `F9` on a result re-runs its recorded SQL on the session that produced it; pinned results remain in place.
 
-**Disconnect** (`F12`) affects only the active session. The **×** on a session tab closes that connection and confirms unsaved SQL. Closing the last tab leaves one offline workspace. Closing the window confirms unsaved documents and closes all its connections.
+**Disconnect** (`F12`) affects only the active session. Right-click any session tab for **Connect…**, **Disconnect** and **Close session** on that session, whether or not it is on screen; Connect brings that tab forward first. The **×** on a session tab closes that connection and confirms unsaved SQL. **Exit** is at the end of the **Query** menu. Closing the last tab leaves one offline workspace. Closing the window confirms unsaved documents and closes all its connections.
 
 Sessions run independently. Start a long query, switch to another engine's tab and work there: each tab keeps its own query in flight, its own Run and Cancel state, its own status line and its own messages, and publishes its results into its own tab when they arrive. A tab that is working shows a **▶** before its name, and the result it produced while you were away is already selected when you return. Inside one session the rules are unchanged: one query at a time, and a repeat there blocks that session's `F9`, multi-server run and catalog until it stops.
 

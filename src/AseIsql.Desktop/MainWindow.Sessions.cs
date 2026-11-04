@@ -85,8 +85,30 @@ public partial class MainWindow
         panel.Children.Add(close);
         workspace.Header = new TabItem { Header = panel, Tag = workspace };
         workspace.Header.SetResourceReference(StyleProperty, "SessionWorkspaceTab");
+        workspace.Header.ContextMenu = CreateSessionMenu(workspace);
         SessionTabs.Items.Add(workspace.Header);
         RefreshSessionHeader(workspace);
+    }
+
+    // The connection actions live on each session tab and act on that session, not on whichever tab is on screen.
+    // Right-clicking a tab does not select it; the state is read again every time the menu opens.
+    private ContextMenu CreateSessionMenu(SessionWorkspace workspace)
+    {
+        var menu = new ContextMenu();
+        var connect = new MenuItem { Header = "Connect…", InputGestureText = "F11" };
+        connect.Click += (_, _) => ConnectSession(workspace);
+        var disconnect = new MenuItem { Header = "Disconnect", InputGestureText = "F12" };
+        disconnect.Click += async (_, _) => { if (CanDisconnect(workspace)) await DisconnectSessionAsync(workspace); };
+        var close = new MenuItem { Header = "Close session" };
+        close.Click += async (_, _) => await CloseSessionAsync(workspace);
+        menu.Items.Add(connect); menu.Items.Add(disconnect); menu.Items.Add(new Separator()); menu.Items.Add(close);
+        menu.Opened += (_, _) =>
+        {
+            connect.IsEnabled = CanConnect(workspace);
+            disconnect.IsEnabled = CanDisconnect(workspace);
+            close.IsEnabled = !workspace.Busy && !activeSession.Changing;
+        };
+        return menu;
     }
 
     private static void RefreshSessionHeader(SessionWorkspace workspace)

@@ -2,6 +2,11 @@
 
 All notable changes to DBMON SQL are listed here. The project follows [Semantic Versioning](https://semver.org/).
 
+## [0.2.0] — 2026-11-04
+
+### Changed
+- The **Connection** menu left the menu bar: right-click a session tab for Connect… (`F11`), Disconnect (`F12`) and Close session, applied to that tab's session. **Exit** moved to the end of the **Query** menu. `F11` and `F12` work as before on the active session.
+
 ## [0.1.0] — first public version
 
 ### Connections

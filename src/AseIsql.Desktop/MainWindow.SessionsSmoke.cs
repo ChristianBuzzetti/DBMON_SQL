@@ -28,8 +28,26 @@ public partial class MainWindow
         public void Dispose() => Disposed = true;
     }
 
+    // Opens a session tab's context menu the way WPF does (Opened refreshes it) and returns its item by header.
+    private static MenuItem SessionMenuItem(SessionWorkspace workspace, string header)
+    {
+        var menu = workspace.Header.ContextMenu;
+        menu.RaiseEvent(new RoutedEventArgs(ContextMenu.OpenedEvent));
+        return menu.Items.OfType<MenuItem>().Single(item => Equals(item.Header, header));
+    }
+
     private async Task VerifySessionWorkspaces(Action<bool, string> require)
     {
+        var topMenus = MainMenu.Items.OfType<MenuItem>().ToList();
+        require(!topMenus.Any(item => Equals(item.Header, "Connection")) && topMenus.Count == 6,
+            "The menu bar no longer has a Connection menu; connection actions live on each session tab");
+        var queryMenu = topMenus.Single(item => Equals(item.Header, "Query"));
+        require(queryMenu.Items[^1] is MenuItem { Header: "Exit" } && queryMenu.Items[^2] is Separator,
+            "Exit closes the Query menu after a separator");
+        require(HasConnectionMenu(activeSession), "Every session tab offers Connect… (F11), Disconnect (F12) and Close session");
+        static bool HasConnectionMenu(SessionWorkspace workspace) =>
+            workspace.Header.ContextMenu is { } menu && menu.Items.OfType<MenuItem>().Select(item => (item.Header as string, item.InputGestureText))
+                .SequenceEqual(new (string?, string)[] { ("Connect…", "F11"), ("Disconnect", "F12"), ("Close session", "") });
         var original = activeSession;
         var first = AddSession()!;
         var firstEngine = new WorkspaceSmokeEngine("session-a", ServerPlatform.Ase);
@@ -59,16 +77,30 @@ public partial class MainWindow
             "An offline session has a visible notice, disabled Run and a Not connected title");
         await ExecuteAsync();
         require(firstEngine.Executions == firstRuns && !firstEngine.Disposed, "Executing offline never reaches another session");
+        require(HasConnectionMenu(first) && HasConnectionMenu(second), "Session tabs added later carry the same connection menu");
+        // Synthetic engines are not ODBC sessions, so like the offline tab they have nothing for Disconnect to close.
+        require(SessionMenuItem(second, "Connect…").IsEnabled && !SessionMenuItem(second, "Disconnect").IsEnabled && SessionMenuItem(second, "Close session").IsEnabled &&
+            SessionMenuItem(first, "Connect…").IsEnabled && !SessionMenuItem(first, "Disconnect").IsEnabled,
+            "A session tab's menu enables Connect and disables Disconnect while that session holds no ODBC connection");
+        first.Changing = true;
+        require(!SessionMenuItem(first, "Connect…").IsEnabled && !SessionMenuItem(first, "Close session").IsEnabled && SessionMenuItem(second, "Connect…").IsEnabled,
+            "A connection change in flight disables that tab's Connect and Close without touching the other tab's menu");
+        first.Changing = false;
+        second.Changing = true;
+        require(!SessionMenuItem(first, "Connect…").IsEnabled, "A login open on the tab on screen holds Connect on every other tab");
+        second.Changing = false;
 
-        // Exercise cancellation through the actual existing modal, without submitting credentials.
+        // Exercise cancellation through the actual existing modal, without submitting credentials. Connect is chosen on
+        // the second tab while the first is on screen: the clicked session is mounted, and its login is the one shown.
+        require(SelectSession(first) && activeSession == first, "The first session is on screen before the second tab's menu is used");
         Exception? loginFailure = null;
         _ = Dispatcher.BeginInvoke(new Action(() => {
             try { OwnedWindows.OfType<ConnectionWindow>().Single().Close(); }
             catch (Exception ex) { loginFailure = ex; }
         }));
-        ConnectClick(this, new RoutedEventArgs());
-        require(loginFailure == null && engine is DisconnectedQueryEngine && !ExecuteButton.IsEnabled && sessions.Count == 3,
-            "Cancelling the existing login keeps its tab offline without replacing another session");
+        SessionMenuItem(second, "Connect…").RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+        require(loginFailure == null && activeSession == second && engine is DisconnectedQueryEngine && !ExecuteButton.IsEnabled && sessions.Count == 3 && first.Engine == firstEngine,
+            "Connect from a tab's menu opens the login for that session, and cancelling keeps it offline without replacing another session");
 
         var secondEngine = new WorkspaceSmokeEngine("session-b", ServerPlatform.Iq);
         engine = secondEngine; RefreshConnection();
@@ -126,6 +158,8 @@ public partial class MainWindow
                     require(first.Running != null && second.Running != null && second.Label.Text.StartsWith("▶", StringComparison.Ordinal) &&
                         !ReferenceEquals(first.Running, second.Running),
                         "Two sessions execute at the same time, each with its own cancellation, and the tab in the background says it is working");
+                    require(!SessionMenuItem(second, "Close session").IsEnabled && !SessionMenuItem(second, "Disconnect").IsEnabled && SessionMenuItem(second, "Connect…").IsEnabled,
+                        "A background tab that is running cannot be closed or disconnected from its menu");
                     await CloseSessionAsync(second);
                     require(!secondEngine.Disposed && sessions.Contains(second) && activeSession == first,
                         "A session that is running cannot be closed and closing it never drags the user into that tab");
@@ -187,12 +221,12 @@ public partial class MainWindow
         require(secondEngine.Executions == beforeRepeatRefusal && repeat == plan,
             "A repeat still blocks F9 and multi-server execution inside its own session without stopping");
         RepeatStopClick(this, new RoutedEventArgs());
-        require(repeat == null && ExecuteButton.IsEnabled && ConnectMenu.IsEnabled && RepeatBanner.Visibility == Visibility.Collapsed,
+        require(repeat == null && ExecuteButton.IsEnabled && SessionMenuItem(activeSession, "Connect…").IsEnabled && RepeatBanner.Visibility == Visibility.Collapsed,
             "Stopping an idle repeat immediately restores Run and Connect and removes the band");
         var completed = new RepeatPlan("select 'one repeat'", TimeSpan.FromHours(24), 1, true, secondEngine, "synthetic query");
         StartRepeat(completed); timeout.Restart();
         while ((repeat != null || repeatBusy) && timeout.Elapsed < TimeSpan.FromSeconds(5)) await Task.Delay(20);
-        require(completed.Runs == 1 && repeat == null && !repeatBusy && ExecuteButton.IsEnabled && ConnectMenu.IsEnabled,
+        require(completed.Runs == 1 && repeat == null && !repeatBusy && ExecuteButton.IsEnabled && SessionMenuItem(activeSession, "Connect…").IsEnabled,
             "Automatic repeat completion restores idle controls without switching session tabs");
 
         var catalogRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -217,7 +251,7 @@ public partial class MainWindow
         require(sessions.Contains(second) && !secondEngine.Disposed && Editor.Text.EndsWith(" -- unsaved"),
             "Cancelling close of an inactive dirty session retains its document and connection");
         savedText = Editor.Text;
-        await DisconnectSessionAsync();
+        await DisconnectSessionAsync(activeSession);
         require(secondEngine.Disposed && engine is DisconnectedQueryEngine && !firstEngine.Disposed && first.Engine == firstEngine,
             "Disconnect disposes only the active engine and leaves the other session connected");
         require(SelectSession(first) && ResultTabs.Contains(resultA) && pinnedResults.Contains(tableA) && BrowserTree.Items.Contains(nodeA),
