@@ -36,14 +36,14 @@ DBMON SQL keeps the dense, keyboard-driven workflow of the classic `isql` / AseI
 | **Repeat on a timer** | Re-run a query every few seconds, minutes or hours. A caution band stays on screen with the run count and countdown; state-changing SQL needs an explicit acknowledgement. |
 | **Object explorer** | Browse ASE databases and IQ tables, views and procedures with server-side filters and paging. Right-click any identifier in the editor for `sp_help`, `sp_iqcolumn`, code, dependencies and more. |
 | **Session at a glance** | The status bar shows the current database (click to switch), SPID (click to copy), login and the charset the server negotiated. |
-| **Personal** | 19 DBMON palettes, any custom accent color, bundled Inter and JetBrains Mono fonts, density and corner options, and **Boberto**, an animated companion with a studio of costumes, accessories and backgrounds. |
+| **Personal** | 23 DBMON palettes (17 dark, 6 light, including Papel, Sepia, Glaciar and a high-contrast *Alto contraste*), any custom accent color, bundled Inter and JetBrains Mono fonts, density and corner options, and **Boberto**, an animated companion with a studio of costumes, accessories and backgrounds. |
 
 ## Screenshots
 
 | Results and session facts | Recipes with parameters |
 |---|---|
 | <img src="docs/media/workspace.png" alt="Query results with typed values, messages panel and session facts in the status bar" /> | <img src="docs/media/parameters.png" alt="Recipe library with the parameter form and a live SQL preview" /> |
-| **Repeat on a timer** | **19 palettes, applied live** |
+| **Repeat on a timer** | **23 palettes, applied live** |
 | <img src="docs/media/repeat.png" alt="A query repeating every 5 seconds with the caution band, countdown and Stop control" /> | <img src="docs/media/palette-synthwave.png" alt="Personalize window with palette tiles and a live preview" /> |
 | **Boberto Studio** | **Accessories, colors, backgrounds and frames** |
 | <img src="docs/media/studio-crown.png" alt="Boberto Studio choosing the Crown accessory" /> | <img src="docs/media/studio-background.png" alt="Boberto Studio with the samurai accessory and the Torii background" /> |

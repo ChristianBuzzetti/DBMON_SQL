@@ -575,6 +575,29 @@ Check("IQ TLS can verify an explicit certificate name independently of the engin
         Assert(!OdbcSession.BuildConnectionString(profile with { IqCertificateName = "" }, "synthetic-db").Contains("CERTIFICATE_NAME", StringComparison.OrdinalIgnoreCase));
     } finally { File.Delete(ca); }
 });
+// Light palettes added in 0.3.0 must read at WCAG AA (high contrast: AAA) with the colors the app actually applies:
+// Themes.WithAccent derives OnAccent and Selection from Accent and Surface, so those two are recomputed here the same way.
+// Earlier light palettes (Alba, Sandstone) are reported, not enforced: they predate this check and stay unchanged.
+Check("New light palettes meet WCAG contrast for text, syntax, accent and selection", () => {
+    var catalog = System.Text.Json.JsonSerializer.Deserialize<List<PaletteEntry>>(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "dbmon-palettes.json")))!;
+    string[] keys = ["Canvas", "Surface", "SurfaceRaised", "AlternateRow", "Ink", "Muted", "Rule", "RowRule", "Accent", "OnAccent", "Header", "HeaderInk", "Badge", "BadgeInk", "Notice", "NoticeInk", "LineNumber", "Selection", "SqlKeyword", "SqlString", "SqlComment", "SqlNumber", "ErrorInk"];
+    (string Fore, string Back, bool Gutter)[] pairs = [("Ink", "Surface", false), ("Ink", "Canvas", false), ("Ink", "SurfaceRaised", false), ("Ink", "AlternateRow", false), ("Muted", "Surface", false), ("HeaderInk", "Header", false), ("BadgeInk", "Badge", false), ("NoticeInk", "Notice", false), ("OnAccent", "Accent", false), ("Accent", "Surface", false), ("LineNumber", "Surface", true), ("SqlKeyword", "Surface", false), ("SqlString", "Surface", false), ("SqlComment", "Surface", false), ("SqlNumber", "Surface", false), ("ErrorInk", "Surface", false), ("Ink", "Selection", false)];
+    var enforced = new Dictionary<string, (double Text, double Gutter)> { ["papel"] = (4.5, 3), ["sepia"] = (4.5, 3), ["glaciar"] = (4.5, 3), ["contraste"] = (7, 4.5) };
+    Assert(catalog.Count == 23 && catalog.Select(p => p.Id).Distinct().Count() == catalog.Count);
+    var failures = new List<string>();
+    foreach (var palette in catalog.Where(p => !p.DarkChrome))
+    {
+        bool enforce = enforced.TryGetValue(palette.Id, out var floor);
+        if (enforce) Assert(keys.All(palette.Colors.ContainsKey));
+        var colors = PaletteContrast.Effective(palette.Colors);
+        var below = pairs.Select(p => (p, ratio: PaletteContrast.Ratio(colors[p.Fore], colors[p.Back]))).Where(x => x.ratio < (enforce ? (x.p.Gutter ? floor.Gutter : floor.Text) : (x.p.Gutter ? 3 : 4.5))).Select(x => $"{x.p.Fore}/{x.p.Back} {x.ratio:0.00}").ToList();
+        if (enforce) failures.AddRange(below.Select(b => palette.Id + " " + b));
+        else if (below.Count > 0) Console.WriteLine($"INFO existing light palette {palette.Id} (not enforced): " + string.Join(", ", below));
+    }
+    Assert(enforced.Keys.All(id => catalog.Any(p => p.Id == id && !p.DarkChrome)));
+    if (failures.Count > 0) throw new Exception("Contrast below floor: " + string.Join("; ", failures));
+    foreach (var palette in catalog.Where(p => enforced.ContainsKey(p.Id))) Console.WriteLine("INFO contrast " + PaletteContrast.Report(palette));
+});
 using (var iqDriver = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\ODBC\ODBCINST.INI\SAP IQ"))
 {
     if (iqDriver?.GetValue("Driver") is not string iqLibrary || !File.Exists(iqLibrary))
@@ -749,6 +772,36 @@ Check("ExecutionIo parses concatenated showplan_in_xml(0) documents, matches isq
     Assert((string)table.Rows[2]["object"] == "master..syscolumns" && (string)table.Rows[2]["alias"] == "c" && (long)table.Rows[2]["logical_reads"] == 162L && (long)table.Rows[2]["est_logical_reads"] == 214L);
 });
 Console.WriteLine($"{passed} checks passed. No ASE server was contacted.");
+
+sealed record PaletteEntry(string Id, string Label, bool DarkChrome, Dictionary<string, string> Colors);
+
+static class PaletteContrast
+{
+    // #RRGGBB or #AARRGGBB (alpha ignored: only opaque keys are measured).
+    static (int R, int G, int B) Rgb(string hex) { var h = hex.TrimStart('#'); if (h.Length == 8) h = h[2..]; return (Convert.ToInt32(h[..2], 16), Convert.ToInt32(h[2..4], 16), Convert.ToInt32(h[4..6], 16)); }
+    static double Linear(int channel) { double v = channel / 255d; return v <= 0.04045 ? v / 12.92 : Math.Pow((v + 0.055) / 1.055, 2.4); }
+    static double Luminance(string hex) { var (r, g, b) = Rgb(hex); return .2126 * Linear(r) + .7152 * Linear(g) + .0722 * Linear(b); }
+    public static double Ratio(string a, string b) { double x = Luminance(a), y = Luminance(b); return (Math.Max(x, y) + .05) / (Math.Min(x, y) + .05); }
+    // Same derivation as Themes.WithAccent(palette, null) for a light palette.
+    public static Dictionary<string, string> Effective(IReadOnlyDictionary<string, string> source)
+    {
+        var colors = new Dictionary<string, string>(source);
+        var accent = Rgb(colors["Accent"]); var surface = Rgb(colors["Surface"]);
+        static string Hex((int R, int G, int B) c) => $"#{c.R:X2}{c.G:X2}{c.B:X2}";
+        // Light palettes deepen the accent by 10 % steps until it reads at 4.5:1; OnAccent and Selection use that result.
+        while (Ratio(Hex(accent), colors["Surface"]) < 4.5) accent = ((int)(accent.R * .9), (int)(accent.G * .9), (int)(accent.B * .9));
+        string derived = Hex(accent);
+        colors["OnAccent"] = Ratio(derived, "#FFFFFF") >= Ratio(derived, "#07101F") ? "#FFFFFF" : "#07101F";
+        int Mix(int fore, int back) => (int)Math.Round(fore * .45 + back * .55);
+        colors["Selection"] = $"#{Mix(accent.R, surface.R):X2}{Mix(accent.G, surface.G):X2}{Mix(accent.B, surface.B):X2}";
+        return colors;
+    }
+    public static string Report(PaletteEntry palette)
+    {
+        var c = Effective(palette.Colors);
+        return $"{palette.Id} · {palette.Label} · Ink/Surface {Ratio(c["Ink"], c["Surface"]):0.0} · Muted/Surface {Ratio(c["Muted"], c["Surface"]):0.0} · Accent/Surface {Ratio(c["Accent"], c["Surface"]):0.0} · OnAccent/Accent {Ratio(c["OnAccent"], c["Accent"]):0.0} · Ink/Selection {Ratio(c["Ink"], c["Selection"]):0.0}";
+    }
+}
 
 sealed class ThrowingEngine : IQueryEngine
 {

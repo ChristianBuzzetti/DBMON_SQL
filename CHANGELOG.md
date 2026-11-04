@@ -2,6 +2,19 @@
 
 All notable changes to DBMON SQL are listed here. The project follows [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] — 2026-11-04
+
+### Added
+- Four light palettes in **Personalize → Style**, next to Alba and Sandstone (23 palettes, 6 light):
+  - **Papel**: neutral paper with soft warm greys and an ink-blue accent.
+  - **Sepia**: cream and amber with a terracotta-brown accent and a deeper header band.
+  - **Glaciar**: cool blue-white surfaces with a steel-blue accent and teal strings.
+  - **Alto contraste**: pure white, black text, marked borders and a dark-blue accent, for accessibility (text at 7:1 or more).
+- A core check measures WCAG contrast for the new light palettes (text, header, badges, notices, accent, gutter, every SQL color and the selection) and fails below 4.5:1, or 7:1 for Alto contraste.
+
+### Changed
+- Boberto's dock uses its light-floor reflection and background tint on the new light palettes too.
+
 ## [0.2.0] — 2026-11-04
 
 ### Changed

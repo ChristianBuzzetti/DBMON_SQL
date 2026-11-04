@@ -209,7 +209,7 @@ On the right: the caret position, then the session facts reported by the server.
 
 **Personalize** opens one window with a live preview:
 
-- **Style**: 19 DBMON palettes (17 dark, 2 light) and the accent: *Auto*, 14 presets or a **custom color** with a hue, saturation and value mixer and a hex box. On light palettes a bright accent is deepened until it reads as text.
+- **Style**: 23 DBMON palettes (17 dark, 6 light: Alba, Sandstone, Papel, Sepia, Glaciar and Alto contraste, the last one with text at 7:1 or more for accessibility) and the accent: *Auto*, 14 presets or a **custom color** with a hue, saturation and value mixer and a hex box. On light palettes a bright accent is deepened until it reads as text.
 - **Text**: interface font (bundled Inter or Segoe UI Variable) and size; SQL font (Consolas, the default, or the bundled JetBrains Mono) and size. Changes keep your SQL, selection and undo history.
 - **Interface**: compact rows, soft corners, server messages panel.
 - **Effects**: show Boberto, and motion (idle animations, neon edges); Windows' reduce-animation setting is honored.
