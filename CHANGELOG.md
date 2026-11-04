@@ -2,6 +2,16 @@
 
 All notable changes to DBMON SQL are listed here. The project follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+- Server messages (including `print`, `sp_sysmon` and `dbcc` output) appear while a batch runs, refreshed about every 250 ms. Message retention keeps the first 250 and last 250 rows, with one counted omission marker between them; error diagnostics use the same limit.
+
+### Fixed
+- ASE object source uses the complete `syscomments` fragment order (`number, colid2, colid`) in both the browser and editor object actions, preserving large definitions.
+- Statistics IO initializes `textsize` once per connection and preserves user `set textsize` statements, including when capture is enabled later or toggled off and on. Its tooltip now names the plan capture command actually sent.
+- Disconnected query execution asks users to connect to a server, covering ASE, IQ and Replication Server.
+
 ## [0.4.0] — 2026-11-04
 
 ### Fixed

@@ -8,6 +8,64 @@ int passed = 0;
 void Check(string name, Action body) { body(); Console.WriteLine("PASS " + name); passed++; }
 void Assert(bool value) { if (!value) throw new Exception("Assertion failed"); }
 var engine = new DemoQueryEngine();
+Check("Head/tail retention preserves all messages through 500, in arrival order without a marker", () => {
+    foreach (int count in new[] { 0, 1, 249, 250, 251, 499, 500 })
+    {
+        var buffer = new HeadTailBuffer<int>();
+        for (int i = 0; i < count; i++) buffer.Add(i);
+        Assert(buffer.Count == count && buffer.OmittedCount == 0);
+        Assert(buffer.SequenceEqual(Enumerable.Range(0, count)));
+        Assert(buffer.Snapshot(_ => -1).SequenceEqual(Enumerable.Range(0, count)));
+    }
+});
+Check("Head/tail retention keeps the first 250 and last 250 with one counted marker between them", () => {
+    var buffer = new HeadTailBuffer<string>();
+    for (int i = 0; i < 10000; i++)
+    {
+        buffer.Add(i.ToString(CultureInfo.InvariantCulture));
+        if (i is not (500 or 501 or 749 or 9999)) continue;
+        int count = i + 1;
+        var rows = buffer.Snapshot(HeadTailBuffer<string>.OmissionText);
+        Assert(buffer.Count == 500 && buffer.OmittedCount == count - 500 && rows.Count == 501);
+        Assert(rows.Take(250).SequenceEqual(Enumerable.Range(0, 250).Select(n => n.ToString(CultureInfo.InvariantCulture))));
+        Assert(rows[250] == "… " + (count - 500) + " messages omitted …");
+        Assert(rows.Skip(251).SequenceEqual(Enumerable.Range(count - 250, 250).Select(n => n.ToString(CultureInfo.InvariantCulture))));
+        Assert(rows.Count(row => row.Contains("messages omitted")) == 1);
+    }
+    var snapshot = buffer.Snapshot(HeadTailBuffer<string>.OmissionText);
+    buffer.Clear(); buffer.Add("new execution");
+    Assert(buffer.Count == 1 && buffer.OmittedCount == 0 && buffer.Snapshot(_ => "marker").Single() == "new execution");
+    Assert(snapshot.Count == 501 && snapshot[^1] == "9999");
+});
+Check("Appending retained output carries omissions forward alongside client messages", () => {
+    var output = new QueryOutput();
+    for (int i = 0; i < 1200; i++) output.Messages.Add(new QueryMessage(i, "ASE", "Message " + i, "Raw " + i));
+    var panel = new HeadTailBuffer<QueryMessage>();
+    panel.Add(new QueryMessage(0, "CLIENT", "Execute"));
+    panel.Append(output.Messages, output.OmittedMessages);
+    panel.Add(new QueryMessage(0, "CLIENT", "Done"));
+    var rows = panel.Snapshot(n => new QueryMessage(0, "CLIENT", HeadTailBuffer<QueryMessage>.OmissionText(n)));
+    Assert(output.OmittedMessages == 700 && panel.OmittedCount == 702 && rows.Count == 501);
+    Assert(rows[0].Text == "Execute" && rows[249].Number == 248 && rows[250].Text == "… 702 messages omitted …");
+    Assert(rows[251].Number == 951 && rows[^2].Number == 1199 && rows[^2].RawText == "Raw 1199" && rows[^1].Text == "Done");
+});
+Check("QueryOutput reports each message immediately, including diagnostics beyond the retention limit", () => {
+    int received = 0;
+    var output = new QueryOutput(new MessageProgress(message => { Assert(message.Number == received); received++; }));
+    for (int i = 0; i < 1250; i++)
+    {
+        output.Messages.Add(new QueryMessage(i, "ASE", "print " + i));
+        Assert(received == i + 1);
+    }
+    Assert(output.Messages.Count == 500 && output.OmittedMessages == 750);
+});
+Check("Engines implementing only the original Execute overload still execute through the progress overload", () => {
+    IQueryEngine fixture = engine;
+    var result = fixture.Execute("select 42 as n", default, new MessageProgress(_ => Assert(false)));
+    Assert(result.Error == null && (decimal)result.Tables.Single().Rows[0][0] == 42m);
+    try { ((IQueryEngine)new ThrowingEngine()).Execute("select 1", default, null); Assert(false); }
+    catch (InvalidOperationException ex) { Assert(ex.Message == "fixture failure"); }
+});
 Check("Query clipboard report preserves submitted SQL and escapes it before the table", () => {
     const string query = "select '<script>José & 🐱</script>'\r\nfrom t;";
     string report = ResultHtmlClipboard.QueryAndTable(query, ["n"], [new object?[] { 1 }]);
@@ -575,6 +633,76 @@ Check("IQ TLS can verify an explicit certificate name independently of the engin
         Assert(!OdbcSession.BuildConnectionString(profile with { IqCertificateName = "" }, "synthetic-db").Contains("CERTIFICATE_NAME", StringComparison.OrdinalIgnoreCase));
     } finally { File.Delete(ca); }
 });
+// ---- 0.5.0: catalog source order, session textsize and disconnected execution ----
+Check("Object source queries share the full syscomments fragment order for names and resolved ids", () => {
+    const string order = " order by c.number, c.colid2, c.colid";
+    Assert(CatalogSql.ObjectText("", "dbo.proc") == "select c.text from syscomments c where c.id = object_id('dbo.proc')" + order);
+    Assert(CatalogSql.ObjectText("[other db]..", "other db.dbo.O'Brien") ==
+        "select c.text from [other db]..syscomments c where c.id = object_id('other db.dbo.O''Brien')" + order);
+    Assert(CatalogSql.ObjectText("[other db]..", 12345) == "select c.text from [other db]..syscomments c where c.id = 12345" + order);
+    Assert(CatalogSql.ObjectText("", 12345) == "select c.text from syscomments c where c.id = 12345" + order);
+});
+Check("Statistics IO initializes textsize once across runs, GO repetitions and option toggles in one session", () => {
+    var state = new AseTextSize();
+    var sent = new List<string>();
+    for (int run = 0; run < 2; run++)
+        foreach (var batch in SqlScript.SplitBatches("select 1\ngo 3\nset textsize 4096\ngo\nselect 2"))
+            for (int repeat = 0; repeat < batch.Repeat; repeat++)
+            {
+                state.EnsureForExecutionIo(sent.Add);
+                state.ObserveBatch(batch.Text);
+            }
+    foreach (bool enabled in new[] { false, true, false, true })
+    {
+        var next = AseSessionOptions.Default with { StatisticsIo = enabled };
+        sent.AddRange(AseSessionOptions.Script(AseSessionOptions.Default with { StatisticsIo = !enabled }, next));
+        if (next.CapturesExecutionIo) state.EnsureForExecutionIo(sent.Add);
+    }
+    Assert(sent.Count(sql => sql.StartsWith("set textsize", StringComparison.Ordinal)) == 1);
+    Assert(sent[0] == "set textsize 16777216");
+    // A fresh connection has independent state.
+    new AseTextSize().EnsureForExecutionIo(sent.Add);
+    Assert(sent.Count(sql => sql == "set textsize 16777216") == 2);
+});
+Check("User textsize SETs before capture, including conditional or possibly failed batches, keep user control", () => {
+    foreach (string sql in new[] { "set textsize 1024", "SET\nTEXTSIZE 4096", "select 1; set/* comment */textsize 512",
+        "if 1 = 0 set textsize 8192", "set textsize @size", "set textsize 2048; raiserror 20000 'later failure'" })
+    {
+        var state = new AseTextSize();
+        state.ObserveBatch(sql);
+        state.EnsureForExecutionIo(_ => Assert(false));
+        state.ObserveBatch("select 1");
+        state.EnsureForExecutionIo(_ => Assert(false));
+    }
+});
+Check("Textsize detection ignores comments, quoted text and identifiers", () => {
+    var state = new AseTextSize();
+    state.ObserveBatch("-- set textsize 1\n/* set textsize 2 /* nested */ */\nselect 'set textsize 3', \"set textsize 4\", [set textsize 5], 'it''s set textsize 6'");
+    state.ObserveBatch("select @set textsize, #set textsize, $set textsize, offset textsize, set textsize_extra, set textsize$alias");
+    int calls = 0;
+    state.EnsureForExecutionIo(_ => calls++);
+    Assert(calls == 1);
+});
+Check("Textsize initialization is retried after failure but never after a user SET", () => {
+    var state = new AseTextSize();
+    int calls = 0;
+    try { state.EnsureForExecutionIo(_ => { calls++; throw new InvalidOperationException("fixture failure"); }); Assert(false); }
+    catch (InvalidOperationException ex) { Assert(ex.Message == "fixture failure"); }
+    state.EnsureForExecutionIo(_ => calls++);
+    state.EnsureForExecutionIo(_ => Assert(false));
+    Assert(calls == 2);
+    var userState = new AseTextSize();
+    try { userState.EnsureForExecutionIo(_ => throw new OperationCanceledException()); Assert(false); }
+    catch (OperationCanceledException) { }
+    userState.ObserveBatch("set textsize 512");
+    userState.EnsureForExecutionIo(_ => Assert(false));
+});
+Check("Disconnected execution names a server generically and still honors cancellation", () => {
+    var disconnected = new DisconnectedQueryEngine();
+    Assert(disconnected.Execute("select 1").Error == "Connect to a server to execute a query.");
+    try { disconnected.Execute("select 1", new CancellationToken(true)); Assert(false); }
+    catch (OperationCanceledException) { }
+});
 // ---- 0.4.0: B1 (no re-execution for Statistics IO), go N, continue after errors, timeouts, B2, B3, PROD and SqlRisk ----
 Check("Statistics IO with an empty plan buffer reports 'plan not captured' and runs each batch exactly once", () => {
     foreach (string sql in new[] { "exec sp_who", "dbcc checkdb(master)", "checkpoint", "select 1", "exec p1\ngo\ncheckpoint\ngo\nexec sp_x" })
@@ -811,17 +939,17 @@ Check("Session options send only what changed, with noexec last on and first off
     var off = AseSessionOptions.Default;
     Assert(AseSessionOptions.Script(off, off).Count == 0);
     Assert(AseSessionOptions.Script(off, off with { StatisticsTime = true }).SequenceEqual(new[] { "set statistics time on" }));
-    Assert(AseSessionOptions.Script(off, off with { StatisticsIo = true }).SequenceEqual(new[] { "set textsize 16777216", "set plan for show_execio_xml to message on" }));
+    Assert(AseSessionOptions.Script(off, off with { StatisticsIo = true }).SequenceEqual(new[] { "set plan for show_execio_xml to message on" }));
     // Turning on: noexec trails, and show_execio_xml to message on trails statistics time so the message buffer stays the active target.
     var all = off with { NoExec = true, StatisticsIo = true, StatisticsTime = true };
-    Assert(AseSessionOptions.Script(off, all).SequenceEqual(new[] { "set statistics time on", "set textsize 16777216", "set plan for show_execio_xml to message on", "set noexec on" }));
+    Assert(AseSessionOptions.Script(off, all).SequenceEqual(new[] { "set statistics time on", "set plan for show_execio_xml to message on", "set noexec on" }));
     // Turning off: noexec leads, because nothing after it would execute otherwise.
     Assert(AseSessionOptions.Script(all, off).SequenceEqual(new[] { "set noexec off", "set statistics time off", "set plan for show_execio_xml off" }));
 });
 Check("A change made while noexec is on is bracketed, so it never depends on the server honouring SET there", () => {
     var off = AseSessionOptions.Default;
     var noexec = off with { NoExec = true };
-    Assert(AseSessionOptions.Script(noexec, noexec with { StatisticsIo = true }).SequenceEqual(new[] { "set noexec off", "set textsize 16777216", "set plan for show_execio_xml to message on", "set noexec on" }));
+    Assert(AseSessionOptions.Script(noexec, noexec with { StatisticsIo = true }).SequenceEqual(new[] { "set noexec off", "set plan for show_execio_xml to message on", "set noexec on" }));
     var all = off with { NoExec = true, StatisticsIo = true, StatisticsTime = true };
     Assert(AseSessionOptions.Script(all, all with { StatisticsTime = false }).SequenceEqual(new[] { "set noexec off", "set statistics time off", "set plan for show_execio_xml to message on", "set noexec on" }));
     Assert(AseSessionOptions.Script(noexec, noexec with { Compatibility = CompatibilityMode.Off }).SequenceEqual(new[] { "set noexec off", "set compatibility_mode off", "set noexec on" }));
@@ -978,4 +1106,9 @@ sealed class ThrowingEngine : IQueryEngine
 {
     public string Name => "Throwing fixture";
     public QueryOutput Execute(string sql, CancellationToken cancellation = default) => throw new InvalidOperationException("fixture failure");
+}
+
+sealed class MessageProgress(Action<QueryMessage> report) : IProgress<QueryMessage>
+{
+    public void Report(QueryMessage message) => report(message);
 }

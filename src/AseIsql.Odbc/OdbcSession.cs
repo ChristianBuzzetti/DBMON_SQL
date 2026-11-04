@@ -28,13 +28,15 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
     private readonly object messagesGate = new();
     private QueryOutput? activeOutput;
     private bool suppressMessages;
-    private readonly List<QueryMessage> loginMessages = [];
+    private readonly HeadTailBuffer<QueryMessage> loginMessages = new();
     private readonly DiagnosticMessages diagnostics = new();
+    private readonly AseTextSize textSize = new();
     public ServerPlatform Platform => profile.Platform;
     public string Name => $"{profile.Platform.Tag()} · {(profile.ServerAlias.Length == 0 ? profile.Server : profile.ServerAlias)}:{profile.Port}" + (database.Length == 0 ? "" : " · " + database);
     public bool IsOpen => !connectionIssue && connection.State == ConnectionState.Open;
     public SessionFacts Facts => new(database, spid, login, charset, profile.Platform);
-    public IReadOnlyList<QueryMessage> LoginMessages { get { lock (messagesGate) return loginMessages.ToArray(); } }
+    public IReadOnlyList<QueryMessage> LoginMessages { get { lock (messagesGate) return loginMessages.Snapshot(); } }
+    public int OmittedLoginMessages => loginMessages.OmittedCount;
 
     private OdbcSession(ConnectionProfile profile, string password, string identityPassword)
     {
@@ -52,7 +54,6 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
                     // shows no server text is noise in Messages.
                     if (message.Text.Length == 0) continue;
                     var target = activeOutput?.Messages ?? loginMessages;
-                    if (target.Count >= 500) { target.RemoveAt(0); if (activeOutput != null) activeOutput.OmittedMessages++; }
                     target.Add(message);
                 }
             }
@@ -224,12 +225,14 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
 
     public QueryOutput Execute(string sql, CancellationToken cancellation = default) => Execute(sql, cancellation, userRun: true);
 
+    public QueryOutput Execute(string sql, CancellationToken cancellation, IProgress<QueryMessage>? messages) => Execute(sql, cancellation, userRun: true, messages: messages);
+
     // timeoutSeconds replaces the profile's query timeout for this run only; 0 means no timeout. Esc (the
     // cancellation token) still cancels the statement either way.
-    public QueryOutput Execute(string sql, CancellationToken cancellation, bool userRun, int? timeoutSeconds = null)
+    public QueryOutput Execute(string sql, CancellationToken cancellation, bool userRun, int? timeoutSeconds = null, IProgress<QueryMessage>? messages = null)
     {
         cancellation.ThrowIfCancellationRequested();
-        var output = new QueryOutput();
+        var output = new QueryOutput(messages);
         if (!IsOpen) { output.Error = "The " + profile.Platform.Tag() + " session is disconnected."; return output; }
         if (sql.Length > 1024 * 1024) { output.Error = "Local limit: 1 MiB of SQL text per execution."; return output; }
         if (timeoutSeconds is < 0 or > ConnectionProfile.MaxQueryTimeout) { output.Error = "Query timeout: 0 (no timeout) to 3600 s."; return output; }
@@ -300,7 +303,7 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
         lock (messagesGate) suppressMessages = true;
         try
         {
-            RunInternalBatch("set textsize 16777216", cancellation);
+            textSize.EnsureForExecutionIo(sql => RunInternalBatch(sql, cancellation));
             RunInternalBatch("set plan for show_execio_xml to message on", cancellation);
         }
         catch (Exception ex) when (ex is OdbcException or InvalidOperationException or FormatException or InvalidCastException or OverflowException or ResultLimitException or ResultValueException) { }
@@ -357,6 +360,7 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
                 using var registration = cancellation.Register(() => {
                     try { command.Cancel(); } catch (Exception ex) when (ex is OdbcException or InvalidOperationException or ObjectDisposedException) { }
                 });
+                if (session.profile.Platform == ServerPlatform.Ase) session.textSize.ObserveBatch(batch);
                 using var reader = command.ExecuteReader();
                 try { ResultReader.Read(reader, output, budget, cancellation); }
                 catch (Exception ex) when (ex is ResultLimitException or ResultValueException or OperationCanceledException)

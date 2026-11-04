@@ -111,7 +111,7 @@ Scripts are split on `GO` lines, exactly like `isql`; `GO` inside strings, comme
 - **`go N`** (also `GO N`, with any spaces) runs the batch above it N times in a row, as `isql` does. N is 1 to 1000; anything else is refused before anything runs. Messages ends with a summary such as *Summary: 5 batches ok / 0 with error*.
 - **Continue after errors** (Run ▾, or *Query → Continue after errors*): when a batch fails, its error is recorded in Messages and the next batch runs, like `isql` told to continue. Off by default: the first failed batch stops the script. The choice is kept across restarts (`run.json`). The final summary counts the batches that succeeded and failed. A lost connection or `Esc` always stops the script.
 - **Run without timeout (maintenance)** (Run ▾, or *Query → Execute without timeout*): runs the selection or script once without the profile's query timeout, for long `dbcc`, `reorg` or `dump` work. A profile can also use query timeout `0` for no timeout at all. `Esc` cancels in both cases.
-- **Statistics IO** (*Tools → SAP ASE session options*) reads the plan the server kept for each batch. When the server returns no plan, Messages says *plan not captured* for that batch; the batch is never run a second time to obtain one.
+- **Statistics IO** (*Tools → SAP ASE session options*) sends `set plan for show_execio_xml to message on` and reads the plan the server kept for each batch. It initializes `textsize` to 16 MiB once per connection when capture first runs, unless your SQL has already issued `set textsize`. Your own `set textsize` takes precedence for the rest of that connection, including after toggling Statistics IO. When the server returns no plan, Messages says *plan not captured* for that batch; the batch is never run a second time to obtain one.
 
 ### PROD protection
 
@@ -151,6 +151,8 @@ Results from a multi-server run are re-run with *Run on…* (`Shift+F9`); result
 ## Messages
 
 The panel under the workspace lists the latest execution's messages: time, code, source and text. Server prints, warnings, errors, "rows affected" and client notes appear here and never as result grids. Right-click a message and choose *View original diagnostic* to see the driver's full text (with your password redacted).
+
+Messages appear while the batch runs, as the driver delivers them, with the panel refreshed about every 250 ms. For long output such as `sp_sysmon` or `dbcc`, the first 250 and last 250 messages are retained in order, with one **… N messages omitted …** row between them. Client notes also count toward the panel's retention limit.
 
 The panel can be hidden from *View → Server messages*; it reopens by itself when an execution reports an error.
 
@@ -264,7 +266,7 @@ Builds before 16 October 2026 used `%LOCALAPPDATA%\ASE ISQL Desktop`; the first 
 | Result sets per execution / columns per result | 128 / 1,024 |
 | Result tabs | 40 (oldest unpinned close first) |
 | Pinned results | 8, 64 MiB in total |
-| Messages per execution | 500 (older ones are counted as omitted) |
+| Messages per execution | First 250 + last 250, with one counted marker for the omitted middle |
 | Query history | 100 queries across sessions · newest first · 32 MiB file limit |
 | Repeat interval | 5 seconds to 24 hours |
 

@@ -11,6 +11,8 @@ namespace AseIsql
     {
         string Name { get; }
         QueryOutput Execute(string sql, CancellationToken cancellation = default);
+        // Existing fixture engines can keep the simple overload; live engines report every message as it arrives.
+        QueryOutput Execute(string sql, CancellationToken cancellation, IProgress<QueryMessage>? messages) => Execute(sql, cancellation);
     }
 
     // What the server reports about the session itself, for the status bar. Never credentials; unknown stays null.
@@ -27,8 +29,10 @@ namespace AseIsql
     public sealed class QueryOutput
     {
         public readonly List<DataTable> Tables = new List<DataTable>();
-        public readonly List<QueryMessage> Messages = new();
-        public int OmittedMessages;
+        public readonly HeadTailBuffer<QueryMessage> Messages;
+        public int OmittedMessages => Messages.OmittedCount;
+        public QueryOutput(IProgress<QueryMessage>? messages = null)
+        { Messages = new(message => messages?.Report(message)); }
         public string? Error;
         public string? ErrorRawText;
         public string ErrorSource = "CLIENT";
@@ -38,7 +42,7 @@ namespace AseIsql
     {
         public string Name => "Disconnected";
         public QueryOutput Execute(string sql, CancellationToken cancellation = default)
-        { cancellation.ThrowIfCancellationRequested(); return new QueryOutput { Error = "Connect to ASE to execute a query." }; }
+        { cancellation.ThrowIfCancellationRequested(); return new QueryOutput { Error = "Connect to a server to execute a query." }; }
     }
 
     // This local demonstrator evaluates a deliberately small SQL subset.

@@ -104,8 +104,7 @@ public partial class MainWindow
                 string label = outcome.Target.Label; int number = 1;
                 string origin = OriginOf(outcome.Target.Engine);
                 foreach (DataTable table in outcome.Output.Tables) { AddResult(table, number, origin, sql, $"{label} · {number}", label, owner: owner); number++; }
-                foreach (QueryMessage message in outcome.Output.Messages) AddMessage(owner, message.Number, label, message.Text, message.RawText);
-                if (outcome.Output.OmittedMessages > 0) AddMessage(owner, 0, label, $"{outcome.Output.OmittedMessages} earlier messages were omitted by the retention limit.");
+                AddOutputMessages(owner, outcome.Output, label);
                 if (outcome.Output.Error != null) AddMessage(owner, 1, label, outcome.Output.Error, outcome.Output.ErrorRawText);
                 else AddMessage(owner, 0, label, $"Done · {Counts.Of(outcome.Output.Tables.Count, "result")} · {Counts.Of(outcome.Output.Tables.Sum(t => t.Rows.Count), "row")} · {Elapsed(outcome.ElapsedMs)}");
             }

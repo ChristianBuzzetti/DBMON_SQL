@@ -22,6 +22,7 @@ public partial class MainWindow
         public double VerticalOffset, HorizontalOffset;
         public readonly List<TextAnchor> Bookmarks = [];
         public readonly ObservableCollection<LogMessage> Messages = [];
+        public readonly HeadTailBuffer<LogMessage> MessageBuffer = new();
         public readonly List<TabItem> Tabs = [];
         public TabItem? SelectedTab;
         public readonly HashSet<DataTable> Pins = [];
