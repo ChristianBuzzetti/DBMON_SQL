@@ -46,10 +46,10 @@ static class Fix106Checks
 
     public static void Run(Action<string, Action> check)
     {
-        check("Estimated plan runs the exact 1.0.3 command sequence on a fresh ASE session and reads the XML", () => {
+        check("Estimated plan runs the exact command sequence on a fresh ASE session and reads the XML", () => {
             string planXml = PlanXml();
             var (connection, xml) = RunEstimated(planXml);
-            var expected = new[] { ScriptedOdbcConnection.FactsSql, "set plan for show_final_plan_xml to message on", "set noexec on", UserSql, EstimatedPlan.Lift, EstimatedPlan.Read(0), "set plan for show_final_plan_xml off" };
+            var expected = new[] { ScriptedOdbcConnection.FactsSql, "set statement_cache off", "set plan for show_final_plan_xml to message on", "set noexec on", UserSql, EstimatedPlan.Lift, EstimatedPlan.Read(0), "set plan for show_final_plan_xml off", "set statement_cache on" };
             Assert(connection.Executed.Select(c => c.CommandText.Trim()).SequenceEqual(expected), string.Join(" | ", connection.Executed.Select(c => c.CommandText)));
             Assert(connection.Executed.All(c => !c.CommandText.Contains("flushmessage", StringComparison.OrdinalIgnoreCase)), "flushmessage sent");
             Assert(connection.Pending == 0, "pending " + connection.Pending);

@@ -8,12 +8,14 @@ namespace AseIsql;
 // session, each line its own batch:
 //
 //   [set noexec off]                                      only when the session already had NOEXEC on
+//   set statement_cache off                               a cached plan is reused without optimization, so no plan XML is produced
 //   set plan for show_final_plan_xml to message on
 //   set noexec on
 //   <the user's script, batch by batch, as typed>         compiled only: noexec runs none of it
 //   /* dbmon_execio */ set noexec off                     the one statement noexec still executes
 //   /* dbmon_execio */ select showplan_in_xml(0)          then (-1) when 0 returns an empty buffer
 //   set plan for show_final_plan_xml off
+//   set statement_cache on
 //   [set plan for show_execio_xml to message on]          only when Statistics IO was on, re-asserted
 //   [set noexec on]                                       only when the session had NOEXEC on
 //
@@ -22,6 +24,8 @@ namespace AseIsql;
 public static class EstimatedPlan
 {
     public const string Option = "set plan for show_final_plan_xml";
+    public const string CacheOff = "set statement_cache off";
+    public const string CacheOn = "set statement_cache on";
     private static readonly Regex NoExec = new(@"\bnoexec\b", RegexOptions.IgnoreCase | RegexOptions.NonBacktracking);
 
     public static string? Refusal(string? sql) =>
@@ -30,14 +34,18 @@ public static class EstimatedPlan
         : null;
 
     public static IReadOnlyList<string> Prepare(AseSessionOptions current) =>
-        [.. current.NoExec ? new[] { "set noexec off" } : [], Option + " to message on", "set noexec on"];
+        [.. current.NoExec ? new[] { "set noexec off" } : [], CacheOff, Option + " to message on", "set noexec on"];
 
     public static string Lift => "/* " + ExecutionIo.InternalMarker + " */ set noexec off";
     public static string Read(int index) => "/* " + ExecutionIo.InternalMarker + " */ select showplan_in_xml(" + index.ToString(System.Globalization.CultureInfo.InvariantCulture) + ")";
 
     // Run with noexec already off: the session goes back to the options the window tracks for it.
     public static IReadOnlyList<string> Restore(AseSessionOptions current) =>
-        [Option + " off", .. current.StatisticsIo ? new[] { "set plan for show_execio_xml to message on" } : [], .. current.NoExec ? new[] { "set noexec on" } : []];
+        [Option + " off", CacheOn, .. current.StatisticsIo ? new[] { "set plan for show_execio_xml to message on" } : [], .. current.NoExec ? new[] { "set noexec on" } : []];
+
+    // Every command text sent for one estimated plan, in order (each Prepare/Restore statement is its own batch).
+    public static IReadOnlyList<string> Sequence(string sql, AseSessionOptions options, bool secondRead = false) =>
+        [.. Prepare(options), sql, Lift, Read(0), .. secondRead ? new[] { Read(-1) } : [], .. Restore(options)];
 
     public static string Batches(IEnumerable<string> statements) => string.Join(Environment.NewLine + "go" + Environment.NewLine, statements);
 

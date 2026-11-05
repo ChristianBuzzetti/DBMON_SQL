@@ -2,6 +2,14 @@
 
 All notable changes to DBMON SQL are listed here. The project follows [Semantic Versioning](https://semver.org/).
 
+## [1.0.7] - 2026-11-04
+
+### Fixed
+- Estimated plan returned an empty plan for any statement already in the ASE statement cache (the cached plan is reused without optimization, so `show_final_plan_xml` writes nothing); plan capture now runs with `set statement_cache off` and restores it. The 1.0.4-1.0.6 live-test failures came from this (the live test always compiles the same text).
+
+### Changed
+- The live-test estimated-plan check records every command, read-back cell and server message, and on failure checks the statement cache size and a cache-busting compile.
+
 ## [1.0.6] - 2026-11-04
 
 ### Fixed
