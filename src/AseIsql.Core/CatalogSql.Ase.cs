@@ -9,7 +9,7 @@ public static partial class CatalogSql
     public static string AseTableDetails(string database, int id)
     {
         string db = Db(database), number = Id(id), dbid = DbId(database);
-        return $"select o.name, row_count({dbid}, o.id) as row_count_estimate, reserved_pages({dbid}, o.id) as reserved_pages, used_pages({dbid}, o.id) as used_pages, convert(numeric(20,0), reserved_pages({dbid}, o.id)) * @@maxpagesize / 1024 as reserved_kb, convert(numeric(20,0), used_pages({dbid}, o.id)) * @@maxpagesize / 1024 as used_kb, @@maxpagesize as page_bytes, lockscheme(o.id, {dbid}) as lock_scheme from {db}sysobjects o where o.id = {number};\n" +
+        return $"select o.name, row_count({dbid}, o.id) as row_count_estimate, reserved_pages({dbid}, o.id) as reserved_pages, used_pages({dbid}, o.id) as used_pages, convert(bigint, reserved_pages({dbid}, o.id)) * @@maxpagesize / 1024 as reserved_kb, convert(bigint, used_pages({dbid}, o.id)) * @@maxpagesize / 1024 as used_kb, @@maxpagesize as page_bytes, lockscheme(o.id, {dbid}) as lock_scheme from {db}sysobjects o where o.id = {number};\n" +
             $"select p.name as partition_name, p.partitionid, p.indid, case when p.indid in (0,1) then row_count({dbid}, p.id, p.partitionid) else null end as row_count_estimate, reserved_pages({dbid}, p.id, p.indid, p.partitionid) as reserved_pages, used_pages({dbid}, p.id, p.indid, p.partitionid) as used_pages from {db}syspartitions p where p.id = {number} order by p.indid, p.partitionid";
     }
     public static string AseIndexKeys(string database, string owner, string table, int id, string? index = null)

@@ -165,7 +165,7 @@
     "category": "Diagnostics and activity",
     "name": "Database log segment status",
     "description": "Used/free log pages and free percentage via lct_admin. Enter :database without quotes.",
-    "sql": "declare @hundred float\nselect @hundred = 100.0\nselect db = name,\n    UsedPages = lct_admin('num_logpages', dbid),\n    FreePages = lct_admin('logsegment_freepages', dbid),\n    PctFree = @hundred - lct_admin('num_logpages', dbid) * @hundred\n        / (lct_admin('logsegment_freepages', dbid) + lct_admin('num_logpages', dbid))\nfrom master..sysdatabases\nwhere name = ':database'"
+    "sql": "declare @hundred float\nselect @hundred = 100.0\nselect db = name,\n    UsedPages = lct_admin('num_logpages', dbid),\n    FreePages = lct_admin('logsegment_freepages', dbid),\n    PctFree = @hundred - lct_admin('num_logpages', dbid) * @hundred\n        / nullif(convert(float, lct_admin('logsegment_freepages', dbid)) + convert(float, lct_admin('num_logpages', dbid)), 0)\nfrom master..sysdatabases\nwhere name = ':database'"
   },
   {
     "id": "ase_space_db",
@@ -181,7 +181,7 @@
     "category": "Space and capacity",
     "name": "Database data space details",
     "description": "Allocated, used and free MB plus utilization, using built-in functions.",
-    "sql": "select db = db_name(u.dbid),\n    Data_MB  = str(sum(convert(bigint, u.size)) * (@@maxpagesize/1024.) / 1024, 12, 1),\n    Used_MB = str((sum(convert(bigint, u.size)) - sum(convert(bigint, curunreservedpgs(u.dbid, u.lstart, u.unreservedpgs))))\n                   * (@@maxpagesize/1024.) / 1024, 12, 1),\n    Free_MB = str(sum(convert(bigint, curunreservedpgs(u.dbid, u.lstart, u.unreservedpgs)))\n                   * (@@maxpagesize/1024.) / 1024, 12, 1),\n    Pct_Used = str(100.0 - 100.0 * sum(convert(bigint, curunreservedpgs(u.dbid, u.lstart, u.unreservedpgs)))\n                   / sum(convert(bigint, u.size)), 6, 1) + '%'\nfrom master..sysusages u\nwhere u.segmap & 2 = 2 and u.vdevno >= 0\ngroup by u.dbid\norder by db"
+    "sql": "select db = db_name(u.dbid),\n    Data_MB  = str(sum(convert(bigint, u.size)) * (@@maxpagesize/1024.) / 1024, 12, 1),\n    Used_MB = str((sum(convert(bigint, u.size)) - sum(convert(bigint, curunreservedpgs(u.dbid, u.lstart, u.unreservedpgs))))\n                   * (@@maxpagesize/1024.) / 1024, 12, 1),\n    Free_MB = str(sum(convert(bigint, curunreservedpgs(u.dbid, u.lstart, u.unreservedpgs)))\n                   * (@@maxpagesize/1024.) / 1024, 12, 1),\n    Pct_Used = str(100 - 100 * convert(float, sum(convert(bigint, curunreservedpgs(u.dbid, u.lstart, u.unreservedpgs))))\n                   / nullif(convert(float, sum(convert(bigint, u.size))), 0), 6, 1) + '%'\nfrom master..sysusages u\nwhere u.segmap & 2 = 2 and u.vdevno >= 0\ngroup by u.dbid\norder by db"
   },
   {
     "id": "ase_space_log",
@@ -189,7 +189,7 @@
     "category": "Space and capacity",
     "name": "Database log space (free %)",
     "description": "Log usage via lct_admin, excluding system databases and tempdb.",
-    "sql": "select db = name,\n    LogUsed_pg = lct_admin('num_logpages', dbid),\n    LogFree_pg = lct_admin('logsegment_freepages', dbid),\n    Pct_Free = str(100.0 * lct_admin('logsegment_freepages', dbid)\n        / (lct_admin('logsegment_freepages', dbid) + lct_admin('num_logpages', dbid) + 1), 6, 1) + '%'\nfrom master..sysdatabases\nwhere name not in ('master','model','sybsystemprocs','sybsystemdb','sybsecurity')\nand name not like 'tempdb%'\norder by Pct_Free asc"
+    "sql": "select db = name,\n    LogUsed_pg = lct_admin('num_logpages', dbid),\n    LogFree_pg = lct_admin('logsegment_freepages', dbid),\n    Pct_Free = str(100 * convert(float, lct_admin('logsegment_freepages', dbid))\n        / (convert(float, lct_admin('logsegment_freepages', dbid)) + convert(float, lct_admin('num_logpages', dbid)) + 1), 6, 1) + '%'\nfrom master..sysdatabases\nwhere name not in ('master','model','sybsystemprocs','sybsystemdb','sybsecurity')\nand name not like 'tempdb%'\norder by Pct_Free asc"
   },
   {
     "id": "ase_devices_libres",

@@ -2,6 +2,15 @@
 
 All notable changes to DBMON SQL are listed here. The project follows [Semantic Versioning](https://semver.org/).
 
+## [1.0.5] - 2026-11-04
+
+### Fixed
+- Estimated plan returned an empty `showplan_in_xml` buffer after 1.0.4: with `set flushmessage on`, ASE flushes the plan message immediately. `flushmessage` is now bracketed around plan capture: the estimated plan starts with `set flushmessage off` and restores `set flushmessage on` once noexec is off, and enabling Statistics IO sends `set flushmessage off` (disabling it sends `set flushmessage on`). Login still runs `set flushmessage on` on ASE.
+- Health check *Data usage* failed on large ASE servers with "Truncation error occurred. Command has been aborted.": the `numeric(20,0)` page sums divided inside `100.0 * (1.0 - a/b)` exceeded ASE numeric precision. Data usage, Log usage and User connections now sum pages as `bigint`, compute the percentage in `float` with a `nullif` divisor and return it as `numeric(9,2)`; a negative `lct_admin('logsegment_freepages')` result is treated as unknown. Table details size uses `bigint`, and the space/log recipes compute percentages in `float` with guarded divisors. New core checks forbid `numeric(20,0)` in health probes and require the bounded percentage cast.
+
+### Changed
+- Live messages: the SAP ASE ODBC driver delivers PRINT only when `SQLExecute`/`SQLMoreResults` returns, so messages arrive live between batches and result sets, while a PRINT inside a single batch with no result set arrives when the batch completes. The user guide now says so. The live test splits the check: "live messages" verifies delivery between result sets and batches, and "live messages (PRINT within one batch, no result set)" is a SKIP when the driver buffers.
+
 ## [1.0.4] - 2026-11-04
 
 ### Fixed
