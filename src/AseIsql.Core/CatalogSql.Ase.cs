@@ -20,7 +20,7 @@ public static partial class CatalogSql
         string count = "(i.keycnt - case when i.indid = 1 then 0 else 1 end)";
         string filter = index == null ? "" : " and i.name = " + ResultFormats.Literal(index);
         return $"select i.name as index_name, i.indid, n.number as key_ordinal, {count} as key_count, index_col({target}, i.indid, n.number) as column_name, index_colorder({target}, i.indid, n.number) as sort_order, " +
-            "case when (i.status & 16) != 0 or (i.status2 & 512) != 0 then 1 else 0 end as clustered, case when (i.status & 2) != 0 then 1 else 0 end as is_unique, " +
+            "case when (i.status & 16) != 0 or (i.status2 & 512) != 0 then 1 else 0 end as is_clustered, case when (i.status & 2) != 0 then 1 else 0 end as is_unique, " +
             "case when (i.status & 2048) != 0 then 1 else 0 end as primary_key, case when (i.status2 & 2) != 0 and (i.status & 2048) = 0 then 1 else 0 end as unique_constraint, case when (i.status2 & 32768) != 0 then 1 else 0 end as function_based " +
             $"from {db}sysindexes i, master..spt_values n where i.id = {number} and i.indid between 1 and 254 and n.type = 'P' and n.number between 1 and {count}{filter} order by i.indid, n.number";
     }

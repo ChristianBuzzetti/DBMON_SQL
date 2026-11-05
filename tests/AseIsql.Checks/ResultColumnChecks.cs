@@ -176,7 +176,7 @@ internal static class ResultColumnChecks
                 var header = Table(sourceOnly, "name", "owner", "lock_scheme"); header.Rows.Add("t", "dbo", "datarows");
                 var columns = Table(sourceOnly, "ordinal", "name", "type", "is_user_type", "length", "precision", "scale", "nullable", "identity", "status2", "default_id", "rule_id");
                 columns.Rows.Add(1, "id", "decimal", 0, 9, 12, 2, 0, 0, 0, 50, 0);
-                var keys = Table(sourceOnly, "index_name", "key_ordinal", "key_count", "column_name", "sort_order", "clustered", "is_unique", "primary_key", "unique_constraint");
+                var keys = Table(sourceOnly, "index_name", "key_ordinal", "key_count", "column_name", "sort_order", "is_clustered", "is_unique", "primary_key", "unique_constraint");
                 keys.Rows.Add("pk", 1, 1, "id", "ASC", 1, 1, 1, 0);
                 var foreign = Table(sourceOnly, "constraint_name", "key_ordinal", "key_count", "column_name", "ref_database", "ref_owner", "ref_table", "ref_column", "match_full");
                 foreign.Rows.Add("fk", 1, 1, "id", "app", "dbo", "parent", "id", 0);
