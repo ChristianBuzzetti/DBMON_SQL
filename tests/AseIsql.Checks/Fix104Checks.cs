@@ -3,7 +3,7 @@ using AseIsql.Odbc;
 using System.Data;
 using System.Text.RegularExpressions;
 
-// 1.0.4: reserved words as aliases in generated ASE SQL, tool row limit, flushmessage at login.
+// 1.0.4: reserved words as aliases in generated ASE SQL, tool row limit.
 static class Fix104Checks
 {
     private const string Frame = "[SAP][ASE ODBC Driver][Adaptive Server Enterprise] ";
@@ -93,15 +93,13 @@ static class Fix104Checks
             var shape = MdaDelta.Detect(table, sql);
             Assert(shape != null && shape.Keys.SequenceEqual(["DBID", "ObjectID", "IndexID"]) && shape.Counters.Count == 7 && shape.Table == "monOpenObjectActivity");
         });
-        check("ASE login sends set flushmessage on; IQ and RS do not; a failing set never blocks the login", () => {
+        check("Login sends no SET before the facts probe on ASE/IQ/RS", () => {
             var ase = new ScriptedOdbcConnection().WithFacts();
             using (OdbcSession.Open(Ase, "fixture-secret", "", ase))
-            {
-                Assert(ase.Executed[0].CommandText == "set flushmessage on" && ase.Executed[0].CommandTimeout == 10 && ase.Executed[1].CommandText == ScriptedOdbcConnection.FactsSql && ase.Pending == 0);
-            }
+                Assert(ase.Executed[0].CommandText == ScriptedOdbcConnection.FactsSql && ase.Executed.Count == 1 && ase.Pending == 0);
             var sibling = new ScriptedOdbcConnection().WithFacts();
             using (var root = OdbcSession.Open(Ase, "fixture-secret", "", new ScriptedOdbcConnection().WithFacts()))
-            using (root.OpenSibling(_ => sibling)) Assert(sibling.Executed[0].CommandText == "set flushmessage on" && sibling.Pending == 0);
+            using (root.OpenSibling(_ => sibling)) Assert(sibling.Executed[0].CommandText == ScriptedOdbcConnection.FactsSql && sibling.Executed.Count == 1 && sibling.Pending == 0);
 
             var iq = new ScriptedOdbcConnection(); iq.Add("select connection_property('Number'), db_name(), current user, connection_property('CharSet')");
             using (OdbcSession.Open(new ConnectionProfile("iq-host", 2638, "", "dba", false, "", Platform: ServerPlatform.Iq), "fixture-secret", "", iq))
@@ -109,12 +107,6 @@ static class Fix104Checks
             var rs = new ScriptedOdbcConnection();
             using (OdbcSession.Open(new ConnectionProfile("rs-host", 5510, "", "sa", false, "", Platform: ServerPlatform.Rs), "fixture-secret", "", rs))
                 Assert(rs.Executed.Count == 0);
-
-            var failing = new ScriptedOdbcConnection();
-            failing.Add(ScriptedOdbcConnection.FlushSql).Error = new ScriptedOdbcException(new OdbcDiagnostic(156, "42000", Frame + "Incorrect syntax"));
-            failing.WithFacts(flush: false);
-            using (var session = OdbcSession.Open(Ase, "fixture-secret", "", failing))
-                Assert(session.IsOpen && session.Facts == new SessionFacts("fixture_db", 73, "fixture_login", "utf8") && failing.Pending == 0);
         });
     }
 }

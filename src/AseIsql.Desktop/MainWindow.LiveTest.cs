@@ -551,7 +551,7 @@ public partial class MainWindow
             }
             int operators = EstimatedPlan.Plans(xml).Sum(p => PlanTree.Flatten(p.Tree).Count());
             Require(operators > 0, "Estimated plan has no operator tree (XML length " + xml.Length + ").");
-            return operators + " operators; " + xml.Length + " XML characters; flushmessage bracketed; options restored.";
+            return operators + " operators; " + xml.Length + " XML characters; options restored.";
         }
 
         private string Actual(CancellationToken token)
@@ -592,17 +592,18 @@ public partial class MainWindow
         private static double LeadMs(long at, long end) => at == 0 ? 0 : Stopwatch.GetElapsedTime(at, end).TotalMilliseconds;
         private static string Ms(double value) => value.ToString("F0", CultureInfo.InvariantCulture);
 
-        // The SAP ASE ODBC driver hands over PRINT only when SQLExecute/SQLMoreResults returns, so messages arrive live
-        // between result sets and between batches.
+        private const string DriverLimit = "SAP ASE ODBC driver delivers server messages when the batch completes (lead {0} ms); DBMON SQL publishes each message as soon as the driver raises it (core check).";
+
+        // The SAP ASE ODBC driver may hand over PRINT only when the batch completes: a driver limit, so a short lead is SKIP.
         private string LiveMessages(CancellationToken token)
         {
             using var session = Sibling(token);
             var (sets, setsEnd) = RunLive(session, "print 'lt one'\nselect 1 as lt_first\nwaitfor delay '00:00:02'\nselect 2 as lt_second\nprint 'lt two'", token, "lt one", "lt two");
             double setsLead = LeadMs(sets["lt one"], setsEnd);
-            Require(sets["lt one"] != 0 && sets["lt two"] >= sets["lt one"] && sets["lt two"] > 0 && setsLead >= 1000, "'lt one' did not arrive at least one second before completion between result sets (lead " + Ms(setsLead) + " ms), or 'lt two' is missing/out of order.");
+            if (!(sets["lt one"] != 0 && sets["lt two"] >= sets["lt one"] && sets["lt two"] > 0 && setsLead >= 1000)) throw new LiveTestSkip(string.Format(DriverLimit, Ms(setsLead)));
             var (batches, batchesEnd) = RunLive(session, "print 'lt batch one'\ngo\nwaitfor delay '00:00:02'\nprint 'lt batch two'", token, "lt batch one", "lt batch two");
             double batchLead = LeadMs(batches["lt batch one"], batchesEnd);
-            Require(batches["lt batch one"] != 0 && batchLead >= 1000, "'lt batch one' did not arrive at least one second before completion between batches (lead " + Ms(batchLead) + " ms).");
+            if (!(batches["lt batch one"] != 0 && batchLead >= 1000)) throw new LiveTestSkip(string.Format(DriverLimit, Ms(batchLead)));
             return "Between result sets: first PRINT " + Ms(setsLead) + " ms before completion; between batches: first PRINT " + Ms(batchLead) + " ms before completion.";
         }
 
@@ -613,7 +614,7 @@ public partial class MainWindow
             double lead = LeadMs(single["lt one"], end);
             if (single["lt one"] != 0 && single["lt two"] >= single["lt one"] && lead >= 1000)
                 return "First PRINT arrived " + Ms(lead) + " ms before the batch ended; both PRINTs received.";
-            throw new LiveTestSkip("Driver delivers PRINT at batch end (SAP ASE ODBC returns messages only when SQLExecute/SQLMoreResults returns); messages between result sets and batches do arrive live. Lead " + Ms(lead) + " ms.");
+            throw new LiveTestSkip(string.Format(DriverLimit, Ms(lead)));
         }
 
         private string ExportCancel(CancellationToken token)

@@ -14,6 +14,7 @@ OdbcSessionChecks.Run(Check);
 TimeoutChecks.Run(Check);
 Fix104Checks.Run(Check);
 Fix105Checks.Run(Check);
+Fix106Checks.Run(Check);
 Check("Streaming CSV uses RFC 4180 quoting, invariant values, Unicode and empty NULL fields", () => {
     var oldCulture = CultureInfo.CurrentCulture;
     try {
@@ -1231,17 +1232,17 @@ Check("Session options send only what changed, with noexec last on and first off
     var off = AseSessionOptions.Default;
     Assert(AseSessionOptions.Script(off, off).Count == 0);
     Assert(AseSessionOptions.Script(off, off with { StatisticsTime = true }).SequenceEqual(new[] { "set statistics time on" }));
-    Assert(AseSessionOptions.Script(off, off with { StatisticsIo = true }).SequenceEqual(new[] { "set flushmessage off", "set plan for show_execio_xml to message on" }));
+    Assert(AseSessionOptions.Script(off, off with { StatisticsIo = true }).SequenceEqual(new[] { "set plan for show_execio_xml to message on" }));
     // Turning on: noexec trails, and show_execio_xml to message on trails statistics time so the message buffer stays the active target.
     var all = off with { NoExec = true, StatisticsIo = true, StatisticsTime = true };
-    Assert(AseSessionOptions.Script(off, all).SequenceEqual(new[] { "set statistics time on", "set flushmessage off", "set plan for show_execio_xml to message on", "set noexec on" }));
+    Assert(AseSessionOptions.Script(off, all).SequenceEqual(new[] { "set statistics time on", "set plan for show_execio_xml to message on", "set noexec on" }));
     // Turning off: noexec leads, because nothing after it would execute otherwise.
-    Assert(AseSessionOptions.Script(all, off).SequenceEqual(new[] { "set noexec off", "set statistics time off", "set plan for show_execio_xml off", "set flushmessage on" }));
+    Assert(AseSessionOptions.Script(all, off).SequenceEqual(new[] { "set noexec off", "set statistics time off", "set plan for show_execio_xml off" }));
 });
 Check("A change made while noexec is on is bracketed, so it never depends on the server honouring SET there", () => {
     var off = AseSessionOptions.Default;
     var noexec = off with { NoExec = true };
-    Assert(AseSessionOptions.Script(noexec, noexec with { StatisticsIo = true }).SequenceEqual(new[] { "set noexec off", "set flushmessage off", "set plan for show_execio_xml to message on", "set noexec on" }));
+    Assert(AseSessionOptions.Script(noexec, noexec with { StatisticsIo = true }).SequenceEqual(new[] { "set noexec off", "set plan for show_execio_xml to message on", "set noexec on" }));
     var all = off with { NoExec = true, StatisticsIo = true, StatisticsTime = true };
     Assert(AseSessionOptions.Script(all, all with { StatisticsTime = false }).SequenceEqual(new[] { "set noexec off", "set statistics time off", "set plan for show_execio_xml to message on", "set noexec on" }));
     Assert(AseSessionOptions.Script(noexec, noexec with { Compatibility = CompatibilityMode.Off }).SequenceEqual(new[] { "set noexec off", "set compatibility_mode off", "set noexec on" }));
@@ -1405,15 +1406,13 @@ Check("PlanCompare lines up two plans by operator path: only-A, only-B and est/a
     Assert(ExecutionIo.PlansOf(io).SequenceEqual(new[] { planA, planB }) && ExecutionIo.PlansOf(table).Count == 0 && ExecutionIo.PlansOf(null).Count == 0);
 });
 Check("EstimatedPlan brackets the script with noexec, restores tracked options and refuses scripts that touch noexec", () => {
-    Assert(EstimatedPlan.Prepare(AseSessionOptions.Default).SequenceEqual(new[] { "set flushmessage off", "set plan for show_final_plan_xml to message on", "set noexec on" }));
-    Assert(EstimatedPlan.Restore(AseSessionOptions.Default).SequenceEqual(new[] { "set plan for show_final_plan_xml off", "set flushmessage on" }));
+    Assert(EstimatedPlan.Prepare(AseSessionOptions.Default).SequenceEqual(new[] { "set plan for show_final_plan_xml to message on", "set noexec on" }));
+    Assert(EstimatedPlan.Restore(AseSessionOptions.Default).SequenceEqual(new[] { "set plan for show_final_plan_xml off" }));
     var both = AseSessionOptions.Default with { NoExec = true, StatisticsIo = true };
-    Assert(EstimatedPlan.Prepare(both).SequenceEqual(new[] { "set flushmessage off", "set noexec off", "set plan for show_final_plan_xml to message on", "set noexec on" }));
-    Assert(EstimatedPlan.Restore(both).SequenceEqual(new[] { "set plan for show_final_plan_xml off", "set flushmessage on", "set plan for show_execio_xml to message on", "set noexec on" }));
-    Assert(EstimatedPlan.FlushOff == "set flushmessage off" && EstimatedPlan.FlushOn == "set flushmessage on");
-    Assert(AseSessionOptions.Script(AseSessionOptions.Default with { StatisticsIo = true }, AseSessionOptions.Default).SequenceEqual(new[] { "set plan for show_execio_xml off", "set flushmessage on" }));
+    Assert(EstimatedPlan.Prepare(both).SequenceEqual(new[] { "set noexec off", "set plan for show_final_plan_xml to message on", "set noexec on" }));
+    Assert(EstimatedPlan.Restore(both).SequenceEqual(new[] { "set plan for show_final_plan_xml off", "set plan for show_execio_xml to message on", "set noexec on" }));
     Assert(EstimatedPlan.Lift == "/* dbmon_execio */ set noexec off" && EstimatedPlan.Read(-1) == "/* dbmon_execio */ select showplan_in_xml(-1)");
-    Assert(SqlScript.SplitBatches(EstimatedPlan.Batches(EstimatedPlan.Prepare(both))).Count == 4);
+    Assert(SqlScript.SplitBatches(EstimatedPlan.Batches(EstimatedPlan.Prepare(both))).Count == 3);
     Assert(EstimatedPlan.Refusal("select 1") == null && EstimatedPlan.Refusal("  ") != null && EstimatedPlan.Refusal("set NOEXEC off\ngo\ndelete t") != null);
     string est = "<?xml version=\"1.0\"?><query><statementNum>1</statementNum><lineNum>1</lineNum><text>select * from t</text><opTree><Emit><TableScan><est><rowCnt>50</rowCnt><lio>7</lio></est><objName>t</objName></TableScan></Emit></opTree></query>";
     string own = "<?xml version=\"1.0\"?><query><statementNum>1</statementNum><lineNum>1</lineNum><text>/* dbmon_execio */ select showplan_in_xml(0)</text><opTree><Emit/></opTree></query>";

@@ -2,6 +2,17 @@
 
 All notable changes to DBMON SQL are listed here. The project follows [Semantic Versioning](https://semver.org/).
 
+## [1.0.6] - 2026-11-04
+
+### Fixed
+- Estimated plan regression since 1.0.4 (empty `showplan_in_xml` buffer): `set flushmessage on` at login (1.0.4) and the 1.0.5 bracket are removed; the plan path is again exactly the 1.0.3 command sequence, guarded by a core check with a scripted engine.
+
+### Changed
+- Server messages: the SAP ASE ODBC driver delivers PRINT/info messages when the batch completes, so they appear then (DBMON SQL publishes each one as soon as the driver raises it). Live-test message checks report SKIP instead of FAIL.
+
+### Note
+- Health Data usage now covers all databases (1.0.5 bigint fix); a high used % is a real finding.
+
 ## [1.0.5] - 2026-11-04
 
 ### Fixed
