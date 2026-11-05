@@ -12,6 +12,7 @@ ResultColumnChecks.Run(Check, Assert);
 ReviewFixChecks.Run(Check, Assert);
 OdbcSessionChecks.Run(Check);
 TimeoutChecks.Run(Check);
+Fix104Checks.Run(Check);
 Check("Streaming CSV uses RFC 4180 quoting, invariant values, Unicode and empty NULL fields", () => {
     var oldCulture = CultureInfo.CurrentCulture;
     try {

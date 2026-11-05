@@ -136,7 +136,7 @@ public static class DdlGenerator
         var sql = new StringBuilder(); string target = Name(owner, table);
         foreach (var group in indexKeys.Rows.Cast<DataRow>().GroupBy(row => S(row, "index_name"))) {
             var keys = OrderedKeys(group); var first = keys[0];
-            foreach (string flag in new[] { "clustered", "is_unique", "primary_key", "unique_constraint" })
+            foreach (string flag in new[] { "is_clustered", "is_unique", "primary_key", "unique_constraint" })
                 if (keys.Any(row => B(row, flag) != B(first, flag))) throw new FormatException("Inconsistent index metadata.");
             if (MetadataRows.Find(first.Table, "function_based") != null && B(first, "function_based"))
                 throw new FormatException("Function-based indexes need a server-specific script.");
@@ -145,7 +145,7 @@ public static class DdlGenerator
                 if (order is not ("ASC" or "DESC")) throw new FormatException("Unknown index sort order.");
                 return Q(S(row, "column_name")) + " " + order;
             }));
-            string clustering = B(first, "clustered") ? "CLUSTERED" : "NONCLUSTERED";
+            string clustering = B(first, "is_clustered") ? "CLUSTERED" : "NONCLUSTERED";
             if (B(first, "primary_key") || B(first, "unique_constraint")) {
                 sql.Append("ALTER TABLE ").Append(target).Append(" ADD CONSTRAINT ").Append(Q(group.Key)).Append(' ')
                     .Append(B(first, "primary_key") ? "PRIMARY KEY " : "UNIQUE ").Append(clustering).Append(" (").Append(columns).Append(')');

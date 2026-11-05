@@ -2,6 +2,13 @@
 
 All notable changes to DBMON SQL are listed here. The project follows [Semantic Versioning](https://semver.org/).
 
+## [1.0.4] - 2026-11-04
+
+### Fixed
+- Explorer table DDL failed on ASE with `[156] Incorrect syntax near the keyword 'clustered'`: the index metadata query aliased a column with the reserved word `clustered`. It is now `is_clustered`, and a check keeps all generated ASE catalog and tool SQL free of reserved-word aliases.
+- MDA delta (live test) stopped at "Local limit of 10000 rows reached" on busy servers. Tool queries (not user runs) now read up to 200,000 rows regardless of the profile row limit, and the live test reads a bounded `monOpenObjectActivity` snapshot of the current database with only the columns it needs. User runs still honor the profile limit.
+- PRINT and other informational messages reached the Messages pane only when the batch ended. ASE sessions now run `set flushmessage on` at login (never on IQ or Replication Server; a failure there does not block the login), so messages arrive while the batch runs.
+
 ## [1.0.3] - 2026-11-04
 
 ### Fixed

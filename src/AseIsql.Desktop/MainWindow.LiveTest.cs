@@ -128,7 +128,8 @@ public partial class MainWindow
     private sealed class LiveTestRun
     {
         private const string PlanSql = "select count(*) from master..sysobjects where type = 'U'";
-        private const string MdaSql = "select * from master..monOpenObjectActivity";
+        // A bounded snapshot: this database only and just the keys and counters the delta needs.
+        private const string MdaSql = "select DBID, ObjectID, IndexID, LogicalReads, PhysicalReads, RowsInserted, RowsDeleted, RowsUpdated, LockRequests, LockWaits from master..monOpenObjectActivity where DBID = db_id()";
         private readonly List<LiveTestResult> results = [];
         private readonly Stopwatch clock = Stopwatch.StartNew();
         private readonly DateTimeOffset started = DateTimeOffset.UtcNow;
@@ -371,7 +372,7 @@ public partial class MainWindow
 
         private static QueryOutput MdaRead(OdbcSession session, string sql, CancellationToken token)
         {
-            var output = session.Execute(sql, token, userRun: false, timeoutSeconds: 10);
+            var output = session.Execute(sql, token, userRun: false, timeoutSeconds: 10, maxRows: OdbcSession.ToolMaxRows);
             token.ThrowIfCancellationRequested();
             if (MdaUnavailable(output)) throw new LiveTestSkip("MDA disabled / unavailable / permission denied: " + Failure(output));
             return Good(output, token);

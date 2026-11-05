@@ -21,7 +21,7 @@ internal static class T6Checks
         columns.Rows.Add(2, "amount", "decimal", "dbo", 0, 9, 12, 2, 0, 0, 0, 50, DBNull.Value, DBNull.Value, 0, DBNull.Value, DBNull.Value);
         columns.Rows.Add(3, "label", "univarchar", "dbo", 0, 40, 0, 0, 1, 0, 0, 51, "sales", "empty_label", 52, "sales", "label_rule");
         columns.Rows.Add(4, "code", "code_type", "sales", 1, 8, 0, 0, 1, 0, 0, 0, DBNull.Value, DBNull.Value, 0, DBNull.Value, DBNull.Value);
-        var indexes = Table("index_name", "key_ordinal", "key_count", "column_name", "sort_order", "clustered", "is_unique", "primary_key", "unique_constraint");
+        var indexes = Table("index_name", "key_ordinal", "key_count", "column_name", "sort_order", "is_clustered", "is_unique", "primary_key", "unique_constraint");
         indexes.Rows.Add("pk_orders", 1, 1, "id", "ASC", 1, 1, 1, 0);
         // Deliberately reversed: the builder must use ordinals, rather than result row order.
         indexes.Rows.Add("ix_amount", 2, 2, "id", "ASC", 0, 0, 0, 0);

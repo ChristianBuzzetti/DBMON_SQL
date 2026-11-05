@@ -89,6 +89,7 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
             session.connection.Open();
             // Replication Server has no current database; the ASE driver is not asked for one there.
             if (profile.Platform != ServerPlatform.Rs) session.database = session.connection.Database ?? "";
+            session.EnableFlushMessage();
             var opened = clock.Elapsed; session.ReadSessionFacts();
             session.OpenTiming = (opened, clock.Elapsed - opened);
             return session;
@@ -109,6 +110,21 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
 
     // A match only costs one probe; comments or strings that mention "use" are harmless false positives.
     public static bool MayChangeDatabase(string sql) => UseStatement.IsMatch(sql);
+
+    // ASE holds PRINT and informational messages in the TDS stream until the batch ends unless flushmessage is on, so
+    // live messages need it. ASE only; a failure never blocks the login.
+    internal const string FlushMessageSql = "set flushmessage on";
+    private void EnableFlushMessage()
+    {
+        if (profile.Platform != ServerPlatform.Ase) return;
+        try
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = FlushMessageSql; command.CommandTimeout = 10;
+            command.ExecuteNonQuery();
+        }
+        catch (Exception ex) when (connection.GetDiagnostics(ex) != null || ex is InvalidOperationException) { }
+    }
 
     // Session identity for the status bar. A failure never blocks the login: the facts stay unknown.
     private void ReadSessionFacts()
@@ -251,10 +267,12 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
 
     // timeoutSeconds replaces the profile's query timeout for this run only; 0 means no timeout. Esc (the
     // cancellation token) still cancels the statement either way.
-    public QueryOutput Execute(string sql, CancellationToken cancellation, bool userRun, int? timeoutSeconds = null, IProgress<QueryMessage>? messages = null)
-        => ExecuteCore(sql, cancellation, userRun, timeoutSeconds, export: null, messages: messages);
+    // Tool (non-user) queries read up to ToolMaxRows rows unless maxRows says otherwise; user runs keep the profile limit.
+    public const int ToolMaxRows = 200_000;
+    public QueryOutput Execute(string sql, CancellationToken cancellation, bool userRun, int? timeoutSeconds = null, IProgress<QueryMessage>? messages = null, int? maxRows = null)
+        => ExecuteCore(sql, cancellation, userRun, timeoutSeconds, export: null, messages: messages, maxRows: maxRows);
 
-    private QueryOutput ExecuteCore(string sql, CancellationToken cancellation, bool userRun, int? timeoutSeconds, QueryExportWriter? export, IProgress<QueryMessage>? messages)
+    private QueryOutput ExecuteCore(string sql, CancellationToken cancellation, bool userRun, int? timeoutSeconds, QueryExportWriter? export, IProgress<QueryMessage>? messages, int? maxRows = null)
     {
         cancellation.ThrowIfCancellationRequested();
         var output = new QueryOutput(messages);
@@ -266,7 +284,7 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
         {
             var batches = SqlScript.SplitBatches(sql, cancellation: cancellation);
             if (batches.Count == 0) { output.Error = "No SQL to execute."; return output; }
-            var channel = new SessionChannel(this, new ResultBudget(profile.MaxRows), userRun, timeoutSeconds ?? profile.QueryTimeout, cancellation, export);
+            var channel = new SessionChannel(this, new ResultBudget(maxRows ?? (userRun ? profile.MaxRows : Math.Max(profile.MaxRows, ToolMaxRows))), userRun, timeoutSeconds ?? profile.QueryTimeout, cancellation, export);
             // SQL_ATTR_CURRENT_CATALOG can remain at the login database after a T-SQL USE.
             // Keep the server's db_name() facts; the guarded probe below refreshes them after USE.
             ScriptRunner.Run(batches, channel, output, userRun && ContinueOnError, cancellation);

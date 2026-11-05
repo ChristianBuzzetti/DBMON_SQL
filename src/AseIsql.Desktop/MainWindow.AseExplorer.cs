@@ -158,7 +158,7 @@ public partial class MainWindow
             var indexNode = AseEntryNode(owner, entry, lazy:false);
             foreach (var key in group) indexNode.Items.Add(new TreeViewItem { Header = Convert.ToString(key["key_ordinal"], CultureInfo.InvariantCulture) + ". " + key["column_name"] + " " + key["sort_order"] });
             // Already have the keys; don't issue a second request on expansion.
-            var first = group.First(); indexNode.ToolTip = "Clustered: " + first["clustered"] + " · Unique: " + first["is_unique"] + " · Primary key: " + first["primary_key"];
+            var first = group.First(); indexNode.ToolTip = "Clustered: " + first["is_clustered"] + " · Unique: " + first["is_unique"] + " · Primary key: " + first["primary_key"];
             node.Items.Add(indexNode);
         }
         if (node.Items.Count == 0) node.Items.Add(new TreeViewItem { Header = "No visible indexes" });
