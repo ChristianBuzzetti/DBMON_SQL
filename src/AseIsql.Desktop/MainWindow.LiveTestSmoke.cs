@@ -28,7 +28,7 @@ public partial class App
             catch (IOException) { } // The JSON report remains available if the launching console disappears.
         }
         // There is deliberately no MainWindow instance: its constructor loads settings and installs persistence.
-        int code = await Task.Run(() => MainWindow.RunLiveTestSmokeAsync(args));
+        int code = await Task.Run(() => AseIsql.Desktop.MainWindow.RunLiveTestSmokeAsync(args));
         Shutdown(code);
     }
 }
@@ -182,7 +182,7 @@ public partial class MainWindow
                 await CheckSync("sp_sysmon index", token => {
                     if (!options.IncludeSysmon) throw new LiveTestSkip("Opt in with --include-sysmon (one-minute sample; needs sa_role).");
                     using var session = Sibling(token);
-                    var output = Send(session, "exec sp_sysmon '00:01:00'", token, timeout: 0);
+                    var output = Send(session, "exec sp_sysmon '00:01:00', 'noclear'", token, timeout: 0);
                     var sections = ResultFormats.SysmonSections(ResultFormats.Isql(output));
                     Require(sections.Count > 0, "sp_sysmon output produced no index sections.");
                     return string.Join(", ", sections.Select(s => s.Heading));
