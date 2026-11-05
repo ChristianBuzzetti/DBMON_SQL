@@ -3,6 +3,7 @@ using System.Data;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using AseIsql.Odbc;
 using ICSharpCode.AvalonEdit.Document;
 
 namespace AseIsql.Desktop;
@@ -109,13 +110,17 @@ public partial class MainWindow
         connect.Click += (_, _) => ConnectSession(workspace);
         var disconnect = new MenuItem { Header = "Disconnect", InputGestureText = "F12" };
         disconnect.Click += async (_, _) => { if (CanDisconnect(workspace)) await DisconnectSessionAsync(workspace); };
+        var duplicate = new MenuItem { Header = "Duplicate session" };
+        duplicate.Click += async (_, _) => await DuplicateSessionAsync(workspace);
         var close = new MenuItem { Header = "Close session" };
         close.Click += async (_, _) => await CloseSessionAsync(workspace);
-        menu.Items.Add(connect); menu.Items.Add(disconnect); menu.Items.Add(new Separator()); menu.Items.Add(close);
+        menu.Items.Add(connect); menu.Items.Add(disconnect); menu.Items.Add(duplicate); menu.Items.Add(new Separator()); menu.Items.Add(close);
         menu.Opened += (_, _) =>
         {
             connect.IsEnabled = CanConnect(workspace);
             disconnect.IsEnabled = CanDisconnect(workspace);
+            // A new connection does not need the source to be idle, only open and not mid connection change.
+            duplicate.IsEnabled = workspace.Engine is OdbcSession { IsOpen: true } && !workspace.Changing && !activeSession.Changing;
             close.IsEnabled = !workspace.Busy && !activeSession.Changing;
         };
         return menu;
@@ -199,6 +204,36 @@ public partial class MainWindow
         var workspace = new SessionWorkspace();
         sessions.Add(workspace); AddSessionHeader(workspace); SelectSession(workspace);
         return workspace;
+    }
+
+    private Task DuplicateSessionAsync(SessionWorkspace source) =>
+        source.Engine is OdbcSession { IsOpen: true } odbc ? OpenSiblingTabAsync(odbc, source, false) : Task.CompletedTask;
+
+    // Opens a second connection like `source` (same profile and credentials, held in memory) off the UI thread and adds it
+    // as a new session tab right after `after` (or at the end), selected. PROD follows the profile; the monitor adds its own.
+    private async Task OpenSiblingTabAsync(OdbcSession source, SessionWorkspace? after, bool production)
+    {
+        if (!SessionNavigationAllowed()) return;
+        OdbcSession sibling;
+        try { sibling = await Task.Run(source.OpenSibling); }
+        catch (Exception ex) when (ex is System.Data.Odbc.OdbcException or ArgumentException or InvalidOperationException or System.IO.IOException)
+        { ShowMessage("Duplicate session", "The session could not be duplicated.\n" + source.DescribeFailure(ex)); return; }
+        var profile = production && !sibling.Profile.Production ? sibling.Profile with { Production = true } : sibling.Profile;
+        if (!SessionNavigationAllowed()) { sibling.Dispose(); return; }
+        var workspace = new SessionWorkspace();
+        int at = after == null ? sessions.Count : sessions.IndexOf(after) + 1;
+        if (at <= 0 && after != null) at = sessions.Count;
+        sessions.Insert(at, workspace); AddSessionHeader(workspace);
+        SessionTabs.Items.Remove(workspace.Header); SessionTabs.Items.Insert(at, workspace.Header);
+        if (!SelectSession(workspace)) { sessions.Remove(workspace); SessionTabs.Items.Remove(workspace.Header); sibling.Dispose(); return; }
+        ActivateConnection(sibling, new LoginSelection(profile), sibling.LoginMessages, null, sibling.OmittedLoginMessages);
+    }
+
+    // Activity monitor entry: the monitor's own dedicated session is the template, the new tab goes after the active one.
+    private void DuplicateFromMonitor(OdbcSession monitorSession, bool production)
+    {
+        _ = OpenSiblingTabAsync(monitorSession, activeSession, production);
+        Activate();
     }
 
     private void AddSessionClick(object sender, RoutedEventArgs e)

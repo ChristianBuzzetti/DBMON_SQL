@@ -131,7 +131,9 @@ public partial class MainWindow
             grid.PreviewMouseRightButtonDown += (_, args) => {
                 if (args.OriginalSource is DependencyObject source && FindAncestor<DataGridRow>(source) is { Item: ActivityRow row }) grid.SelectedItem = row;
             };
-            var menu = new ContextMenu(); var copyItem = new MenuItem { Header = "Copy rows" }; copyItem.Click += (_, _) => CopyRows(); menu.Items.Add(copyItem); menu.Items.Add(kill); grid.ContextMenu = menu;
+            var menu = new ContextMenu(); var copyItem = new MenuItem { Header = "Copy rows" }; copyItem.Click += (_, _) => CopyRows(); menu.Items.Add(copyItem);
+            var duplicateItem = new MenuItem { Header = "Duplicate session" }; duplicateItem.Click += (_, _) => main.DuplicateFromMonitor(session, production); menu.Items.Add(duplicateItem);
+            menu.Items.Add(kill); grid.ContextMenu = menu;
             menu.Opened += (_, _) => UpdateKill();
             kill.Click += async (_, _) => await KillAsync(); split.Children.Add(grid);
             var splitter = new GridSplitter { Height = 6, HorizontalAlignment = HorizontalAlignment.Stretch, ResizeDirection = GridResizeDirection.Rows };
@@ -160,10 +162,12 @@ public partial class MainWindow
         }
         private void AddColumn(string header, string path, string sort, double width) => grid.Columns.Add(new DataGridTextColumn { Header = header, Binding = new Binding(path), SortMemberPath = sort, Width = width });
         private async Task<QueryOutput> QueryAsync(string sql) => await Task.Run(() => session.Execute(sql, cancellation.Token, userRun: false, timeoutSeconds: 10), cancellation.Token);
-        private static DataTable Table(QueryOutput output)
+        private static DataTable Table(QueryOutput output, bool processes = true)
         {
             if (output.Error != null) throw new InvalidOperationException(output.Error);
-            return output.Tables.FirstOrDefault() ?? throw new InvalidOperationException("The server returned no activity result.");
+            return (processes ? ActivityMonitor.PickProcessTable(output.Tables) :
+                output.Tables.FirstOrDefault(table => ResultColumns.Find(table, "monitor_spid") != null)) ??
+                output.Tables.FirstOrDefault() ?? throw new InvalidOperationException("The server returned no activity result.");
         }
         private async Task DisposeSessionAsync()
         {
@@ -190,8 +194,8 @@ public partial class MainWindow
             status.Text = "Refreshing…";
             if (ownSpid == null)
             {
-                var identity = Table(await QueryAsync(ActivityMonitor.IdentitySql));
-                if (identity.Rows.Count > 0 && int.TryParse(Convert.ToString(identity.Rows[0][0], CultureInfo.InvariantCulture), out int n) && n > 0) ownSpid = n;
+                var identity = Table(await QueryAsync(ActivityMonitor.IdentitySql), processes: false);
+                ownSpid = ActivityMonitor.ParseIdentity(identity);
             }
             var processes = ActivityMonitor.Parse(Table(await QueryAsync(ActivityMonitor.ProcessesSql)));
             if (closed) return;
@@ -241,7 +245,7 @@ public partial class MainWindow
             if (sqlAvailable != false)
             {
                 var output = await QueryAsync(ActivityMonitor.SqlTextSql(spid, statementAvailable != false));
-                // monSysStatement is history: a running batch may not have a matching record yet.
+                // monProcessStatement only lists statements running now: a batch between statements may have no row.
                 // Never lose available live text just because that optional statement match is empty.
                 if (statementAvailable != false && (output.Error != null || output.Tables.Count == 0 || output.Tables[0].Rows.Count == 0))
                 { statementAvailable = false; output = await QueryAsync(ActivityMonitor.SqlTextSql(spid, false)); }

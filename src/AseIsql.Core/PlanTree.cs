@@ -30,15 +30,17 @@ public static class PlanTree
     public const double WarningRatio = 10, ErrorRatio = 100;
 
     // ASE writes operators as PascalCase elements and their properties (est, act, objName, scanType, ...) as camelCase
-    // ones; that is what tells a child operator from an attribute of its parent.
-    private static bool IsOperator(XElement element) => element.Name.LocalName is { Length: > 0 } name && char.IsUpper(name[0]);
+    // ones; that is what tells a child operator from an attribute of its parent. <VA>n</VA> (the operator's virtual
+    // address) is uppercase too but a leaf: an operator always carries child elements.
+    private static bool IsOperator(XElement element) =>
+        element.Name.LocalName is { Length: > 0 } name && char.IsUpper(name[0]) && name != "VA" && element.HasElements;
 
     // The operator forest of one <query> document, or of a bare XML string holding one (first document only).
     public static IReadOnlyList<PlanNode> Parse(string? xml) =>
         ExecutionIo.Parse(xml).Plans.FirstOrDefault()?.Tree ?? [];
 
     internal static IReadOnlyList<PlanNode> FromQuery(XElement query) =>
-        query.Element("opTree") is { } tree ? Build(tree, "", 0) : [];
+        ExecutionIo.OperatorTree(query) is { } tree ? Build(tree, "", 0) : [];
 
     private static List<PlanNode> Build(XElement parent, string parentKey, int depth)
     {

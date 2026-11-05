@@ -8,7 +8,10 @@ int passed = 0;
 void Check(string name, Action body) { body(); Console.WriteLine("PASS " + name); passed++; }
 void Assert(bool value) { if (!value) throw new Exception("Assertion failed"); }
 T6Checks.Run(Check, Assert);
+ResultColumnChecks.Run(Check, Assert);
+ReviewFixChecks.Run(Check, Assert);
 OdbcSessionChecks.Run(Check);
+TimeoutChecks.Run(Check);
 Check("Streaming CSV uses RFC 4180 quoting, invariant values, Unicode and empty NULL fields", () => {
     var oldCulture = CultureInfo.CurrentCulture;
     try {
@@ -139,6 +142,7 @@ Check("Query engine streaming exports GO repetitions directly without grid resul
 });
 var engine = new DemoQueryEngine();
 HealthObjectChecks.Run(Check, Assert);
+HealthRuleChecks.Run(Check, Assert);
 
 ActivityProcess Process(int spid, int blocked = 0) => new(spid, "sleeping", "alice", "workstation", "client", "master", "SELECT", 5, 2, 3, blocked, 0, "", 7);
 Check("Activity parses fake sysprocesses values, nulls, aliases and worker duplicates", () => {
@@ -199,7 +203,7 @@ Check("Activity SQL bounds SPIDs, guards KILL on the server and joins ordered SQ
     Assert(sql.Contains("spid <> @@spid") && sql.Contains("suid > 0") && sql.Contains("suid = 7") && sql.Contains("O''Brien;kill 99--") && sql.Contains("\nkill 21\n"));
     Assert(SqlScript.SplitBatches(sql).Count == 1);
     Assert(ActivityMonitor.ProcessSql(21).Contains("where p.spid = 21") && !ActivityMonitor.ProcessSql(21).Contains("order by"));
-    Assert(ActivityMonitor.SqlTextSql(21).Contains("monSysStatement") && !ActivityMonitor.SqlTextSql(21, false).Contains("monSysStatement"));
+    Assert(ActivityMonitor.SqlTextSql(21).Contains("monProcessStatement") && !ActivityMonitor.SqlTextSql(21, false).Contains("monProcessStatement"));
     Assert(ActivityMonitor.LocksSql(21).EndsWith("SPID = 21", StringComparison.Ordinal));
     foreach (int invalid in new[] { 0, -1 }) {
         try { ActivityMonitor.ProcessSql(invalid); Assert(false); } catch (ArgumentOutOfRangeException) { }
@@ -307,19 +311,19 @@ Check("Appending retained output carries omissions forward alongside client mess
     panel.Append(output.Messages, output.OmittedMessages);
     panel.Add(new QueryMessage(0, "CLIENT", "Done"));
     var rows = panel.Snapshot(n => new QueryMessage(0, "CLIENT", HeadTailBuffer<QueryMessage>.OmissionText(n)));
-    Assert(output.OmittedMessages == 700 && panel.OmittedCount == 702 && rows.Count == 501);
+    Assert(output.OmittedMessages == 0 && panel.OmittedCount == 702 && rows.Count == 501);
     Assert(rows[0].Text == "Execute" && rows[249].Number == 248 && rows[250].Text == "… 702 messages omitted …");
     Assert(rows[251].Number == 951 && rows[^2].Number == 1199 && rows[^2].RawText == "Raw 1199" && rows[^1].Text == "Done");
 });
 Check("QueryOutput reports each message immediately, including diagnostics beyond the retention limit", () => {
     int received = 0;
     var output = new QueryOutput(new MessageProgress(message => { Assert(message.Number == received); received++; }));
-    for (int i = 0; i < 1250; i++)
+    for (int i = 0; i < 20250; i++)
     {
         output.Messages.Add(new QueryMessage(i, "ASE", "print " + i));
         Assert(received == i + 1);
     }
-    Assert(output.Messages.Count == 500 && output.OmittedMessages == 750);
+    Assert(output.Messages.Count == 20000 && output.OmittedMessages == 250);
 });
 Check("Engines implementing only the original Execute overload still execute through the progress overload", () => {
     IQueryEngine fixture = engine;
@@ -1428,7 +1432,7 @@ Check("MDA snapshot detection needs a cumulative mon table in code, a row key an
     Assert(MdaDelta.MonitorTable("select * from master.dbo.MONOPENOBJECTACTIVITY") == null && MdaDelta.MonitorTable("select * from master.dbo.monOpenObjectActivity") == "monOpenObjectActivity");
     Assert(MdaDelta.Detect(waits, "select * from master..monLocks") == null && MdaDelta.Detect(waits, "select 'monSysWaits' /* monSysWaits */ from t") == null && MdaDelta.Detect(waits, "") == null);
     Assert(MdaDelta.Detect(waits) != null && MdaDelta.Detect(MdaTable("Waits:i,WaitTime:i", [1, 2])) == null && MdaDelta.Detect(MdaTable("WaitEventID:i,Description:s", [1, "a"])) == null);
-    var statements = MdaDelta.Detect(MdaTable("SPID:i,KPID:i,BatchID:i,LineNumber:i,LogicalReads:i,ProcNestLevel:i,HashKey:i,SsqlId:i,ServerUserID:i,StartTime:t"), "select * from monSysStatement")!;
+    var statements = MdaDelta.Detect(MdaTable("SPID:i,KPID:i,BatchID:i,LineNumber:i,LogicalReads:i,ProcNestLevel:i,HashKey:i,SsqlId:i,ServerUserID:i,StartTime:t"), "select * from monProcessStatement")!;
     Assert(statements.Keys.SequenceEqual(new[] { "SPID", "KPID", "BatchID", "LineNumber", "SsqlId" }) && statements.Counters.SequenceEqual(new[] { "LogicalReads" }));
     var byName = MdaDelta.Detect(MdaTable("DBName:s,ObjectName:s,LogicalReads:i,Note:o", ["db", "t", 1, "x"]), "select * from monOpenObjectActivity")!;
     Assert(byName.Keys.SequenceEqual(new[] { "DBName", "ObjectName" }) && byName.Counters.SequenceEqual(new[] { "LogicalReads" }));

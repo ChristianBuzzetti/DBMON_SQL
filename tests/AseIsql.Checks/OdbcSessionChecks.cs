@@ -60,8 +60,8 @@ static class OdbcSessionChecks
             };
             using var session = Open(connection);
             var output = session.Execute("print many", default, progress);
-            Assert(output.Error == null && live.Count == 620 && output.Messages.Count == 500 && output.OmittedMessages == 120);
-            Assert(output.Messages[249].Text == "message 249" && output.Messages[250].Text == "message 370");
+            Assert(output.Error == null && live.Count == 620 && output.Messages.Count == 620 && output.OmittedMessages == 0);
+            Assert(output.Messages[249].Text == "message 249" && output.Messages[250].Text == "message 250");
             Assert(output.Messages[^1].Text == "message 619" && session.LoginMessages.Count == 0 && connection.Pending == 0);
         });
         check("OdbcSession captures bounded error records and redacts original diagnostics", () => {
@@ -72,8 +72,8 @@ static class OdbcSessionChecks
             var live = new List<QueryMessage>();
             var output = session.Execute("bad batch", default, new MessageProgress(live.Add));
             Assert(output.Error != null && output.ErrorSource == "ODBC" && session.IsOpen);
-            Assert(live.Count == 620 && output.Messages.Count == 500 && output.OmittedMessages == 120);
-            Assert(output.Messages[250].Text == "error 370 [password]" && output.Messages[^1].Text == "error 619 [password]");
+            Assert(live.Count == 620 && output.Messages.Count == 620 && output.OmittedMessages == 0);
+            Assert(output.Messages[250].Text == "error 250 [password]" && output.Messages[^1].Text == "error 619 [password]");
             string raw = output.ErrorRawText ?? throw new Exception("Missing original error diagnostic.");
             Assert(!raw.Contains("fixture-secret") && raw.Contains("[password]") && connection.Pending == 0);
         });

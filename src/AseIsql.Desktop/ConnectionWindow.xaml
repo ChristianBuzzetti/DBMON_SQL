@@ -44,7 +44,7 @@
           </StackPanel>
           <Grid Margin="0,10,0,0"><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition/><ColumnDefinition/></Grid.ColumnDefinitions>
             <StackPanel Margin="0,0,8,0"><TextBlock Text="Login timeout (s)"/><TextBox x:Name="LoginTimeout" Text="15"/></StackPanel>
-            <StackPanel Grid.Column="1" Margin="0,0,8,0"><TextBlock Text="Query timeout (s)"/><TextBox x:Name="QueryTimeout" Text="60" ToolTip="1 to 3600 seconds, or 0 for no timeout (long maintenance). Esc cancels a running query either way."/></StackPanel>
+            <StackPanel Grid.Column="1" Margin="0,0,8,0"><TextBlock Text="Query timeout (s, 0 = none)"/><TextBox x:Name="QueryTimeout" Text="0" ToolTip="0 = no limit (default): the query runs until it ends or you cancel it with Esc. 1–3600 seconds cancels it automatically."/></StackPanel>
             <StackPanel Grid.Column="2"><TextBlock Text="Maximum rows"/><TextBox x:Name="MaxRows" Text="10000"/></StackPanel>
           </Grid>
         </StackPanel></Expander>

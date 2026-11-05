@@ -12,13 +12,14 @@ public enum HealthMetric { Information, DatabaseFlags, Percent, DumpAge, Blocked
 public sealed record HealthProbe(string Id, string Title, string Sql, HealthMetric Metric);
 public sealed record HealthCell(HealthProbe Probe, HealthState State, string Summary, string Details)
 {
+    public bool Ignored { get; init; }
     public string Caption => State.ToString().ToUpperInvariant() + " · " + Summary;
 }
 public sealed record HealthServer(string Label, ServerPlatform Platform, IReadOnlyList<HealthCell> Cells)
 {
-    public HealthState State => Cells.Count == 0 ? HealthState.Fail : Cells.Max(c => c.State);
+    public HealthState State => Cells.Count == 0 ? HealthState.Fail : Cells.Where(c => !c.Ignored).Select(c => c.State).DefaultIfEmpty(HealthState.Ok).Max();
 }
-public sealed record HealthTarget(RunTarget Target, ServerPlatform Platform);
+public sealed record HealthTarget(RunTarget Target, ServerPlatform Platform, bool Production = false);
 
 public sealed record HealthSettings
 {
@@ -46,6 +47,11 @@ public sealed record HealthSettings
 
 public static class HealthCheck
 {
+    // A database whose log shares a fragment with data (segmap 7, e.g. master) has no separate log usage and cannot
+    // dump its transaction log; the data probe reports it as data+log instead.
+    private static string NoMixedLog(string dbid) =>
+        "not exists (select 1 from master..sysusages m where m.dbid = " + dbid + " and (m.segmap & 4) != 0 and (m.segmap & 3) != 0)";
+
     // Each query runs independently: missing privileges or a version-dependent column cannot hide other probes.
     public static IReadOnlyList<HealthProbe> Probes(ServerPlatform platform) => platform switch
     {
@@ -53,9 +59,9 @@ public static class HealthCheck
             new("version", "Version", "select @@version as version", HealthMetric.Information),
             new("uptime", "Uptime", "select crdate as boot_time, datediff(hour, crdate, getdate()) as uptime_hours from master..sysdatabases where name = 'tempdb'", HealthMetric.Information),
             new("databases", "Database flags", "select name, status, status2 from master..sysdatabases order by name", HealthMetric.DatabaseFlags),
-            new("data", "Data usage", "select d.name as database_name, sum(convert(numeric(20,0), u.size)) as total_pages, sum(convert(numeric(20,0), curunreservedpgs(u.dbid,u.lstart,u.unreservedpgs))) as free_pages, 100.0 * (1.0 - sum(convert(numeric(20,0), curunreservedpgs(u.dbid,u.lstart,u.unreservedpgs))) / nullif(sum(convert(numeric(20,0),u.size)),0)) as used_pct from master..sysdatabases d join master..sysusages u on d.dbid=u.dbid where u.segmap != 4 and (d.status & 288)=0 and (isnull(d.status2,0) & 48)=0 group by d.name order by d.name", HealthMetric.Percent),
-            new("log", "Log usage", "select d.name as database_name, sum(convert(numeric(20,0),u.size)) as total_pages, lct_admin('logsegment_freepages',d.dbid) as free_pages, 100.0 * (1.0 - convert(numeric(20,0),lct_admin('logsegment_freepages',d.dbid)) / nullif(sum(convert(numeric(20,0),u.size)),0)) as used_pct from master..sysdatabases d join master..sysusages u on d.dbid=u.dbid where (u.segmap & 4)!=0 and (d.status & 288)=0 and (isnull(d.status2,0) & 48)=0 group by d.name,d.dbid order by d.name", HealthMetric.Percent),
-            new("dump", "Last log dump", "select name, dumptrdate as last_dump, datediff(hour,dumptrdate,getdate()) as age_hours from master..sysdatabases where dbid > 3 and name not like 'syb%' and (status & 8)=0 order by name", HealthMetric.DumpAge),
+            new("data", "Data usage", "select d.name as database_name, sum(convert(numeric(20,0), u.size)) as total_pages, sum(convert(numeric(20,0), curunreservedpgs(u.dbid,u.lstart,u.unreservedpgs))) as free_pages, 100.0 * (1.0 - sum(convert(numeric(20,0), curunreservedpgs(u.dbid,u.lstart,u.unreservedpgs))) / nullif(sum(convert(numeric(20,0),u.size)),0)) as used_pct, case when max(case when (u.segmap & 4)!=0 then 1 else 0 end)=1 then 'data+log' else 'data' end as segments from master..sysdatabases d join master..sysusages u on d.dbid=u.dbid where u.segmap != 4 and (d.status & 288)=0 and (isnull(d.status2,0) & 48)=0 group by d.name order by d.name", HealthMetric.Percent),
+            new("log", "Log usage", "select d.name as database_name, sum(convert(numeric(20,0),u.size)) as total_pages, lct_admin('logsegment_freepages',d.dbid) as free_pages, 100.0 * (1.0 - convert(numeric(20,0),lct_admin('logsegment_freepages',d.dbid)) / nullif(sum(convert(numeric(20,0),u.size)),0)) as used_pct from master..sysdatabases d join master..sysusages u on d.dbid=u.dbid where (u.segmap & 4)!=0 and (d.status & 288)=0 and (isnull(d.status2,0) & 48)=0 and " + NoMixedLog("d.dbid") + " group by d.name,d.dbid order by d.name", HealthMetric.Percent),
+            new("dump", "Last log dump", "select name, dumptrdate as last_dump, datediff(hour,dumptrdate,getdate()) as age_hours from master..sysdatabases d where dbid > 3 and name not like 'syb%' and (status & 8)=0 and (isnull(status3,0) & 4194304)=0 and " + NoMixedLog("d.dbid") + " order by name", HealthMetric.DumpAge),
             new("blocked", "Blocked processes", "select count(*) as blocked_count from master..sysprocesses where blocked != 0", HealthMetric.Blocked),
             new("connections", "User connections", "select count(*) as user_connections, (select c.value from master..syscurconfigs c join master..sysconfigures s on s.config=c.config where s.name='number of user connections') as max_connections, 100.0 * count(*) / nullif((select c.value from master..syscurconfigs c join master..sysconfigures s on s.config=c.config where s.name='number of user connections'),0) as used_pct from master..sysprocesses where suid > 0 and spid != 0", HealthMetric.Percent)],
         ServerPlatform.Iq => [new("version", "Version", "select @@version as version", HealthMetric.Information), new("iqspace", "IQ main / temp space", "sp_iqstatus", HealthMetric.IqSpace)],
@@ -66,11 +72,15 @@ public static class HealthCheck
     public static HealthState Threshold(double value, double warn, double fail, bool inclusive = false) =>
         (inclusive ? value >= fail : value > fail) ? HealthState.Fail : (inclusive ? value >= warn : value > warn) ? HealthState.Warn : HealthState.Ok;
 
-    public static HealthCell Evaluate(HealthProbe probe, QueryOutput output, HealthSettings settings)
+    public static HealthCell Evaluate(HealthProbe probe, QueryOutput output, HealthSettings settings) =>
+        Evaluate(probe, output, settings, new HealthRule { ProbeId = probe.Id });
+
+    public static HealthCell Evaluate(HealthProbe probe, QueryOutput output, HealthSettings settings, HealthRule rule)
     {
-        settings.Validate();
+        settings.Validate(); rule.Validate(probe, settings);
         string details = "SQL:\n" + probe.Sql + "\n\n" + Details(output);
-        HealthCell Cell(HealthState severity, string summary) => new(probe, severity, summary, details);
+        HealthCell Cell(HealthState severity, string summary) => rule.Apply(new(probe, severity, summary, details));
+        if (!rule.Enabled) return Cell(HealthState.Ok, "Probe not executed");
         if (output.Error != null) return Cell(HealthState.Fail, output.Error);
         var rows = output.Tables.SelectMany(t => t.Rows.Cast<DataRow>()).ToArray();
         if (probe.Metric == HealthMetric.RsDown) return output.Tables.Count == 0 ? Cell(HealthState.Warn, "No thread result received") : Cell(rows.Length == 0 ? HealthState.Ok : HealthState.Fail, rows.Length + " threads down");
@@ -119,10 +129,8 @@ public static class HealthCheck
                         double value = Convert.ToDouble(raw, CultureInfo.InvariantCulture);
                         if (!double.IsFinite(value) || value < 0 || (probe.Metric == HealthMetric.Percent && value > 100)) { unknown++; Include(HealthState.Warn); continue; }
                         max = Math.Max(max, value);
-                        Include(probe.Metric switch {
-                            HealthMetric.Percent => Threshold(value, settings.UsageWarnPercent, settings.UsageFailPercent),
-                            HealthMetric.DumpAge => Threshold(value, settings.DumpWarnHours, settings.DumpFailHours),
-                            _ => Threshold(value, settings.BlockedWarnCount, settings.BlockedFailCount, inclusive: true) });
+                        var thresholds = rule.Thresholds(probe, settings);
+                        Include(Threshold(value, thresholds.Warn, thresholds.Fail, inclusive: probe.Metric == HealthMetric.Blocked));
                     }
                     return Cell(state, "max " + max.ToString("0.##", CultureInfo.InvariantCulture) + (probe.Metric == HealthMetric.Percent ? "% used" : probe.Metric == HealthMetric.DumpAge ? " hours" : " blocked") + (unknown == 0 ? "" : $" · {unknown} unavailable"));
                 case HealthMetric.IqSpace:
@@ -137,7 +145,8 @@ public static class HealthCheck
                         if (!match.Success) { Include(HealthState.Warn); continue; }
                         double used = double.Parse(match.Groups[1].Value.Replace(',', '.'), CultureInfo.InvariantCulture);
                         if (isMain) main = true; if (isTemp) temp = true;
-                        Include(used > 100 ? HealthState.Warn : Threshold(used, settings.UsageWarnPercent, settings.UsageFailPercent));
+                        var thresholds = rule.Thresholds(probe, settings);
+                        Include(used > 100 ? HealthState.Warn : Threshold(used, thresholds.Warn, thresholds.Fail));
                     }
                     if (!main || !temp) Include(HealthState.Warn);
                     return Cell(state, main && temp ? "Main and temporary usage (see details)" : "Main / temporary usage missing or unrecognized");
@@ -167,17 +176,21 @@ public static class HealthCheck
         return text.ToString();
     }
 
-    public static async Task<IReadOnlyList<HealthServer>> ExecuteAsync(IReadOnlyList<HealthTarget> targets, HealthSettings settings, CancellationToken cancellation = default)
+    public static Task<IReadOnlyList<HealthServer>> ExecuteAsync(IReadOnlyList<HealthTarget> targets, HealthSettings settings, CancellationToken cancellation = default) =>
+        ExecuteAsync(targets, settings, new HealthRuleSet(), cancellation);
+
+    public static async Task<IReadOnlyList<HealthServer>> ExecuteAsync(IReadOnlyList<HealthTarget> targets, HealthSettings settings, HealthRuleSet rules, CancellationToken cancellation = default)
     {
-        settings.Validate();
-        var workers = targets.Select(t => new ProbeEngine(t, settings)).ToArray();
+        settings.Validate(); rules.Validate(settings);
+        var workers = targets.Select(t => new ProbeEngine(t, settings, rules)).ToArray();
         var outcomes = await MultiRun.ExecuteAsync(workers.Select(w => new RunTarget(w.Target.Target.Label, w)).ToArray(), "health", cancellation);
         return workers.Select((worker, index) => new HealthServer(worker.Target.Target.Label, worker.Target.Platform,
-            Probes(worker.Target.Platform).Select(p => worker.Cells.FirstOrDefault(c => c.Probe.Id == p.Id) ?? new HealthCell(p, HealthState.Fail, outcomes[index].Output.Error ?? "Probe did not complete", "")).ToArray())).ToArray();
+            Probes(worker.Target.Platform).Select(p => worker.Cells.FirstOrDefault(c => c.Probe.Id == p.Id) ??
+                rules.RuleFor(p, worker.Target.Production).Apply(new(p, HealthState.Fail, outcomes[index].Output.Error ?? "Probe did not complete", ""))).ToArray())).ToArray();
     }
 
     // Cancellation is cooperative, as in MultiRun. We await the driver before releasing session ownership.
-    private sealed class ProbeEngine(HealthTarget target, HealthSettings settings) : IQueryEngine
+    private sealed class ProbeEngine(HealthTarget target, HealthSettings settings, HealthRuleSet rules) : IQueryEngine
     {
         public HealthTarget Target { get; } = target;
         public List<HealthCell> Cells { get; } = [];
@@ -188,13 +201,15 @@ public static class HealthCheck
             deadline.CancelAfter(TimeSpan.FromSeconds(settings.ServerTimeoutSeconds));
             foreach (var probe in Probes(Target.Platform))
             {
-                if (deadline.IsCancellationRequested) { Cells.Add(new(probe, HealthState.Fail, cancellation.IsCancellationRequested ? "Cancelled" : "Server timeout", "Probe not completed within this server's deadline.")); continue; }
+                var rule = rules.RuleFor(probe, Target.Production);
+                if (!rule.Enabled) { Cells.Add(rule.Apply(new(probe, HealthState.Ok, "Probe not executed", "SQL was not executed."))); continue; }
+                if (deadline.IsCancellationRequested) { Cells.Add(rule.Apply(new(probe, HealthState.Fail, cancellation.IsCancellationRequested ? "Cancelled" : "Server timeout", "Probe not completed within this server's deadline."))); continue; }
                 try
                 {
                     var output = Target.Target.Engine.Execute(probe.Sql, deadline.Token);
-                    Cells.Add(deadline.IsCancellationRequested ? new(probe, HealthState.Fail, cancellation.IsCancellationRequested ? "Cancelled" : "Server timeout", Details(output)) : Evaluate(probe, output, settings));
+                    Cells.Add(deadline.IsCancellationRequested ? rule.Apply(new(probe, HealthState.Fail, cancellation.IsCancellationRequested ? "Cancelled" : "Server timeout", Details(output))) : Evaluate(probe, output, settings, rule));
                 }
-                catch (Exception ex) when (ex is not OutOfMemoryException) { Cells.Add(new(probe, HealthState.Fail, deadline.IsCancellationRequested ? "Cancelled / server timeout" : ex.Message, ex.Message)); }
+                catch (Exception ex) when (ex is not OutOfMemoryException) { Cells.Add(rule.Apply(new(probe, HealthState.Fail, deadline.IsCancellationRequested ? "Cancelled / server timeout" : ex.Message, ex.Message))); }
             }
             return new QueryOutput();
         }

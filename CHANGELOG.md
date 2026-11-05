@@ -2,6 +2,33 @@
 
 All notable changes to DBMON SQL are listed here. The project follows [Semantic Versioning](https://semver.org/).
 
+## [1.0.1] - 2026-11-04
+
+### Changed
+- **Query timeout now defaults to 0 (no limit).** The old default of 60 s made the driver cancel any slow or lock-blocked statement. A positive value (1–3600 s) still cancels automatically, and `Esc` always cancels. A run that hits the limit reports "Query timeout (N s) reached; set 0 in the connection window for no limit."
+- Saved logins and server groups now carry a format marker. Entries saved by 1.0.0 or earlier with a query timeout of 60 move to 0 once on load; an explicit 60 chosen in 1.0.0 cannot be told apart from the old default and also becomes 0 (set it again if you want it). Tool queries (Activity monitor, health check, probes) keep their own explicit short timeouts.
+
+### Added
+- **Health check rules**: configure enabled probes, maximum severity and per-probe thresholds separately for PROD and non-PROD servers through **Rules…**. Disabled probes do not execute; ignored probes never raise Overall. Last log dump is ignored by default on non-PROD. Rules are saved in versioned `health-rules.json`; corrupt files fall back to defaults with a visible warning.
+- **Duplicate session**: right-click a session tab, or a row in the Activity monitor, to open a new editor tab next to the current one, already connected with the same profile and credentials (held in memory only) and in the same database. The PROD flag carries over.
+- Smoke builds only (`-p:Smoke=true`): `--smoke --live-test` runs the checks against one saved non-PROD ASE profile named on the command line and present in `--allow`; see docs/building.md. Release packages do not include it.
+- Saved logins written by 1.0.1 carry a format marker that 1.0.0 cannot read; keep a copy of `profiles.dat` if you may need to go back.
+
+### Fixed
+- Activity monitor resolves live ASE and MDA column aliases, selects the process result after status results, and reads SQL text and monitor identity by their server names. Missing SPID errors list the received headings.
+- MDA repeat deltas match keys and counters by server aliases across result column order changes, exclude ID/gauge fields, and preserve server headings in results and charts.
+- Catalog comparison, DDL, health, IQ and Replication Server parsers share column lookup across binding names, captions and source names, including trimmed and case-insensitive headings. IQ and RS derived metrics detect existing server headings correctly.
+- **ASE 16 review fixes:**
+  - Health check: Log usage and Last log dump skip databases whose log shares a device fragment with data (e.g. master), so Data and Log no longer report the same number; Data usage labels those rows `data+log`. Last log dump also skips archive databases.
+  - Object compare no longer marks every indexed table *Unavailable*: it reads the index list among the result sets `sp_helpindex` returns on ASE 15/16.
+  - Activity monitor SQL text orders `monProcessSQLText` by `BatchID, LineNumber, SequenceInLine`, and the current statement uses `monProcessStatement` (SPID, KPID, BatchID) instead of the `monSysStatement` history pipe.
+  - Plan viewer and Statistics IO ignore the `<VA>` leaf of each operator, also find an `opTree` nested under `<plan>`, and round fractional estimated rows / logical reads instead of dropping them.
+  - A run keeps up to 20,000 messages or 8 MiB of message text (was 250 first + 250 last), so the isql text view and the sp_sysmon section index cover full reports; the "N messages omitted" marker remains when the cap is reached. The live Messages pane keeps its 250 + 250 rows.
+  - The sp_sysmon index recognizes Housekeeper Task Activity, Monitor Access to Executing SQL, Replication Agent, Tempdb Activity, Thread Utilization and Run Queue.
+  - PROD/Repeat confirmation now also covers `sp_bind*`/`sp_unbind*`, login/role/ownership procedures (`sp_locklogin`, `sp_role`, `sp_changedbowner`, `sp_changegroup`), replication procedures (`sp_setreptable`, `sp_setrepproc`, `sp_setrepdbmode`, `sp_reptostandby`, `sp_config_rep_agent`, `sp_start/stop_rep_agent`), space and settings procedures (`sp_extendsegment`, `sp_placeobject`, `sp_logdevice`, `sp_modifythreshold`, `sp_chgattribute`, `sp_recompile`, `sp_hidetext`, `sp_tempdb`, `sp_audit`, `sp_logintrigger`, `sp_cacheconfig`/`sp_poolconfig` with a value), `lock table`, `sp_sysmon` without `noclear`, and RS `switch active`, `configure replication server` and `admin quiesce_force_rsi`.
+  - MDA deltas no longer treat `monSysStatement`, `monSysLoad` or `monLicense` as cumulative counters.
+  - Recipes: MDA columns use their exact catalog case (works on case-sensitive servers); *Unallocated space by device* joins on `vdevno` and counts device size in 2 KB virtual pages; *Top tables* uses `@@maxpagesize`; *Space usage by database* reports mixed data+log fragments separately.
+
 ## [1.0.0] — 2026-11-04
 
 First full feature release after 0.4.0. Groups every tanda since that version (live messages and export, plan viewer and MDA deltas, activity monitor, health check and object compare, richer explorer / DDL / RS / IQ, and packaging tech debt). Intermediate tags `v0.5.0`–`v0.7.0` remain as pre-release markers; this is the single Latest package.

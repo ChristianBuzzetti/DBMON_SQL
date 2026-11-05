@@ -63,6 +63,21 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
     public static OdbcSession Open(ConnectionProfile profile, string password, string identityPassword = "")
         => Open(profile, password, identityPassword, new NativeOdbcConnection(BuildConnectionString(profile, password, identityPassword)));
 
+    // A new session like this one: same profile, password and identity password (held in memory, nothing written or
+    // logged), and the database this session is in now when the profile has one to change (ASE).
+    public OdbcSession OpenSibling() => OpenSibling(text => new NativeOdbcConnection(text));
+
+    // The profile this session logged in with (no secrets) and a failure text with this session's secrets removed.
+    public ConnectionProfile Profile => profile;
+    public string DescribeFailure(Exception exception) => DescribeConnectionFailure(exception, password, identityPassword);
+
+    internal OdbcSession OpenSibling(Func<string, IOdbcConnection> connect)
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+        var target = profile.Platform == ServerPlatform.Ase && database.Length != 0 ? profile with { Database = database } : profile;
+        return Open(target, password, identityPassword, connect(BuildConnectionString(target, password, identityPassword)));
+    }
+
     // The session owns the injected connection, just as it owns a native connection.
     internal static OdbcSession Open(ConnectionProfile profile, string password, string identityPassword, IOdbcConnection connection)
     {
@@ -325,7 +340,7 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
 
     // A server failure of one batch: its native records become messages and the run's error. A connection-level
     // SQLSTATE (08xxx) marks the session as interrupted.
-    private void RecordFailure(Exception ex, QueryOutput output, CancellationToken cancellation)
+    private void RecordFailure(Exception ex, QueryOutput output, CancellationToken cancellation, int timeoutSeconds = 0)
     {
         var errors = connection.GetDiagnostics(ex)!;
         lock (messagesGate)
@@ -335,7 +350,11 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
         // Native records above own the readable server facts. Do not append
         // the exception's framed aggregate as another display message.
         output.ErrorRawText = RedactSecrets(ex.Message);
-        output.Error = cancellation.IsCancellationRequested ? "Cancellation requested. Review server messages and verify the session state." : "Query failed. Review server messages or open the original diagnostic for details.";
+        // HYT00 is the driver's timeout: say which limit was reached and where to lift it.
+        bool timedOut = timeoutSeconds > 0 && errors.Any(e => e.SQLState == "HYT00");
+        output.Error = cancellation.IsCancellationRequested ? "Cancellation requested. Review server messages and verify the session state." :
+            timedOut ? $"Query timeout ({timeoutSeconds} s) reached; set 0 in the connection window for no limit." :
+            "Query failed. Review server messages or open the original diagnostic for details.";
     }
 
     // The driver side of ScriptRunner for one run. Execute is the only path that sends user SQL, once per call; the
@@ -388,7 +407,7 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
             }
             catch (Exception ex) when (session.connection.GetDiagnostics(ex) != null)
             {
-                session.RecordFailure(ex, output, cancellation);
+                session.RecordFailure(ex, output, cancellation, timeoutSeconds);
                 return session.connectionIssue || cancellation.IsCancellationRequested ? BatchOutcome.Fatal : BatchOutcome.Failed;
             }
         }
@@ -407,5 +426,6 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
     }
 
     private string RedactSecrets(string text) => Redact(text, password, identityPassword);
-    public void Dispose() { try { connection.Dispose(); } finally { password = identityPassword = ""; } }
+    private volatile bool disposed;
+    public void Dispose() { disposed = true; try { connection.Dispose(); } finally { password = identityPassword = ""; } }
 }

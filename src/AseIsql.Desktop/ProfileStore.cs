@@ -7,7 +7,7 @@ using System.Text.Json.Serialization;
 namespace AseIsql.Desktop;
 
 // Each secret is kept only through its own explicit Remember checkbox, inside the DPAPI-protected file.
-internal sealed record SavedLogin(string Name, ConnectionProfile Profile, string? Password = null, string? IdentityPassword = null)
+internal sealed record SavedLogin(string Name, ConnectionProfile Profile, string? Password = null, string? IdentityPassword = null, int Version = 0)
 {
     public bool HasPassword => !string.IsNullOrEmpty(Password);
     public bool HasIdentityPassword => !string.IsNullOrEmpty(IdentityPassword);
@@ -45,7 +45,8 @@ internal static class ProfileStore
             // Structure only, as for server groups: one profile whose CA or identity file moved must not hide all the
             // others. It stays in the list (and in the file when it is saved again) with its Problem named.
             foreach (var login in logins) login.Profile.ValidateFields();
-            return logins;
+            // Files from 1.0.0 and earlier have no Version and an old default query timeout of 60 s (see MigrateLegacyTimeout).
+            return logins.Select(l => l.Version >= ConnectionProfile.CurrentStoreVersion ? l : l with { Profile = l.Profile.MigrateLegacyTimeout(l.Version), Version = ConnectionProfile.CurrentStoreVersion }).ToList();
         }
         finally { Array.Clear(plain); }
     }
@@ -53,7 +54,7 @@ internal static class ProfileStore
     public static void Save(string path, IReadOnlyList<SavedLogin> logins)
     {
         if (logins.Count > MaxLogins) throw new IOException("Up to 200 profiles can be saved.");
-        byte[] plain = JsonSerializer.SerializeToUtf8Bytes(logins, Json);
+        byte[] plain = JsonSerializer.SerializeToUtf8Bytes(logins.Select(l => l with { Version = ConnectionProfile.CurrentStoreVersion }).ToList(), Json);
         byte[] sealedBytes;
         try { sealedBytes = Protect(plain); } finally { Array.Clear(plain); }
         if (sealedBytes.Length + Magic.Length > MaxBytes) throw new IOException("The saved profiles exceed 1 MiB.");
