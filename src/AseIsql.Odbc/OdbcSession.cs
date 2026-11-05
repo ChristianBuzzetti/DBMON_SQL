@@ -89,7 +89,6 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
             session.connection.Open();
             // Replication Server has no current database; the ASE driver is not asked for one there.
             if (profile.Platform != ServerPlatform.Rs) session.database = session.connection.Database ?? "";
-            session.EnableFlushMessage();
             var opened = clock.Elapsed; session.ReadSessionFacts();
             session.OpenTiming = (opened, clock.Elapsed - opened);
             return session;
@@ -110,21 +109,6 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
 
     // A match only costs one probe; comments or strings that mention "use" are harmless false positives.
     public static bool MayChangeDatabase(string sql) => UseStatement.IsMatch(sql);
-
-    // ASE holds PRINT and informational messages in the TDS stream until the batch ends unless flushmessage is on, so
-    // live messages need it. ASE only; a failure never blocks the login.
-    internal const string FlushMessageSql = EstimatedPlan.FlushOn;
-    private void EnableFlushMessage()
-    {
-        if (profile.Platform != ServerPlatform.Ase) return;
-        try
-        {
-            using var command = connection.CreateCommand();
-            command.CommandText = FlushMessageSql; command.CommandTimeout = 10;
-            command.ExecuteNonQuery();
-        }
-        catch (Exception ex) when (connection.GetDiagnostics(ex) != null || ex is InvalidOperationException) { }
-    }
 
     // Session identity for the status bar. A failure never blocks the login: the facts stay unknown.
     private void ReadSessionFacts()

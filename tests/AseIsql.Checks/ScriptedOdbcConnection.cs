@@ -29,12 +29,8 @@ sealed class ScriptedOdbcConnection : IOdbcConnection
         steps.Enqueue(step); return step;
     }
 
-    public const string FlushSql = "set flushmessage on";
-
-    // ASE sessions send `set flushmessage on` right after connecting, before the facts probe.
-    public ScriptedOdbcConnection WithFacts(bool flush = true)
+    public ScriptedOdbcConnection WithFacts()
     {
-        if (flush) Add(FlushSql);
         var facts = new DataTable();
         facts.Columns.Add("spid", typeof(int)); facts.Columns.Add("db"); facts.Columns.Add("login"); facts.Columns.Add("charset");
         facts.Rows.Add(73, Database, "fixture_login", "utf8");

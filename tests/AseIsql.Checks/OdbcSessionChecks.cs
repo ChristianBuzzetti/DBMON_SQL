@@ -29,7 +29,7 @@ static class OdbcSessionChecks
                 var output = session.Execute("select fixture");
                 Assert(output.Error == null && output.Tables.Count == 2 && output.Tables[0].Rows.Count == 2);
                 Assert((int)output.Tables[1].Rows[0][0] == 3 && output.Messages.Single().Text == "Rows affected: 4");
-                Assert(connection.Pending == 0 && connection.Executed.All(command => command.Disposed && (command.Reader == null || command.Reader.IsClosed)));
+                Assert(connection.Pending == 0 && connection.Executed.All(command => command.Disposed && command.Reader!.IsClosed));
             }
             Assert(connection.Disposed && connection.State == ConnectionState.Closed);
         });
@@ -84,7 +84,7 @@ static class OdbcSessionChecks
             using var cancellation = new CancellationTokenSource();
             var output = session.Execute("select repeated\ngo 3", cancellation.Token, userRun: true, timeoutSeconds: 0);
             Assert(output.Error == null && output.Tables.Select(table => (int)table.Rows[0][0]).SequenceEqual(new[] { 1, 2, 3 }));
-            Assert(connection.Executed.Skip(2).All(command => command.CommandTimeout == 0) && connection.Pending == 0);
+            Assert(connection.Executed.Skip(1).All(command => command.CommandTimeout == 0) && connection.Pending == 0);
             Assert(output.Messages.Any(message => message.Text == "Summary: 3 batches ok / 0 with error."));
             cancellation.Cancel(); // No registration may call Cancel on an already-disposed command.
             Assert(connection.Executed.All(command => command.CancelCalls == 0));
@@ -125,7 +125,7 @@ static class OdbcSessionChecks
             var output = session.Execute("select interrupted\ngo\nselect after");
             Assert(output.Error != null && output.ErrorSource == "ODBC" && session.IsOpen && connection.Pending == 0);
             Assert(output.Tables.Count == 2 && output.Tables[0].Rows.Count == 1 && (int)output.Tables[1].Rows[0][0] == 3);
-            Assert(connection.Executed[2].CancelCalls == 1 && connection.Executed[2].Reader!.IsClosed);
+            Assert(connection.Executed[1].CancelCalls == 1 && connection.Executed[1].Reader!.IsClosed);
             Assert(output.Messages.Any(message => message.Text == "Rejected [password]"));
         });
         check("OdbcSession cancels its active command, preserves partial rows and stops subsequent batches", () => {
@@ -136,7 +136,7 @@ static class OdbcSessionChecks
             using var session = Open(connection);
             session.ContinueOnError = true;
             var output = session.Execute("select slow\ngo\nselect never", cancellation.Token);
-            var command = connection.Executed[2];
+            var command = connection.Executed[1];
             Assert(output.Error!.Contains("Cancellation requested") && output.Tables.Single().Rows.Count == 1);
             Assert(command.CancelCalls > 0 && command.Disposed && command.Reader!.IsClosed && connection.Pending == 1);
         });
@@ -146,7 +146,7 @@ static class OdbcSessionChecks
             using var cancellation = new CancellationTokenSource(); cancellation.Cancel();
             bool cancelled = false;
             try { session.Execute("select never", cancellation.Token); } catch (OperationCanceledException) { cancelled = true; }
-            Assert(cancelled && connection.Executed.Count == 2 && connection.Pending == 0);
+            Assert(cancelled && connection.Executed.Count == 1 && connection.Pending == 0);
         });
         check("OdbcSession initializes textsize once per session across capture toggles and reads plans without replay", () => {
             for (int sessionIndex = 0; sessionIndex < 2; sessionIndex++)
@@ -188,7 +188,7 @@ static class OdbcSessionChecks
             session.ContinueOnError = true;
             var output = session.Execute("select first\ngo\nselect second\ngo\nselect never");
             Assert(output.Error!.Contains("Local limit of 1 rows") && output.Tables.Sum(table => table.Rows.Count) == 1);
-            Assert(connection.Pending == 1 && connection.Executed[3].CancelCalls == 1);
+            Assert(connection.Pending == 1 && connection.Executed[2].CancelCalls == 1);
         });
     }
 
