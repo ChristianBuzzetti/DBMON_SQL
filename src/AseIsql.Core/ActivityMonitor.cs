@@ -34,8 +34,8 @@ public static class ActivityMonitor
     public static string ProcessSql(int spid) => ProcessesSql.Replace("order by p.spid", "where p.spid = " + Spid(spid), StringComparison.Ordinal);
     public static string SqlTextSql(int spid, bool currentStatement = true) => currentStatement
         ? "select t.SQLText from master..monProcessSQLText t where t.SPID = " + Spid(spid) +
-          " and exists (select 1 from master..monSysStatement s where s.SPID = t.SPID and s.BatchID = t.BatchID) order by t.BatchID, t.SequenceInBatch"
-        : "select SQLText from master..monProcessSQLText where SPID = " + Spid(spid) + " order by BatchID, SequenceInBatch";
+          " and exists (select 1 from master..monProcessStatement s where s.SPID = t.SPID and s.KPID = t.KPID and s.BatchID = t.BatchID) order by t.BatchID, t.LineNumber, t.SequenceInLine"
+        : "select SQLText from master..monProcessSQLText where SPID = " + Spid(spid) + " order by BatchID, LineNumber, SequenceInLine";
     public static string LocksSql(int spid) => "select * from master..monLocks where SPID = " + Spid(spid);
 
     public static IReadOnlyList<ActivityProcess> Parse(DataTable table)

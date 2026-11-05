@@ -73,7 +73,9 @@ public static class ResultFormats
         "Kernel Utilization", "Worker Process Management", "Parallel Query Management", "Task Management",
         "Application Management", "ESP Management", "Transaction Profile", "Transaction Management",
         "Index Management", "Metadata Cache Management", "Lock Management", "Data Cache Management",
-        "Procedure Cache Management", "Memory Management", "Recovery Management", "Disk I/O Management", "Network I/O Management"
+        "Procedure Cache Management", "Memory Management", "Recovery Management", "Disk I/O Management", "Network I/O Management",
+        // ASE 15.7/16 (threaded kernel) additions.
+        "Housekeeper Task Activity", "Monitor Access to Executing SQL", "Replication Agent", "Tempdb Activity", "Thread Utilization", "Run Queue"
     };
 
     // Offsets and zero-based lines refer to the original text, including CRLF/CR/LF and indented headings.

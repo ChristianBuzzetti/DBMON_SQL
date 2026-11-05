@@ -39,8 +39,10 @@ public static partial class CatalogSql
                 {
                     var columns = Read(engine, Columns(database, id), cancellation);
                     var indexes = Read(engine, Indexes(database, key), cancellation);
-                    if (columns.Tables.Count != 1 || indexes.Tables.Count != 1) throw new FormatException("Column or index metadata is unavailable.");
-                    snapshots.Add(new(key, ObjectCompare.TableDefinition(columns.Tables[0], indexes.Tables[0])));
+                    // sp_helpindex on ASE 15/16 adds a second result (index_ptn_name, index_ptn_seg): use the index list.
+                    var indexList = indexes.Tables.FirstOrDefault(t => ResultColumns.Find(t, "index_name") != null);
+                    if (columns.Tables.Count != 1 || indexList == null) throw new FormatException("Column or index metadata is unavailable.");
+                    snapshots.Add(new(key, ObjectCompare.TableDefinition(columns.Tables[0], indexList)));
                 }
                 else
                 {

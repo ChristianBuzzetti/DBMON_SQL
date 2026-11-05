@@ -21,7 +21,7 @@
     "category": "Diagnostics and activity",
     "name": "Top 10 processes by logical reads",
     "description": "Active sessions ordered by logical reads.",
-    "sql": "select top 10\n    mp.spid, suser_name(mp.serveruserid) as login_name, mp.command as cmd,\n    mp.dbname as db, mp.hostname, mp.application as program,\n    mps.cputime as cpu, mps.PhysicalReads as p_reads, mps.LogicalReads as l_reads,\n    mps.RowsAffected as [rows]\nfrom master..monProcess mp\njoin master..monProcessStatement mps on mp.spid = mps.spid\nwhere mp.spid <> @@spid\norder by mps.LogicalReads desc"
+    "sql": "select top 10\n    mp.SPID, suser_name(mp.ServerUserID) as login_name, mp.Command as cmd,\n    mp.DBName as db, mp.hostname, mp.Application as program,\n    mps.CPUTime as cpu, mps.PhysicalReads as p_reads, mps.LogicalReads as l_reads,\n    mps.RowsAffected as [rows]\nfrom master..monProcess mp\njoin master..monProcessStatement mps on mp.SPID = mps.SPID\nwhere mp.SPID <> @@spid\norder by mps.LogicalReads desc"
   },
   {
     "id": "ase_top10_cpu",
@@ -29,7 +29,7 @@
     "category": "Diagnostics and activity",
     "name": "Top 10 processes by CPU",
     "description": "Active sessions ordered by accumulated CPU time.",
-    "sql": "select top 10\n    mp.spid, suser_name(mp.serveruserid) as login_name, mp.command as cmd,\n    mp.dbname as db, mp.hostname, mp.application as program,\n    mps.cputime as cpu, mps.LogicalReads as l_reads\nfrom master..monProcess mp\njoin master..monProcessStatement mps on mp.spid = mps.spid\nwhere mp.spid <> @@spid\norder by mps.cputime desc"
+    "sql": "select top 10\n    mp.SPID, suser_name(mp.ServerUserID) as login_name, mp.Command as cmd,\n    mp.DBName as db, mp.hostname, mp.Application as program,\n    mps.CPUTime as cpu, mps.LogicalReads as l_reads\nfrom master..monProcess mp\njoin master..monProcessStatement mps on mp.SPID = mps.SPID\nwhere mp.SPID <> @@spid\norder by mps.CPUTime desc"
   },
   {
     "id": "ase_waits",
@@ -69,7 +69,7 @@
     "category": "Diagnostics and activity",
     "name": "Active sessions",
     "description": "Non-sleeping processes with commands and databases. :min_spid filters system SPIDs; use 0 for all or 50 to skip lower IDs.",
-    "sql": "select mp.spid, suser_name(mp.serveruserid) as login_name, mp.command as cmd,\n    mp.dbname as db, mp.hostname, mp.application as program,\n    mp.blockingspid as blocked_by, mp.secondswaiting as sec_wait\nfrom master..monProcess mp\nwhere mp.command not in ('AWAITING COMMAND','SLEEPING','BACKGROUND','CHECKPOINT SLEEP')\n  and mp.spid <> @@spid\n  and mp.spid > :min_spid\norder by mp.spid"
+    "sql": "select mp.SPID, suser_name(mp.ServerUserID) as login_name, mp.Command as cmd,\n    mp.DBName as db, mp.hostname, mp.Application as program,\n    mp.BlockingSPID as blocked_by, mp.SecondsWaiting as sec_wait\nfrom master..monProcess mp\nwhere mp.Command not in ('AWAITING COMMAND','SLEEPING','BACKGROUND','CHECKPOINT SLEEP')\n  and mp.SPID <> @@spid\n  and mp.SPID > :min_spid\norder by mp.SPID"
   },
   {
     "id": "ase_procesos_panorama",
@@ -77,7 +77,7 @@
     "category": "Diagnostics and activity",
     "name": "Process overview (monProcess)",
     "description": "Login, command, waits, CPU, I/O, memory and blocker, ordered by wait time.",
-    "sql": "select mp.spid, mp.login, mp.dbname as db, mp.command as cmd,\n    mp.application as program, mp.hostname,\n    mpa.cputime as cpu, mpa.physicalreads as p_reads, mpa.memusagekb as mem_kb,\n    mp.secondswaiting as sec_wait, mp.secondsconnected as sec_conn,\n    mp.blockingspid as blocked_by, mp.waiteventid\nfrom master..monProcess mp\nleft join master..monProcessActivity mpa on mp.spid = mpa.spid\nwhere mp.serveruserid <> 0\norder by mp.secondswaiting desc"
+    "sql": "select mp.SPID, mp.Login, mp.DBName as db, mp.Command as cmd,\n    mp.Application as program, mp.hostname,\n    mpa.CPUTime as cpu, mpa.PhysicalReads as p_reads, mpa.MemUsageKB as mem_kb,\n    mp.SecondsWaiting as sec_wait, mp.SecondsConnected as sec_conn,\n    mp.BlockingSPID as blocked_by, mp.WaitEventID\nfrom master..monProcess mp\nleft join master..monProcessActivity mpa on mp.SPID = mpa.SPID\nwhere mp.ServerUserID <> 0\norder by mp.SecondsWaiting desc"
   },
   {
     "id": "ase_idle_largas",
@@ -85,7 +85,7 @@
     "category": "Diagnostics and activity",
     "name": "Long-idle connections",
     "description": "Idle sessions (AWAITING COMMAND / WaitEventID 250) exceeding :idle_seconds seconds.",
-    "sql": "select mp.spid, mp.login, mp.application as program, mp.hostname, mp.dbname as db,\n    mp.secondswaiting as sec_wait, mp.secondsconnected as sec_conn,\n    db_name(tempdb_id(mp.spid)) as assigned_tempdb\nfrom master..monProcess mp\ninner join master..sysprocesses s on mp.spid = s.spid\nwhere mp.serveruserid <> 0\n  and mp.command = 'AWAITING COMMAND'\n  and mp.waiteventid = 250\n  and mp.secondswaiting > :idle_seconds\norder by mp.secondswaiting desc"
+    "sql": "select mp.SPID, mp.Login, mp.Application as program, mp.hostname, mp.DBName as db,\n    mp.SecondsWaiting as sec_wait, mp.SecondsConnected as sec_conn,\n    db_name(tempdb_id(mp.SPID)) as assigned_tempdb\nfrom master..monProcess mp\ninner join master..sysprocesses s on mp.SPID = s.spid\nwhere mp.ServerUserID <> 0\n  and mp.Command = 'AWAITING COMMAND'\n  and mp.WaitEventID = 250\n  and mp.SecondsWaiting > :idle_seconds\norder by mp.SecondsWaiting desc"
   },
   {
     "id": "ase_sesiones_por_programa",
@@ -117,7 +117,7 @@
     "category": "Diagnostics and activity",
     "name": "Blocking chain",
     "description": "Blocked processes and their blockers.",
-    "sql": "select mp.spid, mp.blockingspid as blocked_by, mp.secondswaiting as sec_wait,\n    suser_name(mp.serveruserid) as login_name, mp.command as cmd, mp.dbname as db,\n    mp.application as program, mp.hostname\nfrom master..monProcess mp\nwhere isnull(mp.blockingspid,0) <> 0\norder by mp.secondswaiting desc"
+    "sql": "select mp.SPID, mp.BlockingSPID as blocked_by, mp.SecondsWaiting as sec_wait,\n    suser_name(mp.ServerUserID) as login_name, mp.Command as cmd, mp.DBName as db,\n    mp.Application as program, mp.hostname\nfrom master..monProcess mp\nwhere isnull(mp.BlockingSPID,0) <> 0\norder by mp.SecondsWaiting desc"
   },
   {
     "id": "ase_locks",
@@ -133,7 +133,7 @@
     "category": "Diagnostics and activity",
     "name": "SPID lock details",
     "description": "Objects and TABLE/PAGE/ROW lock levels held by :spid.",
-    "sql": "select l.spid, db = db_name(l.dbid), obj_name = object_name(l.ObjectId, l.dbid),\n    l.locktype, l.lockLevel, l.PageNumber, l.RowNumber\nfrom master..monLocks l\nwhere l.spid = :spid\norder by l.dbid, obj_name"
+    "sql": "select l.SPID, db = db_name(l.DBID), obj_name = object_name(l.ObjectID, l.DBID),\n    l.LockType, l.LockLevel, l.PageNumber, l.RowNumber\nfrom master..monLocks l\nwhere l.SPID = :spid\norder by l.DBID, obj_name"
   },
   {
     "id": "ase_locks_tabla",
@@ -141,7 +141,7 @@
     "category": "Diagnostics and activity",
     "name": "Active locks on a table",
     "description": "Check locks before reorganization or DDL. Enter :table and :database without quotes.",
-    "sql": "select sProc.spid, login = suser_name(sProc.suid), mLocks.lockLevel,\n    obj_name = object_name(mLocks.ObjectId, mLocks.DBID)\nfrom master..syslocks sLocks\ninner join master..monLocks mLocks on mLocks.spid = sLocks.spid and mLocks.dbid = sLocks.dbid\ninner join master..sysprocesses sProc on sProc.spid = sLocks.spid\nwhere object_name(mLocks.ObjectId, mLocks.DBID) = ':table'\nand db_name(sLocks.dbid) = ':database'"
+    "sql": "select sProc.spid, login = suser_name(sProc.suid), mLocks.LockLevel,\n    obj_name = object_name(mLocks.ObjectID, mLocks.DBID)\nfrom master..syslocks sLocks\ninner join master..monLocks mLocks on mLocks.SPID = sLocks.spid and mLocks.DBID = sLocks.dbid\ninner join master..sysprocesses sProc on sProc.spid = sLocks.spid\nwhere object_name(mLocks.ObjectID, mLocks.DBID) = ':table'\nand db_name(sLocks.dbid) = ':database'"
   },
   {
     "id": "ase_tx_log_holder",
@@ -157,7 +157,7 @@
     "category": "Diagnostics and activity",
     "name": "Long-running transactions",
     "description": "Transactions open longer than :open_minutes minutes, with owner and state.",
-    "sql": "select db = m.dbname, t.spid, t.xactname, state = t.state, t.starttime,\n    age_min = datediff(mi, t.starttime, getdate()),\n    login = m.login, program = m.application\nfrom master..systransactions t\nleft join master..monProcess m on m.spid = t.spid\nwhere datediff(mi, t.starttime, getdate()) >= :open_minutes\norder by t.starttime asc"
+    "sql": "select db = m.DBName, t.spid, t.xactname, state = t.state, t.starttime,\n    age_min = datediff(mi, t.starttime, getdate()),\n    login = m.Login, program = m.Application\nfrom master..systransactions t\nleft join master..monProcess m on m.SPID = t.spid\nwhere datediff(mi, t.starttime, getdate()) >= :open_minutes\norder by t.starttime asc"
   },
   {
     "id": "ase_log_segmento",
@@ -172,8 +172,8 @@
     "engine": "ASE",
     "category": "Space and capacity",
     "name": "Space usage by database",
-    "description": "Data and log size in MB; segmap=4 identifies the log segment.",
-    "sql": "select db = db_name(dbid),\n    data_mb = convert(numeric(12,1), sum(convert(bigint, case when segmap <> 4 then size else 0 end)) * (@@maxpagesize/1024.) / 1024),\n    log_mb  = convert(numeric(12,1), sum(convert(bigint, case when segmap = 4 then size else 0 end)) * (@@maxpagesize/1024.) / 1024)\nfrom master..sysusages\ngroup by dbid\norder by db_name(dbid)"
+    "description": "Data, log-only and mixed data+log size in MB; segmap=4 is a log-only fragment, fragments holding both data and log are listed separately.",
+    "sql": "select db = db_name(dbid),\n    data_mb = convert(numeric(12,1), sum(convert(bigint, case when (segmap & 4) = 0 then size else 0 end)) * (@@maxpagesize/1024.) / 1024),\n    log_mb  = convert(numeric(12,1), sum(convert(bigint, case when segmap = 4 then size else 0 end)) * (@@maxpagesize/1024.) / 1024),\n    data_log_mb = convert(numeric(12,1), sum(convert(bigint, case when (segmap & 4) = 4 and segmap <> 4 then size else 0 end)) * (@@maxpagesize/1024.) / 1024)\nfrom master..sysusages\ngroup by dbid\norder by db_name(dbid)"
   },
   {
     "id": "ase_space_data_detalle",
@@ -197,7 +197,7 @@
     "category": "Space and capacity",
     "name": "Unallocated space by device",
     "description": "Device space available for allocation with alter database.",
-    "sql": "select Device = d.name, Physical_Path = d.phyname,\n    Total_MB = convert(bigint, d.high - d.low + 1) * (@@maxpagesize/1024) / 1024,\n    Allocated_MB = isnull(sum(convert(bigint, u.size)) * (@@maxpagesize/1024) / 1024, 0),\n    Free_MB = (convert(bigint, d.high - d.low + 1) * (@@maxpagesize/1024) / 1024)\n               - isnull(sum(convert(bigint, u.size)) * (@@maxpagesize/1024) / 1024, 0),\n    Type = case when (d.status & 2) = 2 then 'Data/Log'\n                when (d.status & 4) = 4 then 'Backup/File'\n                else 'System/Other' end\nfrom master..sysdevices d\nleft join master..sysusages u on d.vdevno = u.vstart / 16777216\nwhere d.cntrltype = 0\ngroup by d.name, d.phyname, d.high, d.low, d.status\norder by Free_MB desc"
+    "sql": "select Device = d.name, Physical_Path = d.phyname,\n    Total_MB = convert(bigint, d.high - d.low + 1) * 2 / 1024,\n    Allocated_MB = isnull(sum(convert(bigint, u.size)) * (@@maxpagesize/1024) / 1024, 0),\n    Free_MB = (convert(bigint, d.high - d.low + 1) * 2 / 1024)\n               - isnull(sum(convert(bigint, u.size)) * (@@maxpagesize/1024) / 1024, 0),\n    Type = case when (d.status & 2) = 2 then 'Data/Log'\n                when (d.status & 4) = 4 then 'Backup/File'\n                else 'System/Other' end\nfrom master..sysdevices d\nleft join master..sysusages u on u.vdevno = d.vdevno\nwhere d.cntrltype = 0\ngroup by d.name, d.phyname, d.high, d.low, d.status\norder by Free_MB desc"
   },
   {
     "id": "ase_spaceused_tabla",
@@ -213,7 +213,7 @@
     "category": "Space and capacity",
     "name": "Largest tables in current database",
     "description": "Top 20 tables by size with row counts and data/leaf space in GB/KB.",
-    "sql": "select top 20\n    Table_Name = left(a.name, 50), Type = a.type, Row_Count = c.rowcnt,\n    Data_GB = (((sum(convert(bigint, c.pagecnt) * 2)) / 1024) / 1024),\n    Index_GB = (((sum(convert(bigint, c.leafcnt) * 2)) / 1024) / 1024),\n    Data_KB = sum(convert(bigint, c.pagecnt) * 2), Index_KB = sum(convert(bigint, c.leafcnt) * 2),\n    Total_GB = (((sum(convert(bigint, c.pagecnt) * 2)) / 1024) / 1024) + (((sum(convert(bigint, c.leafcnt) * 2)) / 1024) / 1024)\nfrom sysobjects a, systabstats c\nwhere c.id = a.id and a.type = 'U'\ngroup by a.name, a.type, c.rowcnt\norder by Data_GB desc"
+    "sql": "select top 20\n    Table_Name = left(a.name, 50), Type = a.type, Row_Count = c.rowcnt,\n    Data_GB = (((sum(convert(bigint, c.pagecnt) * (@@maxpagesize/1024))) / 1024) / 1024),\n    Index_GB = (((sum(convert(bigint, c.leafcnt) * (@@maxpagesize/1024))) / 1024) / 1024),\n    Data_KB = sum(convert(bigint, c.pagecnt) * (@@maxpagesize/1024)), Index_KB = sum(convert(bigint, c.leafcnt) * (@@maxpagesize/1024)),\n    Total_GB = (((sum(convert(bigint, c.pagecnt) * (@@maxpagesize/1024))) / 1024) / 1024) + (((sum(convert(bigint, c.leafcnt) * (@@maxpagesize/1024))) / 1024) / 1024)\nfrom sysobjects a, systabstats c\nwhere c.id = a.id and a.type = 'U'\ngroup by a.name, a.type, c.rowcnt\norder by Data_GB desc"
   },
   {
     "id": "ase_tabla_tamano",
@@ -365,7 +365,7 @@
     "category": "DBA operations",
     "name": "Generate idle-session kills (review)",
     "description": "Generates kill statements for sessions idle longer than :idle_seconds seconds. Review the text before executing.",
-    "sql": "select command = 'kill ' + convert(varchar(8), s.spid),\n    mp.login, mp.application as program, mp.hostname,\n    mp.secondswaiting as sec_wait, mp.secondsconnected as sec_conn\nfrom master..monProcess mp\ninner join master..sysprocesses s on mp.spid = s.spid\nwhere mp.serveruserid <> 0 and mp.command = 'AWAITING COMMAND'\nand mp.waiteventid = 250 and mp.secondswaiting > :idle_seconds\norder by mp.secondswaiting desc"
+    "sql": "select command = 'kill ' + convert(varchar(8), s.spid),\n    mp.Login, mp.Application as program, mp.hostname,\n    mp.SecondsWaiting as sec_wait, mp.SecondsConnected as sec_conn\nfrom master..monProcess mp\ninner join master..sysprocesses s on mp.SPID = s.spid\nwhere mp.ServerUserID <> 0 and mp.Command = 'AWAITING COMMAND'\nand mp.WaitEventID = 250 and mp.SecondsWaiting > :idle_seconds\norder by mp.SecondsWaiting desc"
   },
   {
     "id": "ase_act_dump_tran",

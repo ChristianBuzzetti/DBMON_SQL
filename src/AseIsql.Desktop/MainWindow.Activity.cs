@@ -245,7 +245,7 @@ public partial class MainWindow
             if (sqlAvailable != false)
             {
                 var output = await QueryAsync(ActivityMonitor.SqlTextSql(spid, statementAvailable != false));
-                // monSysStatement is history: a running batch may not have a matching record yet.
+                // monProcessStatement only lists statements running now: a batch between statements may have no row.
                 // Never lose available live text just because that optional statement match is empty.
                 if (statementAvailable != false && (output.Error != null || output.Tables.Count == 0 || output.Tables[0].Rows.Count == 0))
                 { statementAvailable = false; output = await QueryAsync(ActivityMonitor.SqlTextSql(spid, false)); }

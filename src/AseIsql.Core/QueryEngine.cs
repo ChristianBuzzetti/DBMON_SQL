@@ -32,10 +32,17 @@ namespace AseIsql
     public sealed class QueryOutput
     {
         public readonly List<DataTable> Tables = new List<DataTable>();
+        // A run keeps up to 20,000 messages or 8 MiB of UTF-16 text, whichever comes first (sp_sysmon prints each
+        // report line as its own message); the live messages pane keeps its own 250 + 250 buffer.
+        public const int MessageHeadLimit = 10_000, MessageTailLimit = 10_000;
+        public const long MessageCharacterLimit = 4L * 1024 * 1024;
         public readonly HeadTailBuffer<QueryMessage> Messages;
         public int OmittedMessages => Messages.OmittedCount;
         public QueryOutput(IProgress<QueryMessage>? messages = null)
-        { Messages = new(message => messages?.Report(message)); }
+        {
+            Messages = new(message => messages?.Report(message), MessageHeadLimit, MessageTailLimit, MessageCharacterLimit,
+                message => message.Text.Length + (message.RawText?.Length ?? 0));
+        }
         public string? Error;
         public string? ErrorRawText;
         public string ErrorSource = "CLIENT";
