@@ -106,13 +106,13 @@ public partial class MainWindow
     private ContextMenu CreateSessionMenu(SessionWorkspace workspace)
     {
         var menu = new ContextMenu();
-        var connect = new MenuItem { Header = "Connect…", InputGestureText = "F11" };
+        var connect = new MenuItem { Header = MenuHeaders.SessionConnect, InputGestureText = "F11" };
         connect.Click += (_, _) => ConnectSession(workspace);
-        var disconnect = new MenuItem { Header = "Disconnect", InputGestureText = "F12" };
+        var disconnect = new MenuItem { Header = MenuHeaders.SessionDisconnect, InputGestureText = "F12" };
         disconnect.Click += async (_, _) => { if (CanDisconnect(workspace)) await DisconnectSessionAsync(workspace); };
-        var duplicate = new MenuItem { Header = "Duplicate session" };
+        var duplicate = new MenuItem { Header = MenuHeaders.SessionDuplicate };
         duplicate.Click += async (_, _) => await DuplicateSessionAsync(workspace);
-        var close = new MenuItem { Header = "Close session" };
+        var close = new MenuItem { Header = MenuHeaders.SessionClose };
         close.Click += async (_, _) => await CloseSessionAsync(workspace);
         menu.Items.Add(connect); menu.Items.Add(disconnect); menu.Items.Add(duplicate); menu.Items.Add(new Separator()); menu.Items.Add(close);
         menu.Opened += (_, _) =>

@@ -52,16 +52,25 @@ public partial class MainWindow
         private readonly DataGrid grid = new() { AutoGenerateColumns = false, SelectionUnit = DataGridSelectionUnit.FullRow, SelectionMode = DataGridSelectionMode.Extended };
         private readonly DataGrid locks = new() { AutoGenerateColumns = true, IsReadOnly = true };
         private readonly TextBox sqlText = new() { IsReadOnly = true, AcceptsReturn = true, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+        private readonly TextBox planText = new() { IsReadOnly = true, AcceptsReturn = true, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
         private readonly TextBox filter = new() { Width = 260, Margin = new Thickness(8, 0, 8, 0), ToolTip = "Filter SPID, login, host, program, database, status or command; ancestors stay visible" };
         private readonly TextBlock status = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0) };
         private readonly TextBlock detailHeading = new() { Text = "Select a SPID to inspect its current SQL and locks.", Margin = new Thickness(0, 4, 0, 6), TextWrapping = TextWrapping.Wrap };
         private readonly TabItem sqlTab = new() { Header = "Current SQL" };
+        private readonly TabItem planTab = new() { Header = "Plan" };
         private readonly TabItem locksTab = new() { Header = "Locks" };
-        private readonly MenuItem kill = new() { Header = "Kill spid…" };
+        private readonly MenuItem kill = new() { Header = MenuHeaders.MonitorKill };
         private Task cancellationFinished = Task.CompletedTask;
         private IReadOnlyList<BlockingNode> roots = [];
-        private bool busy, closed, disposed, updatingRows, detailsPending;
-        private bool? statementAvailable, sqlAvailable, locksAvailable;
+        private IReadOnlyList<ActivityProcess> allProcesses = [];
+        private CheckBox onlyActive = null!;
+        private string statusPrefix = "", statusSuffix = "";
+        private bool busy, closed, disposed, updatingRows, detailsPending, retryMdaPending, refreshSqlPending, planRead;
+        private bool? statementAvailable, sqlAvailable, locksAvailable, dbccAvailable;
+        private readonly Dictionary<(int Spid, string Login), DiagnosticText> sqlFallbacks = [];
+        private (int Spid, string Login)? planPending;
+        private string sqlSource = "none";
+        private const string DiagnosticPermission = "dbcc sqltext / sp_showplan need sa_role or sybase_ts_role on this login. Ask a DBA to grant it or use MDA.";
         private int? ownSpid;
         private string sortProperty = nameof(ActivityProcess.Spid);
         private bool descending;
@@ -91,9 +100,18 @@ public partial class MainWindow
             var pause = new CheckBox { Content = "Pause", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
             pause.Checked += (_, _) => timer.Stop(); pause.Unchecked += (_, _) => { if (!closed) timer.Start(); };
             toolbar.Children.Add(pause);
+            onlyActive = new CheckBox { Content = "Only active", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0),
+                ToolTip = "Hide idle sessions (sleeping and AWAITING COMMAND). Blockers and blocked sessions always stay visible." };
+            try { onlyActive.IsChecked = ActivitySettingsStore.Load(ActivitySettingsStore.PathName).OnlyActive; } catch { onlyActive.IsChecked = false; }
+            onlyActive.Click += (_, _) => {
+                try { ActivitySettingsStore.Save(ActivitySettingsStore.PathName, new ActivitySettings(onlyActive.IsChecked == true)); }
+                catch (Exception ex) { status.Text = "Could not save the Only active setting: " + ex.Message; }
+                ApplyProcesses(); ShowRows();
+            };
+            toolbar.Children.Add(onlyActive);
             var refresh = new Button { Content = "Refresh now" }; refresh.Click += async (_, _) => await RefreshAsync(); toolbar.Children.Add(refresh);
             var retry = new Button { Content = "Retry MDA", ToolTip = "Check SQL text and lock access again after monitoring permissions or configuration change" };
-            retry.Click += async (_, _) => { if (busy || closed) return; statementAvailable = sqlAvailable = locksAvailable = null; await DetailsAsync(); }; toolbar.Children.Add(retry);
+            retry.Click += async (_, _) => { retryMdaPending = true; await DetailsAsync(); }; toolbar.Children.Add(retry);
             toolbar.Children.Add(new TextBlock { Text = "Filter", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0) });
             filter.TextChanged += (_, _) => ShowRows(); toolbar.Children.Add(filter);
             var copy = new Button { Content = "Copy rows", ToolTip = "Copy selected rows with headers; Ctrl+C does the same" }; copy.Click += (_, _) => CopyRows(); toolbar.Children.Add(copy);
@@ -126,13 +144,13 @@ public partial class MainWindow
                 foreach (var column in grid.Columns) column.SortDirection = null;
                 args.Column.SortDirection = descending ? ListSortDirection.Descending : ListSortDirection.Ascending; ShowRows();
             };
-            grid.SelectionChanged += async (_, _) => { if (!updatingRows) { ClearDetails(); await DetailsAsync(); } };
+            grid.SelectionChanged += async (_, _) => { if (!updatingRows) { planPending = null; ClearDetails(); await DetailsAsync(); } };
             grid.PreviewKeyDown += (_, args) => { if (args.Key == Key.C && Keyboard.Modifiers == ModifierKeys.Control) { CopyRows(); args.Handled = true; } };
             grid.PreviewMouseRightButtonDown += (_, args) => {
                 if (args.OriginalSource is DependencyObject source && FindAncestor<DataGridRow>(source) is { Item: ActivityRow row }) grid.SelectedItem = row;
             };
-            var menu = new ContextMenu(); var copyItem = new MenuItem { Header = "Copy rows" }; copyItem.Click += (_, _) => CopyRows(); menu.Items.Add(copyItem);
-            var duplicateItem = new MenuItem { Header = "Duplicate session" }; duplicateItem.Click += (_, _) => main.DuplicateFromMonitor(session, production); menu.Items.Add(duplicateItem);
+            var menu = new ContextMenu(); var copyItem = new MenuItem { Header = MenuHeaders.MonitorCopy }; copyItem.Click += (_, _) => CopyRows(); menu.Items.Add(copyItem);
+            var duplicateItem = new MenuItem { Header = MenuHeaders.MonitorDuplicate }; duplicateItem.Click += (_, _) => main.DuplicateFromMonitor(session, production); menu.Items.Add(duplicateItem);
             menu.Items.Add(kill); grid.ContextMenu = menu;
             menu.Opened += (_, _) => UpdateKill();
             kill.Click += async (_, _) => await KillAsync(); split.Children.Add(grid);
@@ -140,8 +158,17 @@ public partial class MainWindow
             Grid.SetRow(splitter, 1); split.Children.Add(splitter);
             var detail = new DockPanel(); DockPanel.SetDock(detailHeading, Dock.Top); detail.Children.Add(detailHeading);
             sqlText.SetResourceReference(Control.FontFamilyProperty, "MonoFont");
-            sqlTab.Content = sqlText; locksTab.Content = locks;
-            var tabs = new TabControl(); tabs.Items.Add(sqlTab); tabs.Items.Add(locksTab); detail.Children.Add(tabs);
+            planText.SetResourceReference(Control.FontFamilyProperty, "MonoFont");
+            var sqlPanel = new DockPanel();
+            var refreshSql = new Button { Content = "Refresh SQL", HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 0, 0, 6) };
+            refreshSql.Click += async (_, _) => { refreshSqlPending = true; await DetailsAsync(); };
+            DockPanel.SetDock(refreshSql, Dock.Top); sqlPanel.Children.Add(refreshSql); sqlPanel.Children.Add(sqlText);
+            var planPanel = new DockPanel();
+            var getPlan = new Button { Content = "Get plan (sp_showplan)", HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 0, 0, 6) };
+            getPlan.Click += async (_, _) => await PlanAsync();
+            DockPanel.SetDock(getPlan, Dock.Top); planPanel.Children.Add(getPlan); planPanel.Children.Add(planText);
+            sqlTab.Content = sqlPanel; planTab.Content = planPanel; locksTab.Content = locks;
+            var tabs = new TabControl(); tabs.Items.Add(sqlTab); tabs.Items.Add(planTab); tabs.Items.Add(locksTab); detail.Children.Add(tabs);
             Grid.SetRow(detail, 2); split.Children.Add(detail); layout.Children.Add(split); Content = layout;
             timer.Tick += async (_, _) => await RefreshAsync();
             Loaded += async (_, _) => { timer.Start(); await RefreshAsync(); };
@@ -187,7 +214,16 @@ public partial class MainWindow
             {
                 busy = false;
                 if (closed) await DisposeSessionAsync();
-                else { UpdateKill(); if (detailsPending) { detailsPending = false; await DetailsAsync(); } }
+                else
+                {
+                    UpdateKill();
+                    if (detailsPending) { detailsPending = false; await DetailsAsync(); }
+                    else if (planPending is { } requested)
+                    {
+                        planPending = null;
+                        if (Selected is { } process && Identity(process) == requested) await PlanAsync();
+                    }
+                }
             }
         }
         private async Task RefreshAsync() => await RunAsync(async () => {
@@ -199,15 +235,19 @@ public partial class MainWindow
             }
             var processes = ActivityMonitor.Parse(Table(await QueryAsync(ActivityMonitor.ProcessesSql)));
             if (closed) return;
-            roots = ActivityMonitor.BuildTree(processes); ShowRows();
-            status.Text = $"{DateTime.Now:T} · {Counts.Of(processes.Count, "process")} · monitor SPID {ownSpid?.ToString(CultureInfo.InvariantCulture) ?? "unknown (kill disabled)"} · dedicated connection";
-            detailsPending = false; await ReadDetailsAsync();
+            allProcesses = processes; ApplyProcesses();
+            statusPrefix = $"{DateTime.Now:T} · ";
+            statusSuffix = $" · monitor SPID {ownSpid?.ToString(CultureInfo.InvariantCulture) ?? "unknown (kill disabled)"} · dedicated connection";
+            ShowRows();
+            await ReadDetailsAsync(allowFallback: false);
         });
+
+        private void ApplyProcesses() => roots = ActivityMonitor.BuildTree(onlyActive.IsChecked == true ? ActivityMonitor.OnlyActive(allProcesses) : allProcesses);
 
         private void ShowRows()
         {
-            int[] selected = grid.SelectedItems.Cast<ActivityRow>().Select(r => r.Process.Spid).ToArray();
-            int? current = Selected?.Spid;
+            var selected = grid.SelectedItems.Cast<ActivityRow>().Select(r => Identity(r.Process)).ToHashSet();
+            var current = Selected is { } process ? Identity(process) : ((int Spid, string Login)?)null;
             var property = typeof(ActivityProcess).GetProperty(sortProperty)!;
             int Compare(ActivityProcess a, ActivityProcess b)
             {
@@ -220,28 +260,49 @@ public partial class MainWindow
             try
             {
                 grid.ItemsSource = rows;
-                grid.SelectedItem = rows.FirstOrDefault(r => r.Process.Spid == current);
-                foreach (var row in rows.Where(r => selected.Contains(r.Process.Spid))) if (!grid.SelectedItems.Contains(row)) grid.SelectedItems.Add(row);
+                grid.SelectedItem = rows.FirstOrDefault(r => Identity(r.Process) == current);
+                foreach (var row in rows.Where(r => selected.Contains(Identity(r.Process)))) if (!grid.SelectedItems.Contains(row)) grid.SelectedItems.Add(row);
             }
             finally { updatingRows = false; }
-            if (Selected == null) ClearDetails();
+            if (statusPrefix.Length > 0) status.Text = $"{statusPrefix}{rows.Count.ToString("N0", CultureInfo.InvariantCulture)} shown of {allProcesses.Count.ToString("N0", CultureInfo.InvariantCulture)} processes{statusSuffix}";
+            if (Selected is not { } active || Identity(active) != current) { planPending = null; ClearDetails(); }
         }
-        private void ClearDetails()
+        private static (int Spid, string Login) Identity(ActivityProcess process) => (process.Spid, process.Login);
+        private void ClearDetails(bool clearPlan = true)
         {
-            sqlText.Text = ""; locks.ItemsSource = null;
-            detailHeading.Text = Selected is { } p ? $"SPID {p.Spid} · {p.Login} · {p.Host} · {p.Program}" : "Select a SPID to inspect its current SQL and locks.";
+            sqlText.Text = ""; sqlSource = "none"; locks.ItemsSource = null;
+            if (clearPlan) { planText.Text = ""; planRead = false; }
+            UpdateDetailHeading();
+        }
+        private void UpdateDetailHeading()
+        {
+            detailHeading.Text = Selected is { } p ? $"SPID {p.Spid} · {p.Login} · {p.Host} · {p.Program} · SQL source: {sqlSource}" +
+                (planRead ? " · Plan source: sp_showplan" : "") +
+                (sqlAvailable == false ? " · MDA SQL text unavailable (disabled or not permitted)" : statementAvailable == false ? " · batch SQL (statement MDA unavailable or no matching statement)" : "") +
+                (locksAvailable == false ? " · locks unavailable (MDA disabled or not permitted)" : "") : "Select a SPID to inspect its current SQL and locks.";
         }
         private async Task DetailsAsync()
         {
+            if (closed) return;
             if (busy) { detailsPending = true; return; }
-            await RunAsync(ReadDetailsAsync);
+            if (retryMdaPending)
+            {
+                retryMdaPending = false;
+                statementAvailable = sqlAvailable = locksAvailable = dbccAvailable = null;
+                sqlFallbacks.Clear();
+            }
+            else if (refreshSqlPending) statementAvailable = sqlAvailable = null;
+            refreshSqlPending = false;
+            await RunAsync(() => ReadDetailsAsync(allowFallback: true));
         }
-        private async Task ReadDetailsAsync()
+        private async Task ReadDetailsAsync(bool allowFallback)
         {
-            ClearDetails();
+            ClearDetails(clearPlan: false);
             if (Selected is not { } process || closed) return;
             int spid = process.Spid;
-            bool StillSelected() => !closed && Selected?.Spid == spid;
+            var identity = Identity(process);
+            bool StillSelected() => !closed && Selected is { } selected && Identity(selected) == identity;
+            string text = "";
             if (sqlAvailable != false)
             {
                 var output = await QueryAsync(ActivityMonitor.SqlTextSql(spid, statementAvailable != false));
@@ -251,13 +312,34 @@ public partial class MainWindow
                 { statementAvailable = false; output = await QueryAsync(ActivityMonitor.SqlTextSql(spid, false)); }
                 else if (output.Error == null) statementAvailable ??= true;
                 sqlAvailable = output.Error == null && output.Tables.Count > 0;
-                sqlTab.Visibility = sqlAvailable == true ? Visibility.Visible : Visibility.Collapsed;
-                if (StillSelected() && sqlAvailable == true)
-                {
-                    string text = ActivityMonitor.ParseSqlText(output.Tables[0]);
-                    sqlText.Text = text.Length > 0 ? text : "No current SQL text reported for this SPID.";
-                }
+                if (sqlAvailable == true) text = ActivityMonitor.ParseSqlText(output.Tables[0]);
             }
+            if (!StillSelected()) return;
+            if (!string.IsNullOrWhiteSpace(text)) { sqlText.Text = text; sqlSource = "MDA"; }
+            else
+            {
+                if (allowFallback && dbccAvailable != false)
+                {
+                    var output = await QueryAsync(ProcessDiagnostics.SqlTextSql(spid));
+                    var diagnostic = ProcessDiagnostics.ParseSqlText(output.Messages, output.Error);
+                    sqlFallbacks[identity] = diagnostic;
+                    if (diagnostic.Status == DiagnosticStatus.NoPermission) dbccAvailable = false;
+                    else if (diagnostic.Status == DiagnosticStatus.Ok) dbccAvailable = true;
+                }
+                if (!StillSelected()) return;
+                if (sqlFallbacks.TryGetValue(identity, out var cached))
+                {
+                    sqlSource = cached.Status == DiagnosticStatus.Ok ? "dbcc sqltext" : "none";
+                    sqlText.Text = cached.Status switch {
+                        DiagnosticStatus.Ok => cached.Text,
+                        DiagnosticStatus.NoPermission => DiagnosticPermission,
+                        DiagnosticStatus.Failed => "dbcc sqltext failed: " + SingleLine(cached.Detail),
+                        _ => "No current SQL text reported for this SPID."
+                    };
+                }
+                else sqlText.Text = dbccAvailable == false ? DiagnosticPermission : "No current SQL text reported for this SPID.";
+            }
+            UpdateDetailHeading();
             if (locksAvailable != false)
             {
                 var output = await QueryAsync(ActivityMonitor.LocksSql(spid));
@@ -265,9 +347,29 @@ public partial class MainWindow
                 locksTab.Visibility = locksAvailable == true ? Visibility.Visible : Visibility.Collapsed;
                 if (StillSelected() && locksAvailable == true) locks.ItemsSource = output.Tables[0].DefaultView;
             }
-            if (StillSelected()) detailHeading.Text = $"SPID {spid} · {process.Login} · {process.Host} · {process.Program}" +
-                (sqlAvailable == false ? " · SQL text unavailable (MDA disabled or not permitted)" : statementAvailable == false ? " · batch SQL (statement MDA unavailable or no matching statement)" : "") +
-                (locksAvailable == false ? " · locks unavailable (MDA disabled or not permitted)" : "");
+            if (StillSelected()) UpdateDetailHeading();
+        }
+
+        private static string SingleLine(string text) => text.Replace('\r', ' ').Replace('\n', ' ').Trim();
+        private async Task PlanAsync()
+        {
+            if (closed || Selected is not { } process) return;
+            var identity = Identity(process);
+            if (busy) { planPending = identity; return; }
+            await RunAsync(async () => {
+                var output = await QueryAsync(ProcessDiagnostics.ShowplanSql(process.Spid));
+                var diagnostic = ProcessDiagnostics.ParseShowplan(output.Messages, output.Error);
+                if (closed || Selected is not { } selected || Identity(selected) != identity) return;
+                planRead = true;
+                planText.Text = diagnostic.Status switch {
+                    DiagnosticStatus.Ok => diagnostic.Text,
+                    DiagnosticStatus.Empty => "No plan: the process is not executing a statement right now." +
+                        (diagnostic.Detail.Length > 0 ? "\n" + diagnostic.Detail : ""),
+                    DiagnosticStatus.NoPermission => DiagnosticPermission,
+                    _ => "sp_showplan failed: " + SingleLine(diagnostic.Detail)
+                };
+                UpdateDetailHeading();
+            });
         }
 
         private void CopyRows()

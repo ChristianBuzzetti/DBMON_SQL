@@ -26,7 +26,10 @@ namespace AseIsql
     {
         // "1 row", "2 rows", "100,000 rows": product labels only; source values are never formatted here.
         public static string Of(long count, string noun) =>
-            count.ToString("N0", CultureInfo.InvariantCulture) + " " + (count == 1 ? noun : noun + "s");
+            count.ToString("N0", CultureInfo.InvariantCulture) + " " + (count == 1 ? noun : Plural(noun));
+        private static string Plural(string noun) =>
+            noun.EndsWith("s", StringComparison.OrdinalIgnoreCase) || noun.EndsWith("x", StringComparison.OrdinalIgnoreCase) || noun.EndsWith("z", StringComparison.OrdinalIgnoreCase) ||
+            noun.EndsWith("ch", StringComparison.OrdinalIgnoreCase) || noun.EndsWith("sh", StringComparison.OrdinalIgnoreCase) ? noun + "es" : noun + "s";
     }
 
     public sealed class QueryOutput
