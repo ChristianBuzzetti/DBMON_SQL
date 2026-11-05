@@ -229,6 +229,7 @@ public partial class MainWindow
                     return delta.Rows.Count + " delta rows, " + shape.Counters.Count + " counters (empty delta is valid).";
                 });
                 await CheckSync("live messages", LiveMessages);
+                await CheckSync("live messages (PRINT within one batch, no result set)", LiveMessagesSingleBatch);
                 await CheckSync("export with cancel", ExportCancel);
                 await CheckSync("sp_sysmon index", token => {
                     if (!options.IncludeSysmon) throw new LiveTestSkip("Opt in with --include-sysmon (one-minute sample; needs sa_role).");
@@ -550,7 +551,7 @@ public partial class MainWindow
             }
             int operators = EstimatedPlan.Plans(xml).Sum(p => PlanTree.Flatten(p.Tree).Count());
             Require(operators > 0, "Estimated plan has no operator tree (XML length " + xml.Length + ").");
-            return operators + " operators; " + xml.Length + " XML characters; options restored.";
+            return operators + " operators; " + xml.Length + " XML characters; flushmessage bracketed; options restored.";
         }
 
         private string Actual(CancellationToken token)
@@ -574,20 +575,45 @@ public partial class MainWindow
             public (string Text, long At)[] Snapshot() { lock (gate) return messages.ToArray(); }
         }
 
+        // Runs sql and returns each wanted marker's arrival time and the completion time (Progress<T> would post
+        // callbacks and could manufacture late delivery, so the collector is synchronous).
+        private static (Dictionary<string, long> Arrival, long End) RunLive(OdbcSession session, string sql, CancellationToken token, params string[] markers)
+        {
+            var collector = new LiveMessageCollector();
+            _ = Good(session.Execute(sql, token, userRun: false, timeoutSeconds: 15, messages: collector), token);
+            long end = Stopwatch.GetTimestamp();
+            var messages = collector.Snapshot();
+            var arrival = new Dictionary<string, long>(StringComparer.Ordinal);
+            foreach (string marker in markers)
+                arrival[marker] = messages.FirstOrDefault(m => m.Text.Contains(marker, StringComparison.Ordinal)).At;
+            return (arrival, end);
+        }
+
+        private static double LeadMs(long at, long end) => at == 0 ? 0 : Stopwatch.GetElapsedTime(at, end).TotalMilliseconds;
+        private static string Ms(double value) => value.ToString("F0", CultureInfo.InvariantCulture);
+
+        // The SAP ASE ODBC driver hands over PRINT only when SQLExecute/SQLMoreResults returns, so messages arrive live
+        // between result sets and between batches.
         private string LiveMessages(CancellationToken token)
         {
             using var session = Sibling(token);
-            // Progress<T> would post callbacks and could manufacture late delivery; collect synchronously.
-            var collector = new LiveMessageCollector();
-            long start = Stopwatch.GetTimestamp();
-            _ = Good(session.Execute("print 'lt one' waitfor delay '00:00:02' print 'lt two'", token, userRun: false, timeoutSeconds: 10, messages: collector), token);
-            long end = Stopwatch.GetTimestamp();
-            var messages = collector.Snapshot();
-            var first = messages.FirstOrDefault(m => m.Text.Contains("lt one", StringComparison.Ordinal));
-            var second = messages.FirstOrDefault(m => m.Text.Contains("lt two", StringComparison.Ordinal));
-            double lead = first.At == 0 ? 0 : Stopwatch.GetElapsedTime(first.At, end).TotalMilliseconds;
-            Require(first.At != 0 && second.At > first.At && lead >= 1000, "First PRINT did not arrive live at least one second before completion (lead " + lead.ToString("F0", CultureInfo.InvariantCulture) + " ms), or second PRINT is missing/out of order.");
-            return "First message at " + Stopwatch.GetElapsedTime(start, first.At).TotalMilliseconds.ToString("F0", CultureInfo.InvariantCulture) + " ms; batch ended " + lead.ToString("F0", CultureInfo.InvariantCulture) + " ms later; both PRINTs received.";
+            var (sets, setsEnd) = RunLive(session, "print 'lt one'\nselect 1 as lt_first\nwaitfor delay '00:00:02'\nselect 2 as lt_second\nprint 'lt two'", token, "lt one", "lt two");
+            double setsLead = LeadMs(sets["lt one"], setsEnd);
+            Require(sets["lt one"] != 0 && sets["lt two"] >= sets["lt one"] && sets["lt two"] > 0 && setsLead >= 1000, "'lt one' did not arrive at least one second before completion between result sets (lead " + Ms(setsLead) + " ms), or 'lt two' is missing/out of order.");
+            var (batches, batchesEnd) = RunLive(session, "print 'lt batch one'\ngo\nwaitfor delay '00:00:02'\nprint 'lt batch two'", token, "lt batch one", "lt batch two");
+            double batchLead = LeadMs(batches["lt batch one"], batchesEnd);
+            Require(batches["lt batch one"] != 0 && batchLead >= 1000, "'lt batch one' did not arrive at least one second before completion between batches (lead " + Ms(batchLead) + " ms).");
+            return "Between result sets: first PRINT " + Ms(setsLead) + " ms before completion; between batches: first PRINT " + Ms(batchLead) + " ms before completion.";
+        }
+
+        private string LiveMessagesSingleBatch(CancellationToken token)
+        {
+            using var session = Sibling(token);
+            var (single, end) = RunLive(session, "print 'lt one' waitfor delay '00:00:02' print 'lt two'", token, "lt one", "lt two");
+            double lead = LeadMs(single["lt one"], end);
+            if (single["lt one"] != 0 && single["lt two"] >= single["lt one"] && lead >= 1000)
+                return "First PRINT arrived " + Ms(lead) + " ms before the batch ended; both PRINTs received.";
+            throw new LiveTestSkip("Driver delivers PRINT at batch end (SAP ASE ODBC returns messages only when SQLExecute/SQLMoreResults returns); messages between result sets and batches do arrive live. Lead " + Ms(lead) + " ms.");
         }
 
         private string ExportCancel(CancellationToken token)

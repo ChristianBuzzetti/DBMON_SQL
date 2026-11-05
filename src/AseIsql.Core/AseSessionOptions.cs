@@ -67,7 +67,10 @@ public sealed record AseSessionOptions(bool NoExec = false, bool StatisticsTime 
         if (current.StatisticsIo != next.StatisticsIo)
         {
             // OdbcSession initializes textsize once when capture first runs, preserving user SETs in this session.
-            others.Add(next.StatisticsIo ? "set plan for show_execio_xml to message on" : "set plan for show_execio_xml off");
+            // flushmessage makes ASE flush the plan message at once, leaving showplan_in_xml an empty buffer: off while
+            // the plan capture is armed, back on (the login default) when it is released.
+            if (next.StatisticsIo) { others.Add(EstimatedPlan.FlushOff); others.Add("set plan for show_execio_xml to message on"); }
+            else { others.Add("set plan for show_execio_xml off"); others.Add(EstimatedPlan.FlushOn); }
         }
         else if (next.StatisticsIo && others.Count > 0)
         {

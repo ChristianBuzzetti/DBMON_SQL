@@ -113,7 +113,7 @@ public sealed class OdbcSession : IQueryEngine, ISessionFacts, IDisposable
 
     // ASE holds PRINT and informational messages in the TDS stream until the batch ends unless flushmessage is on, so
     // live messages need it. ASE only; a failure never blocks the login.
-    internal const string FlushMessageSql = "set flushmessage on";
+    internal const string FlushMessageSql = EstimatedPlan.FlushOn;
     private void EnableFlushMessage()
     {
         if (profile.Platform != ServerPlatform.Ase) return;
