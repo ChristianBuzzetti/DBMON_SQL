@@ -17,24 +17,75 @@ public partial class App
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool AttachConsole(uint processId);
 
+    private int liveTestCrashed;
+
     private async void StartLiveTest(string[] args)
     {
-        // WinExe has no console by default. Preserve redirected stdout, or attach the launching console.
-        IntPtr output = GetStdHandle(-11);
-        if ((output == IntPtr.Zero || output == new IntPtr(-1)) && AttachConsole(uint.MaxValue))
+        // Any exception that escapes the runner (or reaches the dispatcher) is written to --report and exits 1.
+        DispatcherUnhandledException += (_, e) => { e.Handled = true; LiveTestCrash(args, e.Exception); };
+        AppDomain.CurrentDomain.UnhandledException += (_, e) => LiveTestCrash(args, e.ExceptionObject as Exception ?? new Exception("Unknown unhandled exception."), exit: false);
+        TaskScheduler.UnobservedTaskException += (_, e) => e.SetObserved();
+        try
         {
-            try { Console.SetOut(new StreamWriter(Console.OpenStandardOutput(), Console.OutputEncoding) { AutoFlush = true }); }
-            catch (IOException) { } // The JSON report remains available if the launching console disappears.
+            // WinExe has no console by default. Preserve redirected stdout, or attach the launching console.
+            IntPtr output = GetStdHandle(-11);
+            if ((output == IntPtr.Zero || output == new IntPtr(-1)) && AttachConsole(uint.MaxValue))
+            {
+                try { Console.SetOut(new StreamWriter(Console.OpenStandardOutput(), Console.OutputEncoding) { AutoFlush = true }); }
+                catch (IOException) { } // The JSON report remains available if the launching console disappears.
+            }
+            // There is deliberately no MainWindow instance: its constructor loads settings and installs persistence.
+            int code = await Task.Run(() => AseIsql.Desktop.MainWindow.RunLiveTestAsync(args));
+            if (Volatile.Read(ref liveTestCrashed) == 0) Shutdown(code);
         }
-        // There is deliberately no MainWindow instance: its constructor loads settings and installs persistence.
-        int code = await Task.Run(() => AseIsql.Desktop.MainWindow.RunLiveTestAsync(args));
-        Shutdown(code);
+        catch (Exception ex)
+        {
+            LiveTestCrash(args, ex);
+        }
+    }
+
+    private void LiveTestCrash(string[] args, Exception ex, bool exit = true)
+    {
+        if (Interlocked.Exchange(ref liveTestCrashed, 1) == 0)
+        {
+            try { AseIsql.Desktop.MainWindow.WriteLiveTestCrash(args, ex); }
+            catch (Exception) { } // Never let crash reporting crash the process.
+            try { Console.WriteLine("Live test crashed: " + ex.GetType().Name + ". Exit code: 1"); } catch (Exception) { }
+        }
+        if (!exit) { Environment.Exit(1); return; }
+        try { Shutdown(1); } catch (Exception) { Environment.Exit(1); }
     }
 }
 
 public partial class MainWindow
 {
     internal static Task<int> RunLiveTestAsync(string[] args) => new LiveTestRun().RunAsync(args);
+
+    /// <summary>Records an exception that escaped the live-test runner into the --report JSON (merged with any checks already written).</summary>
+    internal static void WriteLiveTestCrash(string[] args, Exception ex)
+    {
+        int at = Array.IndexOf(args, "--report");
+        if (at < 0 || at + 1 >= args.Length || string.IsNullOrWhiteSpace(args[at + 1]) || args[at + 1].StartsWith("--", StringComparison.Ordinal)) return;
+        string path = LiveTestRun.ReportDestination(args[at + 1]);
+        System.Text.Json.Nodes.JsonObject report;
+        try { report = File.Exists(path) ? System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(path)) as System.Text.Json.Nodes.JsonObject ?? new() : new(); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException) { report = new(); }
+        report["mode"] = "live-test";
+        report["phase"] = "crashed";
+        report["exitCode"] = 1;
+        report["crash"] = new System.Text.Json.Nodes.JsonObject
+        {
+            ["type"] = ex.GetType().FullName,
+            ["message"] = RedactSecrets(ex.Message),
+            ["detail"] = RedactSecrets(ex.ToString()),
+        };
+        string? directory = Path.GetDirectoryName(path);
+        if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
+        File.WriteAllText(path, report.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+    }
+
+    private static string RedactSecrets(string text) =>
+        System.Text.RegularExpressions.Regex.Replace(text, @"(?i)\b(pwd|password|encpwd|identitypassword)\s*=\s*[^;\s]*", "$1=***");
 
     private sealed class LiveTestRefusal(string message) : Exception(message);
     private sealed class LiveTestSkip(string message) : Exception(message);
@@ -208,7 +259,7 @@ public partial class MainWindow
             return exitCode ?? 1;
         }
 
-        private static string ReportDestination(string path)
+        internal static string ReportDestination(string path)
         {
             try
             {

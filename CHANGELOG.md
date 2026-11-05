@@ -2,6 +2,12 @@
 
 All notable changes to DBMON SQL are listed here. The project follows [Semantic Versioning](https://semver.org/).
 
+## [1.0.3] - 2026-11-04
+
+### Fixed
+- `--live-test` crashed at startup with `ArgumentNullException` (WPF rejects `StartupUri = null`). `StartupUri` is no longer declared in App.xaml; only the normal startup path (including Smoke UI checks) sets it before opening the main window. The live-test path never calls `base.OnStartup` or creates the main window.
+- Live test: any exception that escapes the runner, reaches the dispatcher or the AppDomain is recorded in the `--report` JSON (`phase: crashed`, `crash.type/message/detail`, checks already written are kept, secrets redacted) and the process exits with code 1 instead of crashing.
+
 ## [1.0.2] - 2026-11-04
 
 ### Changed

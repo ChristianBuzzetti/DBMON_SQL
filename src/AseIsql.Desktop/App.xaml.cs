@@ -9,7 +9,7 @@ public partial class App : Application
         // Live checks read the real profiles without constructing the shell or touching any user stores. Available in every build.
         if (e.Args.Contains("--live-test"))
         {
-            StartupUri = null;
+            // No StartupUri on this path: MainWindow is never created, and base.OnStartup is not called.
             ShutdownMode = ShutdownMode.OnExplicitShutdown;
             StartLiveTest(e.Args);
             return;
@@ -32,6 +32,8 @@ public partial class App : Application
         AppTypography.Apply(new AppearanceSettings());
         Themes.Apply(Themes.WithAccent(Themes.All[0],null));
         EventManager.RegisterClassHandler(typeof(Window),FrameworkElement.LoadedEvent,new RoutedEventHandler((sender,_)=>Themes.ApplyChrome((Window)sender,Themes.Current)));
+        // Only the normal path (including Smoke UI checks) opens the main window.
+        StartupUri = new Uri("MainWindow.xaml", UriKind.Relative);
         base.OnStartup(e);
     }
 }
