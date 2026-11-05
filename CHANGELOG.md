@@ -2,7 +2,7 @@
 
 All notable changes to DBMON SQL are listed here. The project follows [Semantic Versioning](https://semver.org/).
 
-## [1.0.1] - Unreleased
+## [1.0.1] - 2026-11-04
 
 ### Changed
 - **Query timeout now defaults to 0 (no limit).** The old default of 60 s made the driver cancel any slow or lock-blocked statement. A positive value (1–3600 s) still cancels automatically, and `Esc` always cancels. A run that hits the limit reports "Query timeout (N s) reached; set 0 in the connection window for no limit."
@@ -11,6 +11,8 @@ All notable changes to DBMON SQL are listed here. The project follows [Semantic 
 ### Added
 - **Health check rules**: configure enabled probes, maximum severity and per-probe thresholds separately for PROD and non-PROD servers through **Rules…**. Disabled probes do not execute; ignored probes never raise Overall. Last log dump is ignored by default on non-PROD. Rules are saved in versioned `health-rules.json`; corrupt files fall back to defaults with a visible warning.
 - **Duplicate session**: right-click a session tab, or a row in the Activity monitor, to open a new editor tab next to the current one, already connected with the same profile and credentials (held in memory only) and in the same database. The PROD flag carries over.
+- Smoke builds only (`-p:Smoke=true`): `--smoke --live-test` runs the checks against one saved non-PROD ASE profile named on the command line and present in `--allow`; see docs/building.md. Release packages do not include it.
+- Saved logins written by 1.0.1 carry a format marker that 1.0.0 cannot read; keep a copy of `profiles.dat` if you may need to go back.
 
 ### Fixed
 - Activity monitor resolves live ASE and MDA column aliases, selects the process result after status results, and reads SQL text and monitor identity by their server names. Missing SPID errors list the received headings.
