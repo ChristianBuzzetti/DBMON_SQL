@@ -17,12 +17,13 @@ public static class MdaDelta
     public const string New = "new", Gone = "gone", Reset = "reset";
 
     // Tables whose numeric columns are (mostly) counters since server start or since the object/process appeared.
-    // Gauges and text tables (monProcess, monLocks, monProcessSQLText, ...) are deliberately absent.
+    // Gauges and text tables (monProcess, monLocks, monProcessSQLText, monSysLoad, monLicense, ...) and history pipes
+    // (monSysStatement: each read returns only unseen rows) are deliberately absent.
     static readonly HashSet<string> CumulativeTables = new(StringComparer.OrdinalIgnoreCase) {
-        "monSysWaits", "monProcessWaits", "monOpenObjectActivity", "monProcessActivity", "monSysStatement", "monProcessStatement",
+        "monSysWaits", "monProcessWaits", "monOpenObjectActivity", "monProcessActivity", "monProcessStatement",
         "monOpenDatabases", "monOpenPartitionActivity", "monDeviceIO", "monIOQueue", "monEngine", "monDataCache", "monCachePool",
         "monProcedureCache", "monProcedureCacheModuleUsage", "monProcessObject", "monProcessNetIO", "monNetworkIO", "monCachedProcedures",
-        "monCachedStatement", "monStatementCache", "monSysLoad", "monThread", "monTask", "monWorkQueue", "monLicense" };
+        "monCachedStatement", "monStatementCache", "monThread", "monTask", "monWorkQueue" };
     static readonly Regex MonitorName = new(@"\bmon[A-Z]\w*\b", RegexOptions.CultureInvariant);
 
     // Row identity, in priority order. Name keys only count when no ID key is present (a query that selects DBName

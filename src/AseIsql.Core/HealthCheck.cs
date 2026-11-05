@@ -47,6 +47,11 @@ public sealed record HealthSettings
 
 public static class HealthCheck
 {
+    // A database whose log shares a fragment with data (segmap 7, e.g. master) has no separate log usage and cannot
+    // dump its transaction log; the data probe reports it as data+log instead.
+    private static string NoMixedLog(string dbid) =>
+        "not exists (select 1 from master..sysusages m where m.dbid = " + dbid + " and (m.segmap & 4) != 0 and (m.segmap & 3) != 0)";
+
     // Each query runs independently: missing privileges or a version-dependent column cannot hide other probes.
     public static IReadOnlyList<HealthProbe> Probes(ServerPlatform platform) => platform switch
     {
@@ -54,9 +59,9 @@ public static class HealthCheck
             new("version", "Version", "select @@version as version", HealthMetric.Information),
             new("uptime", "Uptime", "select crdate as boot_time, datediff(hour, crdate, getdate()) as uptime_hours from master..sysdatabases where name = 'tempdb'", HealthMetric.Information),
             new("databases", "Database flags", "select name, status, status2 from master..sysdatabases order by name", HealthMetric.DatabaseFlags),
-            new("data", "Data usage", "select d.name as database_name, sum(convert(numeric(20,0), u.size)) as total_pages, sum(convert(numeric(20,0), curunreservedpgs(u.dbid,u.lstart,u.unreservedpgs))) as free_pages, 100.0 * (1.0 - sum(convert(numeric(20,0), curunreservedpgs(u.dbid,u.lstart,u.unreservedpgs))) / nullif(sum(convert(numeric(20,0),u.size)),0)) as used_pct from master..sysdatabases d join master..sysusages u on d.dbid=u.dbid where u.segmap != 4 and (d.status & 288)=0 and (isnull(d.status2,0) & 48)=0 group by d.name order by d.name", HealthMetric.Percent),
-            new("log", "Log usage", "select d.name as database_name, sum(convert(numeric(20,0),u.size)) as total_pages, lct_admin('logsegment_freepages',d.dbid) as free_pages, 100.0 * (1.0 - convert(numeric(20,0),lct_admin('logsegment_freepages',d.dbid)) / nullif(sum(convert(numeric(20,0),u.size)),0)) as used_pct from master..sysdatabases d join master..sysusages u on d.dbid=u.dbid where (u.segmap & 4)!=0 and (d.status & 288)=0 and (isnull(d.status2,0) & 48)=0 group by d.name,d.dbid order by d.name", HealthMetric.Percent),
-            new("dump", "Last log dump", "select name, dumptrdate as last_dump, datediff(hour,dumptrdate,getdate()) as age_hours from master..sysdatabases where dbid > 3 and name not like 'syb%' and (status & 8)=0 order by name", HealthMetric.DumpAge),
+            new("data", "Data usage", "select d.name as database_name, sum(convert(numeric(20,0), u.size)) as total_pages, sum(convert(numeric(20,0), curunreservedpgs(u.dbid,u.lstart,u.unreservedpgs))) as free_pages, 100.0 * (1.0 - sum(convert(numeric(20,0), curunreservedpgs(u.dbid,u.lstart,u.unreservedpgs))) / nullif(sum(convert(numeric(20,0),u.size)),0)) as used_pct, case when max(case when (u.segmap & 4)!=0 then 1 else 0 end)=1 then 'data+log' else 'data' end as segments from master..sysdatabases d join master..sysusages u on d.dbid=u.dbid where u.segmap != 4 and (d.status & 288)=0 and (isnull(d.status2,0) & 48)=0 group by d.name order by d.name", HealthMetric.Percent),
+            new("log", "Log usage", "select d.name as database_name, sum(convert(numeric(20,0),u.size)) as total_pages, lct_admin('logsegment_freepages',d.dbid) as free_pages, 100.0 * (1.0 - convert(numeric(20,0),lct_admin('logsegment_freepages',d.dbid)) / nullif(sum(convert(numeric(20,0),u.size)),0)) as used_pct from master..sysdatabases d join master..sysusages u on d.dbid=u.dbid where (u.segmap & 4)!=0 and (d.status & 288)=0 and (isnull(d.status2,0) & 48)=0 and " + NoMixedLog("d.dbid") + " group by d.name,d.dbid order by d.name", HealthMetric.Percent),
+            new("dump", "Last log dump", "select name, dumptrdate as last_dump, datediff(hour,dumptrdate,getdate()) as age_hours from master..sysdatabases d where dbid > 3 and name not like 'syb%' and (status & 8)=0 and (isnull(status3,0) & 4194304)=0 and " + NoMixedLog("d.dbid") + " order by name", HealthMetric.DumpAge),
             new("blocked", "Blocked processes", "select count(*) as blocked_count from master..sysprocesses where blocked != 0", HealthMetric.Blocked),
             new("connections", "User connections", "select count(*) as user_connections, (select c.value from master..syscurconfigs c join master..sysconfigures s on s.config=c.config where s.name='number of user connections') as max_connections, 100.0 * count(*) / nullif((select c.value from master..syscurconfigs c join master..sysconfigures s on s.config=c.config where s.name='number of user connections'),0) as used_pct from master..sysprocesses where suid > 0 and spid != 0", HealthMetric.Percent)],
         ServerPlatform.Iq => [new("version", "Version", "select @@version as version", HealthMetric.Information), new("iqspace", "IQ main / temp space", "sp_iqstatus", HealthMetric.IqSpace)],

@@ -25,6 +25,9 @@ public sealed record SqlRiskReview(IReadOnlyList<SqlRiskFinding> Findings, IRead
 // truncate, reorg, grant, revoke, setuser, reconfigure and writetext. update statistics counts too: it rewrites the
 // optimizer's statistics (plans can change) and reads whole tables or indexes under locks. Replication Server:
 // sysadmin, ignore loss, rebuild queues, allow connections, suspend, resume, and create/alter/drop connection.
+// Also: sp_bind*/sp_unbind*, login/role/ownership, replication, segment/threshold and object-setting procedures,
+// sp_cacheconfig/sp_poolconfig with a value, lock table, sp_sysmon without noclear (it clears the counters), and RS
+// switch active, configure replication server and admin quiesce_force_rsi.
 public static class SqlRisk
 {
     private const string ReadOnlyDbcc = @"(?:sqltext|help|stacktrace|showplan|memusage|traceflags)\b|trace(?:on|off)\s*\(\s*360[45]\s*\)";
@@ -35,11 +38,16 @@ public static class SqlRisk
         @"\b(?:update\s+(?:all\s+|index\s+|table\s+)?statistics|(?:create|alter|drop)\s+connection|insert(?!\s+(?:into\s+)?#)|update|delete|merge|truncate|drop(?!\s+table\s+#)|alter|create(?!\s+table\s+#)" +
         @"|kill|dump|load|shutdown|grant|revoke|reorg|setuser|suspend|resume|reconfigure|writetext|checkpoint|quiesce|sysadmin" +
         @"|online\s+database|disk\s+(?:init|resize|mirror|remirror|unmirror|refit|reinit)|(?:un)?mount\s+database|ignore\s+loss|rebuild\s+queues|allow\s+connections" +
-        @"|sp_(?:add|drop)\w*|sp_(?:dboption|rename|modifylogin|password)" +
-        @"|dbcc\s+(?!" + ReadOnlyDbcc + @")\w+)\b" +
-        @"|\bsp_configure\b[^\r\n;]*,|\bselect\b[^;]*?\binto\s+(?!#)\w",
+        @"|lock\s+table|switch\s+active|configure\s+replication\s+server|admin\s+quiesce_force_rsi" +
+        @"|sp_(?:add|drop|bind|unbind)\w*|sp_(?:dboption|rename|modifylogin|password|locklogin|role|changedbowner|changegroup" +
+        @"|setreptable|setrepproc|setrepdbmode|reptostandby|config_rep_agent|start_rep_agent|stop_rep_agent" +
+        @"|extendsegment|placeobject|logdevice|modifythreshold|chgattribute|recompile|hidetext|tempdb|audit|logintrigger)" +
+        @"|sp_sysmon|dbcc\s+(?!" + ReadOnlyDbcc + @")\w+)\b" +
+        @"|\bsp_(?:configure|cacheconfig|poolconfig)\b[^\r\n;]*,|\bselect\b[^;]*?\binto\s+(?!#)\w",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
     private static readonly Regex Spaces = new(@"\s+", RegexOptions.CultureInvariant);
+    private static readonly Regex NoClear = new(@"\bnoclear\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    private static readonly Regex LineComments = new(@"--.*|/\*(?:.*?\*/|.*)", RegexOptions.CultureInvariant);
 
     // The distinct state-changing words found in code, lower-cased, in order of appearance.
     public static IReadOnlyList<string> StateChanges(string sql) => Findings(sql).Select(f => f.Kind).Distinct().ToList();
@@ -54,8 +62,10 @@ public static class SqlRisk
             int lineStart = match.Index == 0 ? 0 : sql.LastIndexOfAny(['\r', '\n'], match.Index - 1) + 1;
             int lineEnd = sql.IndexOfAny(['\r', '\n'], match.Index); if (lineEnd < 0) lineEnd = sql.Length;
             int line = 1 + sql.AsSpan(0, match.Index).Count('\n');
-            string statement = sql[lineStart..lineEnd].Trim();
-            findings.Add(new SqlRiskFinding(Kind(match.Value), line, statement.Length > 160 ? statement[..160] + "…" : statement));
+            string statement = sql[lineStart..lineEnd].Trim(), kind = Kind(match.Value);
+            // sp_sysmon clears the monitor counters unless noclear is given (usually as a quoted argument).
+            if (kind == "sp_sysmon" && NoClear.IsMatch(LineComments.Replace(sql[match.Index..lineEnd], " "))) continue;
+            findings.Add(new SqlRiskFinding(kind, line, statement.Length > 160 ? statement[..160] + "…" : statement));
         }
         return findings;
     }
@@ -78,7 +88,7 @@ public static class SqlRisk
     private static string Kind(string word)
     {
         if (word.StartsWith("select", StringComparison.OrdinalIgnoreCase)) return "select into";
-        if (word.StartsWith("sp_configure", StringComparison.OrdinalIgnoreCase)) return "sp_configure";
+        if (word.StartsWith("sp_", StringComparison.OrdinalIgnoreCase)) return word.Split((char[]?)null, 2)[0].TrimEnd(',').ToLowerInvariant();
         return Spaces.Replace(word, " ").ToLowerInvariant();
     }
 

@@ -68,7 +68,7 @@ public static class ExecutionIo
         var scans = new List<ExecutionIoScan>();
         // An access operator is the one that names its object: TableScan, IndexScan, and the insert/update/delete
         // operators that write to one. Containers such as joins and aggregates carry no objName of their own.
-        foreach (var node in (query.Element("opTree") ?? query).Descendants().Where(e => e.Element("objName") != null))
+        foreach (var node in (OperatorTree(query) ?? query).Descendants().Where(e => e.Element("objName") != null))
         {
             var act = node.Element("act"); var est = node.Element("est");
             scans.Add(new ExecutionIoScan(node.Name.LocalName, Value(node, "objName")!, Value(node, "corrName"), Value(node, "indName"), Value(node, "scanType"),
@@ -81,8 +81,16 @@ public static class ExecutionIo
     }
 
     internal static string? Value(XElement? parent, string name) => parent?.Element(name)?.Value.Trim() is { Length: > 0 } value ? value : null;
-    internal static long? Number(XElement? parent, string name) =>
-        long.TryParse(Value(parent, name), NumberStyles.Integer, CultureInfo.InvariantCulture, out long value) ? value : null;
+    // Some captures nest the tree under <plan> (<query><plan><opTree>).
+    internal static XElement? OperatorTree(XElement query) => query.Element("opTree") ?? query.Descendants("opTree").FirstOrDefault();
+    // Estimates may be fractional (rowCnt 4.33): rounded to the nearest whole count.
+    internal static long? Number(XElement? parent, string name)
+    {
+        string? text = Value(parent, name);
+        if (long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out long value)) return value;
+        return double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out double real) && double.IsFinite(real) && Math.Abs(real) < 9e18
+            ? (long)Math.Round(real, MidpointRounding.AwayFromZero) : null;
+    }
     private static int Int(XElement parent, string name) => (int)Math.Clamp(Number(parent, name) ?? 0, 0, int.MaxValue);
 
     public const string ResultHeader = "Statistics IO";

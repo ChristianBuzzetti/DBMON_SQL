@@ -180,7 +180,7 @@ Results from a multi-server run are re-run with *Run on…* (`Shift+F9`); result
 
 The panel under the workspace lists the latest execution's messages: time, code, source and text. Server prints, warnings, errors, "rows affected" and client notes appear here and never as result grids. Right-click a message and choose *View original diagnostic* to see the driver's full text (with your password redacted).
 
-Messages appear while the batch runs, as the driver delivers them, with the panel refreshed about every 250 ms. For long output such as `sp_sysmon` or `dbcc`, the first 250 and last 250 messages are retained in order, with one **… N messages omitted …** row between them. Client notes also count toward the panel's retention limit.
+Messages appear while the batch runs, as the driver delivers them, with the panel refreshed about every 250 ms. For long output such as `sp_sysmon` or `dbcc`, the panel retains the first 250 and last 250 messages in order, with one **… N messages omitted …** row between them. Client notes also count toward the panel's retention limit. The run itself keeps up to 20,000 messages or 8 MiB of message text, so the isql text view and the sp_sysmon index cover a full report; beyond that cap the same marker shows the omitted middle.
 
 The panel can be hidden from *View → Server messages*; it reopens by itself when an execution reports an error.
 
@@ -323,7 +323,7 @@ Enter per-probe **Warn threshold** / **Fail threshold** overrides for ASE data u
 
 Rules are stored beside the global settings in `%LOCALAPPDATA%\DBMON_SQL\health-rules.json`, with `"version": 1`, `production` and `nonProduction` arrays. Each entry has `probeId`, `enabled`, `severity` (`Ignore`, `Warn`, `Fail`), and optional `warnThreshold` / `failThreshold`. Missing entries use defaults. Unknown probe ids are retained on save and ignored during execution. A corrupt or invalid rules file uses defaults and displays a warning in the health window; it is replaced only when you save rules.
 
-Data space uses `sysusages` and `curunreservedpgs`; log space uses `lct_admin('logsegment_freepages', dbid)`. These are capacity snapshots, not table-level accounting. In databases sharing data/log devices the capacities overlap; inspect both probes together. Offline/suspect/for-load databases are omitted from capacity queries and remain visible in the database-flags probe. Catalog visibility and supported server version determine which metrics are available. ASE flag meanings follow SAP's [sysdatabases reference](https://infocenter.sybase.com/help/topic/com.sybase.infocenter.dc36274.1600/doc/html/san1393052470321.html); IQ parsing follows [sp_iqstatus](https://help.sap.com/docs/SAP_IQ/a898e08b84f21015969fa437e89860c8/a5b8569b84f210159be8f2c13b8ea3fb.html).
+Data space uses `sysusages` and `curunreservedpgs`; log space uses `lct_admin('logsegment_freepages', dbid)`. These are capacity snapshots, not table-level accounting. Databases whose log shares a fragment with data (such as master) appear only in Data usage, labeled `data+log`; Log usage and Last log dump skip them (they cannot dump the log separately). Last log dump also skips archive databases. Offline/suspect/for-load databases are omitted from capacity queries and remain visible in the database-flags probe. Catalog visibility and supported server version determine which metrics are available. ASE flag meanings follow SAP's [sysdatabases reference](https://infocenter.sybase.com/help/topic/com.sybase.infocenter.dc36274.1600/doc/html/san1393052470321.html); IQ parsing follows [sp_iqstatus](https://help.sap.com/docs/SAP_IQ/a898e08b84f21015969fa437e89860c8/a5b8569b84f210159be8f2c13b8ea3fb.html).
 
 Defaults work without a settings file. To customize them, create `%LOCALAPPDATA%\DBMON_SQL\health-check.json`:
 
@@ -384,7 +384,7 @@ Builds before 16 October 2026 used `%LOCALAPPDATA%\ASE ISQL Desktop`; the first 
 | Result sets per execution / columns per result | 128 / 1,024 |
 | Result tabs | 40 (oldest unpinned close first) |
 | Pinned results | 8, 64 MiB in total |
-| Messages per execution | First 250 + last 250, with one counted marker for the omitted middle |
+| Messages per execution | Up to 20,000 (first 10,000 + last 10,000) or 8 MiB of text, with one counted marker for the omitted middle; the Messages panel shows the first 250 + last 250 |
 | Query history | 100 queries across sessions · newest first · 32 MiB file limit |
 | Repeat interval | 5 seconds to 24 hours |
 
