@@ -15,6 +15,7 @@ TimeoutChecks.Run(Check);
 Fix104Checks.Run(Check);
 Fix105Checks.Run(Check);
 Fix106Checks.Run(Check);
+Fix107Checks.Run(Check);
 Check("Streaming CSV uses RFC 4180 quoting, invariant values, Unicode and empty NULL fields", () => {
     var oldCulture = CultureInfo.CurrentCulture;
     try {
@@ -1406,13 +1407,13 @@ Check("PlanCompare lines up two plans by operator path: only-A, only-B and est/a
     Assert(ExecutionIo.PlansOf(io).SequenceEqual(new[] { planA, planB }) && ExecutionIo.PlansOf(table).Count == 0 && ExecutionIo.PlansOf(null).Count == 0);
 });
 Check("EstimatedPlan brackets the script with noexec, restores tracked options and refuses scripts that touch noexec", () => {
-    Assert(EstimatedPlan.Prepare(AseSessionOptions.Default).SequenceEqual(new[] { "set plan for show_final_plan_xml to message on", "set noexec on" }));
-    Assert(EstimatedPlan.Restore(AseSessionOptions.Default).SequenceEqual(new[] { "set plan for show_final_plan_xml off" }));
+    Assert(EstimatedPlan.Prepare(AseSessionOptions.Default).SequenceEqual(new[] { "set statement_cache off", "set plan for show_final_plan_xml to message on", "set noexec on" }));
+    Assert(EstimatedPlan.Restore(AseSessionOptions.Default).SequenceEqual(new[] { "set plan for show_final_plan_xml off", "set statement_cache on" }));
     var both = AseSessionOptions.Default with { NoExec = true, StatisticsIo = true };
-    Assert(EstimatedPlan.Prepare(both).SequenceEqual(new[] { "set noexec off", "set plan for show_final_plan_xml to message on", "set noexec on" }));
-    Assert(EstimatedPlan.Restore(both).SequenceEqual(new[] { "set plan for show_final_plan_xml off", "set plan for show_execio_xml to message on", "set noexec on" }));
+    Assert(EstimatedPlan.Prepare(both).SequenceEqual(new[] { "set noexec off", "set statement_cache off", "set plan for show_final_plan_xml to message on", "set noexec on" }));
+    Assert(EstimatedPlan.Restore(both).SequenceEqual(new[] { "set plan for show_final_plan_xml off", "set statement_cache on", "set plan for show_execio_xml to message on", "set noexec on" }));
     Assert(EstimatedPlan.Lift == "/* dbmon_execio */ set noexec off" && EstimatedPlan.Read(-1) == "/* dbmon_execio */ select showplan_in_xml(-1)");
-    Assert(SqlScript.SplitBatches(EstimatedPlan.Batches(EstimatedPlan.Prepare(both))).Count == 3);
+    Assert(SqlScript.SplitBatches(EstimatedPlan.Batches(EstimatedPlan.Prepare(both))).Count == 4);
     Assert(EstimatedPlan.Refusal("select 1") == null && EstimatedPlan.Refusal("  ") != null && EstimatedPlan.Refusal("set NOEXEC off\ngo\ndelete t") != null);
     string est = "<?xml version=\"1.0\"?><query><statementNum>1</statementNum><lineNum>1</lineNum><text>select * from t</text><opTree><Emit><TableScan><est><rowCnt>50</rowCnt><lio>7</lio></est><objName>t</objName></TableScan></Emit></opTree></query>";
     string own = "<?xml version=\"1.0\"?><query><statementNum>1</statementNum><lineNum>1</lineNum><text>/* dbmon_execio */ select showplan_in_xml(0)</text><opTree><Emit/></opTree></query>";

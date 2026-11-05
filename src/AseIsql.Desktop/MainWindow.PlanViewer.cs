@@ -122,7 +122,7 @@ public partial class MainWindow
             var plans = EstimatedPlan.Plans(run.Xml);
             if (plans.Count == 0)
             {
-                AddMessage(owner, 1, "CLIENT", "Estimated plan: no plan returned" + (run.Xml.Length == 0 ? " (empty showplan_in_xml buffer)." : $" · {run.Xml.Length} chars could not be read as a user plan."), run.Xml.Length == 0 ? null : run.Xml);
+                AddMessage(owner, 1, "CLIENT", "Estimated plan: no plan returned" + (run.Xml.Length == 0 ? " (empty showplan_in_xml buffer; the statement cache was bypassed)." : $" · {run.Xml.Length} chars could not be read as a user plan."), run.Xml.Length == 0 ? null : run.Xml);
                 ShowMessages(owner); SetStatus(owner, cancellation.IsCancellationRequested ? "Estimated plan cancelled" : "Estimated plan · no plan returned · see Messages");
                 return;
             }

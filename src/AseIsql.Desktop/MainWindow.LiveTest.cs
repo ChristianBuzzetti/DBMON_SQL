@@ -531,27 +531,98 @@ public partial class MainWindow
             }
         }
 
-        private string Estimated(CancellationToken token)
+        // Each step is recorded, never thrown on: the trace is the diagnostic when no operator tree comes back.
+        private sealed class PlanTrace
         {
+            public readonly List<string> Steps = [];
+            public string Xml = "";
+            public string ReadUsed = "none";
+            public bool Failed;
+        }
+
+        private static string Clip(string text, int max) => text.Length <= max ? text : text[..max] + "...";
+
+        private static string CellKind(QueryOutput output)
+        {
+            var row = output.Tables.SelectMany(t => t.Rows.Cast<DataRow>()).FirstOrDefault();
+            if (row == null || row.ItemArray.Length == 0) return "no cell";
+            return row[0] switch { null => "null", DBNull => "DBNull", string s => "string length " + s.Length, byte[] b => "byte[] length " + b.Length, var o => o.GetType().Name };
+        }
+
+        private static QueryOutput Probe(OdbcSession session, string sql, CancellationToken token, PlanTrace trace, bool readBack)
+        {
+            var output = session.Execute(sql, token, userRun: false, timeoutSeconds: 10);
+            token.ThrowIfCancellationRequested();
+            var step = new StringBuilder(Clip(sql.Replace("\r\n", " / ").Replace('\n', ' '), 120));
+            step.Append(" => tables ").Append(output.Tables.Count).Append(", rows ").Append(output.Tables.Sum(t => t.Rows.Count));
+            if (readBack) step.Append(", first cell ").Append(CellKind(output));
+            if (output.Error != null) { trace.Failed = true; step.Append(", ERROR ").Append(Clip(output.Error, 200)); }
+            var messages = output.Messages.Take(20).Select(m => "[" + m.Number + "] " + Clip(m.Text, 200)).ToList();
+            if (messages.Count > 0) step.Append(", messages ").Append(string.Join("; ", messages));
+            trace.Steps.Add(step.ToString());
+            return output;
+        }
+
+        // The full Prepare / compile / Lift / Read / Restore sequence on a FRESH sibling session, isolated from earlier checks.
+        private PlanTrace CompilePlan(string sql, CancellationToken token)
+        {
+            var trace = new PlanTrace();
             using var session = Sibling(token);
-            string xml = "";
             try
             {
-                _ = Send(session, EstimatedPlan.Batches(EstimatedPlan.Prepare(AseSessionOptions.Default)), token);
-                _ = Send(session, PlanSql, token);
-                _ = Send(session, EstimatedPlan.Lift, token);
-                xml = EstimatedPlan.Xml(Send(session, EstimatedPlan.Read(0), token).Tables);
-                if (xml.Length == 0) xml = EstimatedPlan.Xml(Send(session, EstimatedPlan.Read(-1), token).Tables);
+                _ = Probe(session, EstimatedPlan.Batches(EstimatedPlan.Prepare(AseSessionOptions.Default)), token, trace, false);
+                _ = Probe(session, sql, token, trace, false);
+                _ = Probe(session, EstimatedPlan.Lift, token, trace, false);
+                trace.Xml = EstimatedPlan.Xml(Probe(session, EstimatedPlan.Read(0), token, trace, true).Tables);
+                trace.ReadUsed = "0";
+                if (trace.Xml.Length == 0)
+                {
+                    trace.Xml = EstimatedPlan.Xml(Probe(session, EstimatedPlan.Read(-1), token, trace, true).Tables);
+                    trace.ReadUsed = "-1";
+                }
             }
             finally
             {
                 using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-                _ = Send(session, EstimatedPlan.Lift, cleanup.Token);
-                _ = Send(session, EstimatedPlan.Batches(EstimatedPlan.Restore(AseSessionOptions.Default)), cleanup.Token);
+                try
+                {
+                    _ = Probe(session, EstimatedPlan.Lift, cleanup.Token, trace, false);
+                    _ = Probe(session, EstimatedPlan.Batches(EstimatedPlan.Restore(AseSessionOptions.Default)), cleanup.Token, trace, false);
+                }
+                catch (OperationCanceledException) { trace.Steps.Add("cleanup cancelled"); }
             }
-            int operators = EstimatedPlan.Plans(xml).Sum(p => PlanTree.Flatten(p.Tree).Count());
-            Require(operators > 0, "Estimated plan has no operator tree (XML length " + xml.Length + ").");
-            return operators + " operators; " + xml.Length + " XML characters; options restored.";
+            return trace;
+        }
+
+        private static int Operators(string xml) => EstimatedPlan.Plans(xml).Sum(p => PlanTree.Flatten(p.Tree).Count());
+
+        private string Estimated(CancellationToken token)
+        {
+            var trace = CompilePlan(PlanSql, token);
+            int operators = Operators(trace.Xml);
+            if (operators > 0 && trace.Failed)
+                throw new InvalidOperationException(Clip("Estimated plan compiled but a command failed (options may not be restored). Diagnostics: " + string.Join(" | ", trace.Steps), 4000));
+            if (operators > 0)
+                return operators + " operators; " + trace.Xml.Length + " XML characters; options restored. Trace: " + trace.Steps.Count + " SQL sent, XML length " + trace.Xml.Length + ", read index " + trace.ReadUsed + ".";
+
+            string cache;
+            try
+            {
+                using var diagnostic = Sibling(token);
+                var output = diagnostic.Execute("select c.value from master..syscurconfigs c join master..sysconfigures s on s.config = c.config where s.name = 'statement cache size'", token, userRun: false, timeoutSeconds: 10);
+                cache = output.Error != null ? "error " + Clip(output.Error, 200) : "value " + (output.Tables.SelectMany(t => t.Rows.Cast<DataRow>()).FirstOrDefault()?[0] ?? "none");
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException) { cache = "error " + Clip(ex.Message, 200); }
+            string busted;
+            try
+            {
+                var second = CompilePlan(PlanSql + " /* dbmon_lt " + Guid.NewGuid().ToString("N") + " */", token);
+                busted = "XML length " + second.Xml.Length + ", operators " + Operators(second.Xml);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException) { busted = "error " + Clip(ex.Message, 200); }
+            string detail = "Estimated plan has no operator tree (XML length " + trace.Xml.Length + "). Diagnostics: " + string.Join(" | ", trace.Steps) +
+                " | statement cache size: " + cache + " | cache-busting compile: " + busted;
+            throw new InvalidOperationException(Clip(detail, 4000));
         }
 
         private string Actual(CancellationToken token)
