@@ -2,6 +2,18 @@
 
 All notable changes to DBMON SQL are listed here. The project follows [Semantic Versioning](https://semver.org/).
 
+## [1.0.8] - 2026-11-05
+
+### Added
+- Activity monitor: **Only active** toggle hides idle sessions (sleeping and AWAITING COMMAND); blockers and blocked sessions stay visible. The choice is remembered. The footer now reads "N shown of M processes".
+- Access keys on the session-tab menu (Connect `C`, Disconnect `I`, Duplicate `D`, Close `L`) and the monitor grid menu (Copy `C`, Duplicate `D`).
+- Activity monitor: on-demand `dbcc sqltext` fallback when MDA SQL text is empty or unavailable, with a source label, **Refresh SQL**, and cached results reused during timer refreshes. Permission denials are remembered until **Retry MDA**.
+- Activity monitor: **Plan** tab with **Get plan (sp_showplan)** on the dedicated monitor connection; plans are fetched only on request, with clear idle-process and permission messages.
+- Live test: `dbcc sqltext (own spid)` validates SQL text from server messages and skips logins without `sa_role` or `sybase_ts_role`.
+
+### Fixed
+- "1 process" pluralized as "2 processs"; nouns ending in s, x, z, ch and sh now take "es".
+
 ## [1.0.7] - 2026-11-04
 
 ### Fixed

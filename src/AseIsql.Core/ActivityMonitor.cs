@@ -38,6 +38,22 @@ public static class ActivityMonitor
         : "select SQLText from master..monProcessSQLText where SPID = " + Spid(spid) + " order by BatchID, LineNumber, SequenceInLine";
     public static string LocksSql(int spid) => "select * from master..monLocks where SPID = " + Spid(spid);
 
+    // Idle = sleeping at the prompt. Any "... sleep"/"sleeping" status counts, but only with the AWAITING COMMAND command:
+    // "alarm sleep" running WAITFOR or a "lock sleep" on a blocked statement is real work.
+    public static bool IsIdle(ActivityProcess p)
+    {
+        string status = p.Status.Trim();
+        bool sleeping = status.EndsWith("sleep", StringComparison.OrdinalIgnoreCase) || status.EndsWith("sleeping", StringComparison.OrdinalIgnoreCase);
+        return sleeping && p.Command.Trim().Equals("AWAITING COMMAND", StringComparison.OrdinalIgnoreCase);
+    }
+
+    // Hides idle sessions but keeps blocked ones and anything that blocks another process (a sleeping head blocker holds locks).
+    public static IReadOnlyList<ActivityProcess> OnlyActive(IReadOnlyList<ActivityProcess> all)
+    {
+        var blockers = new HashSet<int>(all.Where(p => p.BlockedBy > 0).Select(p => p.BlockedBy));
+        return all.Where(p => !IsIdle(p) || p.BlockedBy > 0 || blockers.Contains(p.Spid)).ToList();
+    }
+
     public static IReadOnlyList<ActivityProcess> Parse(DataTable table)
     {
         if (ResultColumns.Find(table, "spid") == null)

@@ -16,6 +16,7 @@ Fix104Checks.Run(Check);
 Fix105Checks.Run(Check);
 Fix106Checks.Run(Check);
 Fix107Checks.Run(Check);
+Fix108Checks.Run(Check);
 Check("Streaming CSV uses RFC 4180 quoting, invariant values, Unicode and empty NULL fields", () => {
     var oldCulture = CultureInfo.CurrentCulture;
     try {

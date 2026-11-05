@@ -187,6 +187,19 @@ public partial class MainWindow
                     Require(processes.Count > 0 && processes.Any(p => p.Spid == spid), "Activity parsing did not include the monitor's own SPID.");
                     return processes.Count + " processes; own SPID " + spid + ".";
                 });
+                await CheckSync("dbcc sqltext (own spid)", token => {
+                    using var session = Sibling(token);
+                    int spid = Spid(session, token);
+                    var output = session.Execute(ProcessDiagnostics.SqlTextSql(spid), token, userRun: false, timeoutSeconds: 10);
+                    token.ThrowIfCancellationRequested();
+                    var diagnostic = ProcessDiagnostics.ParseSqlText(output.Messages, output.Error);
+                    if (diagnostic.Status == DiagnosticStatus.NoPermission)
+                        throw new LiveTestSkip("dbcc sqltext needs sa_role or sybase_ts_role on this login.");
+                    if (diagnostic.Status == DiagnosticStatus.Failed) throw new InvalidOperationException(diagnostic.Detail);
+                    Require(diagnostic.Status == DiagnosticStatus.Ok, "dbcc sqltext returned no SQL text; raw message count: " + output.Messages.Count + ".");
+                    Require(diagnostic.Text.Contains("sqltext", StringComparison.OrdinalIgnoreCase), "dbcc sqltext did not report its own batch.");
+                    return diagnostic.Text.Length.ToString(CultureInfo.InvariantCulture) + " characters of SQL text via dbcc sqltext";
+                });
                 await CheckSync("explorer master catalog", token => {
                     using var session = Sibling(token);
                     Require(Send(session, DatabasesSql, token).Tables.SelectMany(t => t.Rows.Cast<DataRow>()).Any(r => ResultFormats.Cell(r[0]).Trim().Equals("master", StringComparison.OrdinalIgnoreCase)), "Explorer database list did not include master.");
