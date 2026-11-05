@@ -1,4 +1,4 @@
-<Application x:Class="AseIsql.Desktop.App" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="clr-namespace:AseIsql.Desktop" StartupUri="MainWindow.xaml">
+<Application x:Class="AseIsql.Desktop.App" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="clr-namespace:AseIsql.Desktop">
   <Application.Resources>
     <!-- Visual language of DBMON (SMG_APPS shared/css/tokens.css + skin-neomirai.css): token surfaces, hairline borders
          in the text color, accent rings with a soft glow, mono data and uppercase section labels. Square by default
