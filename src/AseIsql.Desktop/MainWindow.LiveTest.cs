@@ -1,4 +1,3 @@
-#if DBMON_SMOKE
 using System.Data;
 using System.Diagnostics;
 using System.Globalization;
@@ -18,7 +17,7 @@ public partial class App
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool AttachConsole(uint processId);
 
-    private async void StartLiveTestSmoke(string[] args)
+    private async void StartLiveTest(string[] args)
     {
         // WinExe has no console by default. Preserve redirected stdout, or attach the launching console.
         IntPtr output = GetStdHandle(-11);
@@ -28,14 +27,14 @@ public partial class App
             catch (IOException) { } // The JSON report remains available if the launching console disappears.
         }
         // There is deliberately no MainWindow instance: its constructor loads settings and installs persistence.
-        int code = await Task.Run(() => AseIsql.Desktop.MainWindow.RunLiveTestSmokeAsync(args));
+        int code = await Task.Run(() => AseIsql.Desktop.MainWindow.RunLiveTestAsync(args));
         Shutdown(code);
     }
 }
 
 public partial class MainWindow
 {
-    internal static Task<int> RunLiveTestSmokeAsync(string[] args) => new LiveTestRun().RunAsync(args);
+    internal static Task<int> RunLiveTestAsync(string[] args) => new LiveTestRun().RunAsync(args);
 
     private sealed class LiveTestRefusal(string message) : Exception(message);
     private sealed class LiveTestSkip(string message) : Exception(message);
@@ -66,8 +65,8 @@ public partial class MainWindow
             int Number(string key, int fallback, int max) => !values.TryGetValue(key, out var value) ? fallback
                 : int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out int n) && n >= 1 && n <= max
                     ? n : throw new LiveTestRefusal(key + " must be a whole number from 1 to " + max + ".");
-            if (!switches.Contains("--smoke") || !switches.Contains("--live-test"))
-                throw new LiveTestRefusal("Live test requires both --smoke and --live-test.");
+            if (!switches.Contains("--live-test"))
+                throw new LiveTestRefusal("Live test requires --live-test.");
             _ = Required("--report");
             var allow = Required("--allow").Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
             if (allow.Length == 0) throw new LiveTestRefusal("--allow must contain at least one non-production server alias.");
@@ -580,4 +579,3 @@ public partial class MainWindow
         }
     }
 }
-#endif

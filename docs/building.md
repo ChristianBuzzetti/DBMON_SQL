@@ -31,17 +31,17 @@ dotnet publish src/AseIsql.Desktop -c Release -r win-x64 --self-contained true -
 
 The `Smoke=true` build property defines `DBMON_SMOKE` and includes `MainWindow.*Smoke.cs` and `MainWindow.Showcase.cs`. Rebuild with `-p:Smoke=false` before sharing a directly built executable. The publish script does this automatically for its final package.
 
-## Live test (Smoke build, non-prod only)
+## Live test (release build, non-prod only)
 
-Use the opted-in Smoke executable on the maintainer's Windows laptop with the SAP ASE x64 ODBC driver and access to NON-PROD ASE 16. Save the login and its password in DBMON SQL first, under the same Windows account that will run the test (profiles use DPAPI). No isql, external SQL runner or scripts are needed.
+`--live-test` is part of the normal release build, so it runs from the AppLocker-approved `C:\DBMON_SQL` folder. Use it on a Windows machine with the SAP ASE x64 ODBC driver and access to NON-PROD ASE 16. Save the login and its password in DBMON SQL first, under the same Windows account that will run the test (profiles use DPAPI). No isql, external SQL runner or scripts are needed. `--smoke` is still accepted alongside `--live-test` for backward compatibility but is optional.
+
+DBMON SQL is a GUI-subsystem executable, so PowerShell does not wait for it. Launch it with `Start-Process -Wait -PassThru` to get the exit code:
 
 ```powershell
-& 'artifacts/ui-smoke/win-x64/DBMON SQL.exe' --smoke --live-test `
-  --profile 'chbuzzetti @ ASEDBDESA_SEG' `
-  --allow ASEDBDESA_SEG,ASEDBDESA_SMMP,ASEDBQA_SEG,ASEDBQA_SMMP `
-  --report C:\temp\live.json
-$LASTEXITCODE
+$p = Start-Process -FilePath 'C:\DBMON_SQL\DBMON SQL.exe' -ArgumentList '--live-test','--profile','"chbuzzetti @ ASEDBDESA_SEG"','--allow','ASEDBDESA_SEG,ASEDBDESA_SMMP,ASEDBQA_SEG,ASEDBQA_SMMP','--report','C:\temp\live.json' -Wait -PassThru; $p.ExitCode
 ```
+
+The JSON report is the durable record; console output is only available when a console is attached or stdout is redirected.
 
 Live mode dispatches before constructing the main window and does not run the synthetic smoke suite. It reads the real `%LOCALAPPDATA%\DBMON_SQL\profiles.dat`, `health-check.json` and `health-rules.json` without saving, migrating or modifying them. Settings, history and session restore are untouched. A profile name must match exactly one saved name (case-sensitive); its alias, or server when the alias is empty, must occur in the case-insensitive `--allow` list. Non-ASE profiles, profiles marked Production and profiles without a saved password are refused with exit code **2**, a console message and a JSON report when the destination is writable. The report must be outside both current and legacy app-data directories. Passwords are redacted from all reported detail; credentials and connection strings are never serialized.
 
@@ -105,7 +105,7 @@ Native clipboard transfer is not asserted by these checks; they verify the text 
 | Switch | Purpose |
 |---|---|
 | `--smoke --report PATH` | Requires `Smoke=true`. Run the UI checks with synthetic data and write a JSON report. |
-| `--smoke --live-test --profile NAME --allow ALIASES --report PATH` | Requires `Smoke=true`. Run live checks using a saved non-PROD ASE profile; see the live-test section above. |
+| `--live-test --profile NAME --allow ALIASES --report PATH` | Available in all builds (`--smoke` optional). Run live checks using a saved non-PROD ASE profile; see the live-test section above. |
 | `--smoke --showcase DIR` | Requires `Smoke=true`. Play the scripted README tour with a fictional `DEMO_ASE` server and record frames of the app's own windows to `DIR`. |
 | `--ui-preview` | Open the window without the login, for visual inspection. |
 | `--startup-report PATH` | Measure time to first render and exit. |

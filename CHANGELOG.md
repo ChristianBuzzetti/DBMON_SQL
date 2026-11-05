@@ -2,6 +2,12 @@
 
 All notable changes to DBMON SQL are listed here. The project follows [Semantic Versioning](https://semver.org/).
 
+## [1.0.2] - 2026-11-04
+
+### Changed
+- `--live-test` now ships in the normal release build, so it runs from `C:\DBMON_SQL`. `--smoke` is optional with it. `--smoke` alone still reports that smoke checks are not included in release builds. All live-test safety guards are unchanged; see docs/building.md.
+- The UI smoke suite (synthetic engine, screenshots and fixtures written next to the executable) stays in `Smoke=true` builds only.
+
 ## [1.0.1] - 2026-11-04
 
 ### Changed

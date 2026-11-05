@@ -6,21 +6,19 @@ public partial class App : Application
     {
         System.Globalization.CultureInfo.DefaultThreadCurrentCulture=System.Globalization.CultureInfo.GetCultureInfo("en-US");
         System.Globalization.CultureInfo.DefaultThreadCurrentUICulture=System.Globalization.CultureInfo.GetCultureInfo("en-US");
-#if !DBMON_SMOKE
-        if (e.Args.Any(arg => arg is "--smoke" or "--live-test"))
-        {
-            Console.WriteLine("smoke checks not included in this build");
-            Shutdown(1);
-            return;
-        }
-#endif
-#if DBMON_SMOKE
-        // Live checks read the real profiles without constructing the shell or touching any user stores.
+        // Live checks read the real profiles without constructing the shell or touching any user stores. Available in every build.
         if (e.Args.Contains("--live-test"))
         {
             StartupUri = null;
             ShutdownMode = ShutdownMode.OnExplicitShutdown;
-            StartLiveTestSmoke(e.Args);
+            StartLiveTest(e.Args);
+            return;
+        }
+#if !DBMON_SMOKE
+        if (e.Args.Contains("--smoke"))
+        {
+            Console.WriteLine("smoke checks not included in this build");
+            Shutdown(1);
             return;
         }
 #endif
