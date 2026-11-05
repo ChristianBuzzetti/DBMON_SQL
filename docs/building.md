@@ -31,6 +31,36 @@ dotnet publish src/AseIsql.Desktop -c Release -r win-x64 --self-contained true -
 
 The `Smoke=true` build property defines `DBMON_SMOKE` and includes `MainWindow.*Smoke.cs` and `MainWindow.Showcase.cs`. Rebuild with `-p:Smoke=false` before sharing a directly built executable. The publish script does this automatically for its final package.
 
+## Live test (Smoke build, non-prod only)
+
+Use the opted-in Smoke executable on the maintainer's Windows laptop with the SAP ASE x64 ODBC driver and access to NON-PROD ASE 16. Save the login and its password in DBMON SQL first, under the same Windows account that will run the test (profiles use DPAPI). No isql, external SQL runner or scripts are needed.
+
+```powershell
+& 'artifacts/ui-smoke/win-x64/DBMON SQL.exe' --smoke --live-test `
+  --profile 'chbuzzetti @ ASEDBDESA_SEG' `
+  --allow ASEDBDESA_SEG,ASEDBDESA_SMMP,ASEDBQA_SEG,ASEDBQA_SMMP `
+  --report C:\temp\live.json
+$LASTEXITCODE
+```
+
+Live mode dispatches before constructing the main window and does not run the synthetic smoke suite. It reads the real `%LOCALAPPDATA%\DBMON_SQL\profiles.dat`, `health-check.json` and `health-rules.json` without saving, migrating or modifying them. Settings, history and session restore are untouched. A profile name must match exactly one saved name (case-sensitive); its alias, or server when the alias is empty, must occur in the case-insensitive `--allow` list. Non-ASE profiles, profiles marked Production and profiles without a saved password are refused with exit code **2**, a console message and a JSON report when the destination is writable. The report must be outside both current and legacy app-data directories. Passwords are redacted from all reported detail; credentials and connection strings are never serialized.
+
+The runner records PASS/FAIL/SKIP, detail and elapsed milliseconds for each check, checkpointing JSON after every result. Exit code **0** means every check passed or skipped; **1** means a failed check, deadline or report write. The report's `phase` is `finished` and `exitCode` is set only after cleanup; an interrupted run can leave a `running` report with a null exit code. Console lines contain the same redacted results. Live mode preserves redirected stdout or attaches the launching console when one exists; JSON is the durable record when launched without a console.
+
+Checks cover connection identity, activity parsing, an A/B/C blocking pair and tree, SQL text and locks, duplicate-session database/SPID, every health cell under the user's non-PROD rules (defaults when absent/invalid), estimated and actual operator trees, MDA deltas, live PRINT timing, streaming export cancellation and reuse of the same session, explorer catalog SQL, generated test-table DDL, and the pure PROD SQL-risk guard. Health WARN cells count as PASS with their observed severity in the detail; ignored/disabled cells are SKIP. A separate pure check verifies that non-PROD defaults ignore Last log dump. MDA probes are SKIP when monitoring is unavailable or permissions are denied; other query failures are FAIL.
+
+Only the runner's own `tempdb..dbmon_lt_<A spid>` table is created, inserted, updated and dropped. A pre-existing table with that name is refused and left untouched. DDL is generated before the transaction begins. The runner never executes KILL; it only reports `ActivityMonitor.KillDenied` for B. Transactions are rolled back and the owned table is dropped in `finally`, with cleanup failures recorded. The export uses `OdbcSession.Export` and `QueryExportWriter`, SQL `TOP 10000` to cap rows, and a trailing five-second WAITFOR to preserve a cancellation window on small catalogs. It cancels after about one second, probes `select 1` on that same connection, and removes its temporary partial CSV.
+
+Optional controls:
+
+| Switch | Default | Behavior |
+|---|---|---|
+| `--block-seconds N` | `75` | Seconds B must still be waiting, measured from entry into its background query; range 1–3600. Short runs do not cover the former 60-second regression. |
+| `--max-minutes N` | `10` | Global cancellation deadline; range 1–60. Remaining checks are skipped and the run fails on timeout. |
+| `--include-sysmon` | Off | Run the one-minute `sp_sysmon` sample and require indexed sections. Requires `sa_role`; otherwise this check is SKIP by default. |
+
+B receives the saved/migrated profile timeout with **no override**. A separate check expects `QueryTimeout = 0`, the 1.0.1 default; an explicitly saved nonzero timeout causes that check to fail and is never changed on disk. Most diagnostic queries have a ten-second statement timeout. Health uses its saved server timeout. Global cancellation uses the app's cooperative ODBC command cancellation; native login has no cancellation overload and remains bounded by the saved login timeout. Cleanup receives separate ten-second cancellation budgets. As in the UI, sessions stay owned until native commands return; a driver that does not honor cancellation can delay shutdown beyond the requested deadline.
+
 ### Share the app
 
 Use **`C:\DBMON_SQL`** as the single development distribution folder. After successful publication, the build script removes generated `UiSmoke/` and `BobertoSmoke/` output, root debug symbols (`*.pdb`) and WebView2 API documentation (`Microsoft.Web.WebView2.*.xml`). Application DLLs, runtime files, language folders, assets and font licenses stay in place. `README.txt` explains recipient requirements and `LICENSE.txt` includes the MIT license.
@@ -75,6 +105,7 @@ Native clipboard transfer is not asserted by these checks; they verify the text 
 | Switch | Purpose |
 |---|---|
 | `--smoke --report PATH` | Requires `Smoke=true`. Run the UI checks with synthetic data and write a JSON report. |
+| `--smoke --live-test --profile NAME --allow ALIASES --report PATH` | Requires `Smoke=true`. Run live checks using a saved non-PROD ASE profile; see the live-test section above. |
 | `--smoke --showcase DIR` | Requires `Smoke=true`. Play the scripted README tour with a fictional `DEMO_ASE` server and record frames of the app's own windows to `DIR`. |
 | `--ui-preview` | Open the window without the login, for visual inspection. |
 | `--startup-report PATH` | Measure time to first render and exit. |
