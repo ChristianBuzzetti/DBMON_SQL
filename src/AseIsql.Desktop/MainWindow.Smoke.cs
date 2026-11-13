@@ -589,7 +589,7 @@ public partial class MainWindow
             Editor.Text="abc"; Editor.Select(0,3); UpperClick(this,new RoutedEventArgs()); Require(Editor.Text=="ABC", "Selection transform preserves an editable SQL document");
             Editor.FontSize=14; Zoom(1); Require(Editor.FontSize==15, "Editor zoom changes only font size"); Editor.FontSize=14;
             using(var recipes=System.Text.Json.JsonDocument.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory,"Assets","ase-recipes.json"))))
-                Require(recipes.RootElement.GetArrayLength()==94 && recipes.RootElement.EnumerateArray().All(item=>item.GetProperty("engine").GetString() is "ASE" or "IQ" or "RS"), "Packaged library holds 94 generic recipes, each tagged SAP ASE, SAP IQ or Replication Server");
+                Require(recipes.RootElement.GetArrayLength()==96 && recipes.RootElement.EnumerateArray().All(item=>item.GetProperty("engine").GetString() is "ASE" or "IQ" or "RS"), "Packaged library holds 96 generic recipes, each tagged SAP ASE, SAP IQ or Replication Server");
             var parameterForm=new ParametersWindow("use :database\ngo\nsp_spaceused ':table', 1\nkill :spid","Recipe fixture","Insert",name=>name=="database"?"master":""){Owner=this};
             try{parameterForm.Show();parameterForm.UpdateLayout();
                 Require(parameterForm.Fields.Keys.SequenceEqual(new[]{"database","table","spid"})&&parameterForm.Fields["database"].Text=="master"&&!parameterForm.Primary.IsEnabled,"Parameter form lists each placeholder once, pre-fills known defaults and waits for missing values");
@@ -719,7 +719,7 @@ public partial class MainWindow
                 var library=Application.Current.Windows.OfType<Window>().Single(window=>window.Title.StartsWith("Library ·",StringComparison.Ordinal));
                 try {
                     library.UpdateLayout();var recipePreview=VisualChildren<TextBox>(library).Single(box=>box.IsReadOnly);var recipeList=VisualChildren<ListBox>(library).Single();
-                    Require(recipeList.Items.Count==94&&recipeList.FontFamily.Equals(AppTypography.Inter)&&recipePreview.FontFamily.Equals(Application.Current.Resources["MonoFont"])&&recipePreview.FontSize==appearance.EditorSize,"Library renders recipe metadata in interface type and SQL in the selected editor type"+$" (recipes {recipeList.Items.Count}, list {recipeList.FontFamily}, preview {recipePreview.FontFamily} at {recipePreview.FontSize}, editor {appearance.EditorSize})");
+                    Require(recipeList.Items.Count==96&&recipeList.FontFamily.Equals(AppTypography.Inter)&&recipePreview.FontFamily.Equals(Application.Current.Resources["MonoFont"])&&recipePreview.FontSize==appearance.EditorSize,"Library renders recipe metadata in interface type and SQL in the selected editor type"+$" (recipes {recipeList.Items.Count}, list {recipeList.FontFamily}, preview {recipePreview.FontFamily} at {recipePreview.FontSize}, editor {appearance.EditorSize})");
                     CaptureSmokeVisual(library,"library.png");
                 }catch(Exception ex){libraryFailure=ex;}finally{library.Close();}
             }),System.Windows.Threading.DispatcherPriority.ContextIdle);

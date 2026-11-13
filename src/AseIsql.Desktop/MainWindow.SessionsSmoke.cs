@@ -28,12 +28,16 @@ public partial class MainWindow
         public void Dispose() => Disposed = true;
     }
 
+    // Menu headers carry access keys ("C_lose session"); the checks name the reading, so the key marker is dropped.
+    private static string? PlainHeader(object? header) =>
+        header is string text ? string.Join("_", text.Split("__").Select(part => part.Replace("_", ""))) : null;
+
     // Opens a session tab's context menu the way WPF does (Opened refreshes it) and returns its item by header.
     private static MenuItem SessionMenuItem(SessionWorkspace workspace, string header)
     {
         var menu = workspace.Header.ContextMenu;
         menu.RaiseEvent(new RoutedEventArgs(ContextMenu.OpenedEvent));
-        return menu.Items.OfType<MenuItem>().Single(item => Equals(item.Header, header));
+        return menu.Items.OfType<MenuItem>().Single(item => PlainHeader(item.Header) == header);
     }
 
     private async Task VerifySessionWorkspaces(Action<bool, string> require)
@@ -44,10 +48,10 @@ public partial class MainWindow
         var queryMenu = topMenus.Single(item => Equals(item.Header, "Query"));
         require(queryMenu.Items[^1] is MenuItem { Header: "Exit" } && queryMenu.Items[^2] is Separator,
             "Exit closes the Query menu after a separator");
-        require(HasConnectionMenu(activeSession), "Every session tab offers Connect… (F11), Disconnect (F12) and Close session");
+        require(HasConnectionMenu(activeSession), "Every session tab offers Connect… (F11), Disconnect (F12), Duplicate session and Close session");
         static bool HasConnectionMenu(SessionWorkspace workspace) =>
-            workspace.Header.ContextMenu is { } menu && menu.Items.OfType<MenuItem>().Select(item => (item.Header as string, item.InputGestureText))
-                .SequenceEqual(new (string?, string)[] { ("Connect…", "F11"), ("Disconnect", "F12"), ("Close session", "") });
+            workspace.Header.ContextMenu is { } menu && menu.Items.OfType<MenuItem>().Select(item => (PlainHeader(item.Header), item.InputGestureText))
+                .SequenceEqual(new (string?, string)[] { ("Connect…", "F11"), ("Disconnect", "F12"), ("Duplicate session", ""), ("Close session", "") });
         var original = activeSession;
         var first = AddSession()!;
         var firstEngine = new WorkspaceSmokeEngine("session-a", ServerPlatform.Ase);

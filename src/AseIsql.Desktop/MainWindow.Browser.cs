@@ -114,13 +114,15 @@ public partial class MainWindow
         foreach(var node in nodes)BrowserTree.Items.Add(node);
     }
     // Opening a database costs no query: it lists object groups, and each group pages its own objects on demand.
+    // A group header quotes the filter its session was read with, collapsed or loaded, so a filtered tree says so.
+    private static string FilterSuffix(SessionWorkspace owner)=>owner.Filter.Length>0?" · \""+owner.Filter+"\"":"";
     private void ResetDatabaseNode(TreeViewItem node)=>ResetDatabaseNode(node,activeSession);
     private void ResetDatabaseNode(TreeViewItem node,SessionWorkspace owner)
     {
         string database=(string)node.Tag;node.Items.Clear();node.IsExpanded=false;
         var platform=PlatformOf(owner);
         foreach(var (type,label) in CatalogGroupsFor(platform)){
-            var group=new TreeViewItem {Header=label+(owner.Filter.Length>0?" · \""+owner.Filter+"\"":"")};group.Items.Add(new TreeViewItem {Header="Expand to load"});
+            var group=new TreeViewItem {Header=label+FilterSuffix(owner)};group.Items.Add(new TreeViewItem {Header="Expand to load"});
             bool loading=false,loaded=false;
             group.Expanded+=(_,args)=> {
                 if(args.OriginalSource!=group||loaded||loading||activeSession!=owner||owner.Repeat!=null)return; loading=true;

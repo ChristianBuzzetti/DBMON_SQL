@@ -35,7 +35,7 @@ public partial class MainWindow
         return node;
     }
     private TreeViewItem AseEntryGroup(SessionWorkspace owner, string database, string kind, string label) =>
-        LazyCatalogNode(owner, label, node => LoadAseEntries(owner, database, kind, label, node, null));
+        LazyCatalogNode(owner, label + FilterSuffix(owner), node => LoadAseEntries(owner, database, kind, label, node, null));
 
     private static string AseEntriesSql(string database, string kind, string filter, AseExplorerEntry? after)
     {
@@ -71,7 +71,7 @@ public partial class MainWindow
         else foreach (var old in group.Items.OfType<TreeViewItem>().Where(n => n.Tag is "more").ToArray()) group.Items.Remove(old);
         foreach (var entry in entries.Take(CatalogPage)) group.Items.Add(AseEntryNode(owner, entry));
         int count = group.Items.OfType<TreeViewItem>().Count(n => n.Tag is AseExplorerEntry);
-        group.Header = label + " · " + count + (entries.Length > CatalogPage ? "+" : "") + (owner.Filter.Length == 0 ? "" : " · \"" + owner.Filter + "\"");
+        group.Header = label + " · " + count + (entries.Length > CatalogPage ? "+" : "") + FilterSuffix(owner);
         if (count == 0) group.Items.Add(new TreeViewItem { Header = "No visible matching entries" });
         if (entries.Length > CatalogPage) {
             var more = new Button { Content = "Show 100 more…" }; var last = entries[CatalogPage - 1];

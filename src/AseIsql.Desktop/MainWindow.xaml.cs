@@ -373,10 +373,16 @@ public partial class MainWindow : Window
 
     private void ClearMessages() => ClearMessages(activeSession);
 
+    // A short work area (a small window, a wrapped toolbar or the largest interface size) cannot hold both cards
+    // whole, so the run output goes compact: the RUN OUTPUT title row folds away and the row keeps only what the
+    // editor does not need for its minimum. A share of the height left the grid a sliver with no complete row.
+    private const double MinimumEditorRow=136;   // card borders + the result tab strip + 80 DIP of SQL
+    private const double MinimumLogRow=128;
     private void WorkAreaSizeChanged(object sender,SizeChangedEventArgs e)
     {
-        // Preserve room for SQL when the toolbar wraps or the window is short.
-        LogRow.MaxHeight=e.NewSize.Height<380?Math.Max(128,e.NewSize.Height*.4):double.PositiveInfinity;
+        bool shortArea=e.NewSize.Height<380;
+        LogTitle.Visibility=shortArea?Visibility.Collapsed:Visibility.Visible;
+        LogRow.MaxHeight=shortArea?Math.Max(MinimumLogRow,e.NewSize.Height-MinimumEditorRow):double.PositiveInfinity;
     }
 
     private void AddMessage(int number, string source, string text, string? rawText = null) => AddMessage(activeSession, number, source, text, rawText);
