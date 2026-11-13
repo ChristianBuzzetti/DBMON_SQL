@@ -1,11 +1,12 @@
 param([switch]$DryRun,[string]$CurrentRelease='')
+# A verified final package is recognised by the product executable, the same file prepare-distribution.ps1 requires.
 $ErrorActionPreference = 'Stop'
 $taskArtifactRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../artifacts'))
 $taskRootPrefix = $taskArtifactRoot + [IO.Path]::DirectorySeparatorChar
 if([string]::IsNullOrWhiteSpace($CurrentRelease)) { throw 'Specify -CurrentRelease for a verified formal release. Development builds are not pruned.' }
 $taskCurrent = [IO.Path]::GetFullPath($CurrentRelease)
 if(-not $taskCurrent.StartsWith($taskRootPrefix,[StringComparison]::OrdinalIgnoreCase) -or (Split-Path $taskCurrent -Leaf) -notmatch '^windows-x64-v\d+\.\d+\.\d+-final$') { throw 'The current release must be a named final package inside artifacts.' }
-$taskReleases = @(Get-ChildItem -LiteralPath $taskArtifactRoot -Directory | Where-Object { $_.Name -match '^windows-x64-v\d+\.\d+\.\d+-final$' -and (Test-Path -LiteralPath (Join-Path $_.FullName 'ASE ISQL Desktop.exe')) } | Sort-Object { [version]($_.Name -replace '^windows-x64-v','' -replace '-final$','') } -Descending)
+$taskReleases = @(Get-ChildItem -LiteralPath $taskArtifactRoot -Directory | Where-Object { $_.Name -match '^windows-x64-v\d+\.\d+\.\d+-final$' -and (Test-Path -LiteralPath (Join-Path $_.FullName 'DBMON SQL.exe')) } | Sort-Object { [version]($_.Name -replace '^windows-x64-v','' -replace '-final$','') } -Descending)
 if ($taskReleases.Count -lt 2) { throw 'Retention requires two verified final releases before cleanup.' }
 if(-not ($taskReleases | Where-Object {$_.FullName -eq $taskCurrent})) { throw 'The current release package does not exist.' }
 $taskPrevious = $taskReleases | Where-Object {$_.FullName -ne $taskCurrent} | Select-Object -First 1
