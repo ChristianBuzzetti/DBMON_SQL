@@ -10,7 +10,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-orange.svg)](LICENSE)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011%20x64-0f1513)
 ![.NET](https://img.shields.io/badge/.NET-10-512bd4)
-![Version](https://img.shields.io/badge/version-1.0.8-cb6a3e)
+![Version](https://img.shields.io/badge/version-1.0.9-cb6a3e)
 
 <img src="docs/media/dbmon-sql-tour.gif" width="900" alt="DBMON SQL tour: writing and running a query, inserting a recipe with a parameter, repeating a query on a timer, dressing Boberto in Studio and switching palettes" />
 
@@ -67,7 +67,7 @@ check it against the `.sha256` beside it, extract the whole folder and run `DBMO
 together. The package is self-contained: no separate .NET install is needed.
 
 ```powershell
-(Get-FileHash 'DBMON-SQL-0.1.0-windows-x64.zip' -Algorithm SHA256).Hash
+(Get-FileHash 'DBMON_SQL-1.0.9-win-x64.zip' -Algorithm SHA256).Hash
 ```
 
 The [releases page](https://github.com/ChristianBuzzetti/DBMON_SQL/releases) also carries development builds,
