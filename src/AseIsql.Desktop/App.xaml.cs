@@ -41,6 +41,8 @@ public partial class App : Application
         DriverPrewarm.Start();
         AppTypography.Apply(new AppearanceSettings());
         Themes.Apply(Themes.WithAccent(Themes.All[0],null));
+        // Every window takes its icon from AppIcon: the default mark until the stored logo is read with the settings.
+        Resources["AppIcon"]=BobertoMark.Render(64,(System.Windows.Media.Brush)Resources["Accent"]);
         EventManager.RegisterClassHandler(typeof(Window),FrameworkElement.LoadedEvent,new RoutedEventHandler((sender,_)=>Themes.ApplyChrome((Window)sender,Themes.Current)));
         // Only the normal path (including Smoke UI checks) opens the main window.
         StartupUri = new Uri("MainWindow.xaml", UriKind.Relative);

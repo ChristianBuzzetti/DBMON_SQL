@@ -24,7 +24,7 @@ internal static class IconMaker
             var entries = new List<(int Size, byte[] Data)>();
             foreach (int size in Sizes)
             {
-                byte[] png = Png(BobertoMark.Render(size, tile));
+                byte[] png = Png(BobertoMark.Render(size, tile, new MarkStyle()));   // the shipped icon is always the default mark
                 entries.Add((size, png));
                 if (size == 256) File.WriteAllBytes(Path.Combine(dir, "dbmon-mark.png"), png);
             }
@@ -48,13 +48,13 @@ internal static class IconMaker
             for (int row = 0; row < 2; row++)
             {
                 double x = 20, y = row * h / 2.0 + 20;
-                foreach (int s in Sizes) { g.DrawImage(BobertoMark.Render(s, tile), new Rect(x, y, s, s)); x += s + 24; }
+                foreach (int s in Sizes) { g.DrawImage(BobertoMark.Render(s, tile, new MarkStyle()), new Rect(x, y, s, s)); x += s + 24; }
                 x = 20;
                 foreach (int s in Sizes.Where(s => s <= 32))
                 {
                     var group = new DrawingGroup();
                     RenderOptions.SetBitmapScalingMode(group, BitmapScalingMode.NearestNeighbor);
-                    using (var gg = group.Open()) gg.DrawImage(BobertoMark.Render(s, tile), new Rect(x, y + 260, s * 4, s * 4));
+                    using (var gg = group.Open()) gg.DrawImage(BobertoMark.Render(s, tile, new MarkStyle()), new Rect(x, y + 260, s * 4, s * 4));
                     g.DrawDrawing(group);
                     x += s * 4 + 24;
                 }

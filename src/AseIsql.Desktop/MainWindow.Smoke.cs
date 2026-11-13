@@ -90,6 +90,22 @@ public partial class MainWindow
             Require(appearance.ThemeId=="glaciar"&&appearance.AccentHex==null&&((SolidColorBrush)Application.Current.Resources["Surface"]).Color==(Color)ColorConverter.ConvertFromString(Themes.All.Single(p=>p.Id=="glaciar").Colors["Surface"]),"Clicking a new light palette tile applies it live and stores its Id");
             personalization.PaletteButtons["dark"].RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
             Require(personalization.PaletteButtons.Count==23 &&personalization.Sections.Items.OfType<TabItem>().Count(t=>t.Visibility==Visibility.Visible)==4&&((TabItem)personalization.Sections.Items[4]).Visibility==Visibility.Collapsed&&personalization.Sections.Style==Application.Current.Resources["SegmentedTabs"]&&personalization.Sections.Items.OfType<TabItem>().Single(t=>t.Header is StackPanel h&&h.Children.OfType<TextBlock>().Any(x=>x.Text=="Effects")).Content is ScrollViewer {Content:StackPanel}&&personalization.Toggles.TryGetValue("Effects/Show Boberto beside the editor",out var companionToggle)&&companionToggle.IsChecked==appearance.BobertoVisible, "DBMON personalization exposes 23 palette tiles in four segmented sections; Studio opens from the header and the companion toggle lives in Effects");
+            // The logo customizer: the cards write one choice into the settings, the live marks and the window icon.
+            personalization.Sections.SelectedIndex=3;personalization.UpdateLayout();
+            Require(MarkStyle.Shapes.All(shape=>personalization.LogoButtons.ContainsKey("shape/"+shape))&&MarkStyle.EyeStyles.All(eyes=>personalization.LogoButtons.ContainsKey("eyes/"+eyes))&&MarkStyle.HeadColors.All(head=>personalization.LogoButtons.ContainsKey("head/"+head))&&MarkStyle.TileColors.All(tile=>personalization.LogoButtons.ContainsKey("tile/"+tile)),"Personalize → Effects → Logo offers every shape, eye, head and tile of the mark"+$" ({personalization.LogoButtons.Count} cards)");
+            var markBefore=MarkStyle.From(appearance);
+            personalization.LogoButtons["shape/ghost"].RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            personalization.LogoButtons["eyes/happy"].RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            personalization.LogoButtons["tile/accent"].RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            personalization.UpdateLayout();UpdateLayout();
+            Require(markBefore==new MarkStyle()&&appearance.MarkShape=="ghost"&&appearance.MarkEyes=="happy"&&appearance.MarkTile=="accent"&&appearance.MarkHead=="#0E1015"&&MarkStyle.From(appearance)==BobertoMark.Current&&BrandMark.ActualWidth==26,"Picking a logo option stores that one choice, leaves the others alone and restyles the topbar mark");
+            CaptureSmokeVisual(personalization,"personalize-logo.png");
+            Require(Application.Current.Resources["AppIcon"] is System.Windows.Media.Imaging.BitmapSource {PixelWidth:64,PixelHeight:64}&&Icon is System.Windows.Media.Imaging.BitmapSource {PixelWidth:64},"The windows of the running app take their icon from the chosen logo, at 64 px");
+            personalization.LogoButtons["tile/none"].RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            Require(appearance.MarkTile=="none"&&BobertoMark.Current.Tile=="none","A mark with no tile is a valid logo: the head fills the square");
+            VisualChildren<Button>(personalization).First(button=>Equals(button.Content,"Reset logo")).RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            personalization.UpdateLayout();
+            Require(MarkStyle.From(appearance)==new MarkStyle()&&BobertoMark.Current==new MarkStyle(),"Reset logo returns the shipped mark: round head, round eyes, copper tile");
             personalization.Sections.SelectedIndex=1;personalization.UpdateLayout();
             var interfaceSlider=VisualChildren<Slider>(personalization).Single(slider=>slider.Minimum==11&&slider.Maximum==17);
             string typographySql=Editor.Text;object? typographyUndo=Editor.Document.UndoStack.LastGroupDescriptor;

@@ -19,6 +19,8 @@ public sealed class PersonalizationWindow:Window
     private readonly Action<AppearanceSettings> changed;
     public TabControl Sections { get; }=new();
     public Dictionary<string,Button> PaletteButtons { get; }=[];
+    // Keyed "line/value" ("shape/hex", "tile/none") so checks can pick a logo option without walking the cards.
+    public Dictionary<string,Button> LogoButtons { get; }=[];
     // Keyed "Section/Title" so checks can find a toggle by where it lives, whatever row layout surrounds it.
     public Dictionary<string,CheckBox> Toggles { get; }=[];
     public CustomAccentPicker AccentPicker { get; }
@@ -318,11 +320,46 @@ public sealed class PersonalizationWindow:Window
     private void BuildEffects()
     {
         var section=Section("Effects");
+        BuildLogo(section);
         var companion=Group(section,"CONSOLE COMPANION","Boberto lives in the header band, beside the menus. Clicking him opens Boberto Studio.");
         Toggle(companion,"Effects","Show Boberto beside the editor","Hiding him suspends his renderer and returns the band to the workspace.",()=>settings.BobertoVisible,v=>Change(settings with {BobertoVisible=v}));
         var open=new Button {Content="Open Boberto Studio  →",HorizontalAlignment=HorizontalAlignment.Left,Margin=new Thickness(0,10,0,0)};open.Click+=(_,_)=>Sections.SelectedIndex=4;companion.Children.Add(open);
         var motion=Group(section,"MOTION","When off, the companion and Studio follow reduced motion. Windows' reduce-animation setting is honored as well.");
         Toggle(motion,"Effects","Animate Boberto and the neon edges","Idle gestures, breathing, the neon floor, the topbar sweep and the wordmark wave. Gestures you pick in Studio always play.",()=>settings.BobertoMotion,v=>Change(settings with {BobertoMotion=v}),last:true);
+    }
+    // Logo: the mark beside the app name, which is also the icon of every window of the running app. Each option card
+    // previews the mark with that one choice applied to the current style; the large one on the left is the result.
+    private void BuildLogo(StackPanel section)
+    {
+        var group=Group(section,"LOGO","The Boberto mark beside the app name, and the icon of every window while the app runs. The shipped .exe keeps the product mark, so Explorer and a pinned shortcut do not change.");
+        var row=new DockPanel();
+        var left=new StackPanel {Margin=new Thickness(0,0,22,0)};
+        var big=new BobertoMark {Width=104,Height=104};big.SetResourceReference(BobertoMark.TileProperty,"Accent");left.Children.Add(big);
+        var reset=new Button {Content="Reset logo",Margin=new Thickness(0,12,0,0),HorizontalAlignment=HorizontalAlignment.Stretch};
+        reset.Click+=(_,_)=>Change(new MarkStyle().Save(settings));
+        left.Children.Add(reset);
+        DockPanel.SetDock(left,Dock.Left);row.Children.Add(left);
+        var options=new StackPanel();row.Children.Add(options);group.Children.Add(row);
+        void Line(string line,string title,(string Value,string Name)[] items,Func<MarkStyle,string> get,Func<MarkStyle,string,MarkStyle> with)
+        {
+            options.Children.Add(Heading(title,new Thickness(0,2,0,6)));
+            var wrap=new WrapPanel {Margin=new Thickness(0,0,0,6)};
+            foreach(var (value,name) in items)
+            {
+                var mini=new BobertoMark {Width=34,Height=34,HorizontalAlignment=HorizontalAlignment.Center,IsHitTestVisible=false};
+                mini.SetResourceReference(BobertoMark.TileProperty,"Accent");
+                mini.Look=with(MarkStyle.From(settings),value);
+                refreshControls.Add(()=>mini.Look=with(MarkStyle.From(settings),value));
+                var card=OptionCard(mini,name,null,()=>get(MarkStyle.From(settings))==value,()=>Change(with(MarkStyle.From(settings),value).Save(settings)));
+                card.Width=106;wrap.Children.Add(card);
+                LogoButtons[line+"/"+value]=card;
+            }
+            options.Children.Add(wrap);
+        }
+        Line("shape","Shape",[("circle","Circle"),("hex","Hexagon"),("squircle","Rounded"),("diamond","Diamond"),("ghost","Ghost")],m=>m.Shape,(m,v)=>m with {Shape=v});
+        Line("eyes","Eyes",[("round","Round"),("oval","Oval"),("happy","Happy"),("line","Lines"),("pixel","Pixel")],m=>m.Eyes,(m,v)=>m with {Eyes=v});
+        Line("head","Head",[("#0E1015","Black"),("#F4F4F5","White"),("#CB6A3E","Copper"),("#00E5FF","Cyan"),("#10B981","Emerald"),("#F59E0B","Amber"),("#818CF8","Violet")],m=>m.Head,(m,v)=>m with {Head=v});
+        Line("tile","Tile",[("accent","Palette accent"),("#CB6A3E","Copper"),("#0E1015","Black"),("#F4F4F5","White"),("#00E5FF","Cyan"),("#10B981","Emerald"),("#F59E0B","Amber"),("#818CF8","Violet"),("none","No tile")],m=>m.Tile,(m,v)=>m with {Tile=v});
     }
     // Studio's page: reached from the header action, so its tab stays out of the section strip.
     private void BuildBoberto()=>Sections.Items.Add(new TabItem {Header=TabHeader("Boberto"),Content=new DockPanel(),Visibility=Visibility.Collapsed});

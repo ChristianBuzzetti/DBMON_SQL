@@ -6,7 +6,7 @@ using System.Windows.Media;
 
 namespace AseIsql.Desktop;
 
-public sealed record AppearanceSettings(string ThemeId="pergamino",string? AccentHex=null,string UiFont="inter",string EditorFont="consolas",double UiSize=13,double EditorSize=15,bool Compact=false,bool Rounded=false,bool ShowMessages=true,bool BobertoVisible=true,double BobertoSize=84,bool Motion=false,string BobertoBackground="theme",bool BobertoMotion=true,bool SqlCompletion=true)
+public sealed record AppearanceSettings(string ThemeId="pergamino",string? AccentHex=null,string UiFont="inter",string EditorFont="consolas",double UiSize=13,double EditorSize=15,bool Compact=false,bool Rounded=false,bool ShowMessages=true,bool BobertoVisible=true,double BobertoSize=84,bool Motion=false,string BobertoBackground="theme",bool BobertoMotion=true,bool SqlCompletion=true,string MarkShape="circle",string MarkHead="#0E1015",string MarkEyes="round",string MarkTile="#CB6A3E")
 {
     // SqlCompletion is retained only to read older files under strict JSON validation. Completion is always available.
     // Motion, BobertoBackground and BobertoSize predate the live dock (the band height now decides Boberto's scale): Studio's engine now owns the scene background and BobertoMotion
@@ -14,9 +14,12 @@ public sealed record AppearanceSettings(string ThemeId="pergamino",string? Accen
     private static readonly string[] LegacyBobertoBackdrops=["theme","aurora","ocean","dusk","paper"];
     // A custom accent is any opaque #RRGGBB in upper case (the presets' spelling), so equal colors compare equal.
     public static bool IsHex(string? text)=>text is {Length:7}&&text[0]=='#'&&text.Skip(1).All(char.IsAsciiHexDigit);
+    // The logo takes a listed colour or any opaque #RRGGBB in upper case; only the tile may follow the accent or go.
+    private static bool IsMarkColor(string? value,bool tile)=>
+        tile&&value is "accent" or "none" || (tile?MarkStyle.TileColors:MarkStyle.HeadColors).Contains(value) || IsHex(value)&&value==value!.ToUpperInvariant();
     public void Validate()
     {
-        if(!Themes.All.Any(p=>p.Id==ThemeId) || !(AccentHex==null||Themes.Accents.Any(a=>a.Hex==AccentHex)||IsHex(AccentHex)&&AccentHex==AccentHex.ToUpperInvariant()) || UiFont is not ("inter" or "system") || EditorFont is not ("jetbrains" or "consolas") || !double.IsFinite(UiSize) || UiSize is < 11 or > 17 || !double.IsFinite(EditorSize) || EditorSize is < 9 or > 32 || !double.IsFinite(BobertoSize) || BobertoSize is < 60 or > 120 || !LegacyBobertoBackdrops.Contains(BobertoBackground)) throw new ArgumentException("Invalid appearance settings.");
+        if(!Themes.All.Any(p=>p.Id==ThemeId) || !(AccentHex==null||Themes.Accents.Any(a=>a.Hex==AccentHex)||IsHex(AccentHex)&&AccentHex==AccentHex.ToUpperInvariant()) || UiFont is not ("inter" or "system") || EditorFont is not ("jetbrains" or "consolas") || !double.IsFinite(UiSize) || UiSize is < 11 or > 17 || !double.IsFinite(EditorSize) || EditorSize is < 9 or > 32 || !double.IsFinite(BobertoSize) || BobertoSize is < 60 or > 120 || !LegacyBobertoBackdrops.Contains(BobertoBackground) || !MarkStyle.Shapes.Contains(MarkShape) || !MarkStyle.EyeStyles.Contains(MarkEyes) || !IsMarkColor(MarkHead,false) || !IsMarkColor(MarkTile,true)) throw new ArgumentException("Invalid appearance settings.");
     }
 }
 

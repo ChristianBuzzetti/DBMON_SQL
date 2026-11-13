@@ -40,7 +40,7 @@
         <Border x:Name="HeaderBar" DockPanel.Dock="Top" Background="{DynamicResource Header}" BorderBrush="{DynamicResource TopbarRule}" BorderThickness="0,0,0,1" Padding="20,10,16,6">
           <Grid><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-              <local:BobertoMark x:Name="BrandMark" Width="26" Height="26" Margin="0,0,10,0" VerticalAlignment="Center" ToolTip="DBMON SQL"/>
+              <local:BobertoMark x:Name="BrandMark" Width="26" Height="26" Margin="0,0,10,0" VerticalAlignment="Center" Tile="{DynamicResource Accent}" ToolTip="DBMON SQL · Personalize → Effects → Logo"/>
               <!-- .logo-wave: one mono letter per span, dim ink lit by the accent in a 3 s wave (code builds and animates it). -->
               <StackPanel x:Name="Wordmark" Orientation="Horizontal" VerticalAlignment="Center" Cursor="Hand" ToolTip="DBMON SQL" MouseLeftButtonUp="WordmarkClick"/>
               <Grid Width="12" Height="12" Margin="8,2,0,0" VerticalAlignment="Center"><Ellipse x:Name="BrandHalo" Width="12" Height="12" Fill="{DynamicResource OkGlow}"/><Ellipse x:Name="BrandDot" Width="6" Height="6" Fill="{DynamicResource Ok}"/></Grid>
