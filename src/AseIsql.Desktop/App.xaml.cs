@@ -7,6 +7,16 @@ public partial class App : Application
         System.Globalization.CultureInfo.DefaultThreadCurrentCulture=System.Globalization.CultureInfo.GetCultureInfo("en-US");
         System.Globalization.CultureInfo.DefaultThreadCurrentUICulture=System.Globalization.CultureInfo.GetCultureInfo("en-US");
         // Live checks read the real profiles without constructing the shell or touching any user stores. Available in every build.
+        // "--icon DIR" regenerates the app icon from BobertoMark; it draws and writes files, and opens no window.
+        if (e.Args.Contains("--icon"))
+        {
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            var args = e.Args.ToList();
+            string dir = args.IndexOf("--icon") is var at && at >= 0 && at + 1 < args.Count ? args[at + 1] : "Assets";
+            IconMaker.Run(dir);
+            Shutdown(0);
+            return;
+        }
         if (e.Args.Contains("--live-test"))
         {
             // No StartupUri on this path: MainWindow is never created, and base.OnStartup is not called.

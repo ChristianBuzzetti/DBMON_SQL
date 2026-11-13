@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="src/AseIsql.Desktop/Assets/dbmon-sql.png" width="88" alt="Boberto, the DBMON SQL mascot" />
+<img src="src/AseIsql.Desktop/Assets/dbmon-mark.png" width="88" alt="DBMON SQL" />
 
 # DBMON SQL
 
@@ -10,7 +10,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-orange.svg)](LICENSE)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011%20x64-0f1513)
 ![.NET](https://img.shields.io/badge/.NET-10-512bd4)
-![Version](https://img.shields.io/badge/version-0.1.0-cb6a3e)
+![Version](https://img.shields.io/badge/version-1.0.8-cb6a3e)
 
 <img src="docs/media/dbmon-sql-tour.gif" width="900" alt="DBMON SQL tour: writing and running a query, inserting a recipe with a parameter, repeating a query on a timer, dressing Boberto in Studio and switching palettes" />
 
