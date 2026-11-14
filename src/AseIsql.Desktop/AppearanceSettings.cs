@@ -6,7 +6,7 @@ using System.Windows.Media;
 
 namespace AseIsql.Desktop;
 
-public sealed record AppearanceSettings(string ThemeId="pergamino",string? AccentHex=null,string UiFont="inter",string EditorFont="consolas",double UiSize=13,double EditorSize=15,bool Compact=false,bool Rounded=false,bool ShowMessages=true,bool BobertoVisible=true,double BobertoSize=84,bool Motion=false,string BobertoBackground="theme",bool BobertoMotion=true,bool SqlCompletion=true,string MarkShape="circle",string MarkHead="#0E1015",string MarkEyes="round",string MarkTile="#CB6A3E")
+public sealed record AppearanceSettings(string ThemeId="pergamino",string? AccentHex=null,string UiFont="inter",string EditorFont="consolas",double UiSize=13,double EditorSize=15,bool Compact=false,bool Rounded=false,bool ShowMessages=true,bool BobertoVisible=true,double BobertoSize=84,bool Motion=false,string BobertoBackground="theme",bool BobertoMotion=true,bool SqlCompletion=true,string MarkShape="circle",string MarkHead="#0E1015",string MarkEyes="round",string MarkTile="accent")
 {
     // SqlCompletion is retained only to read older files under strict JSON validation. Completion is always available.
     // Motion, BobertoBackground and BobertoSize predate the live dock (the band height now decides Boberto's scale): Studio's engine now owns the scene background and BobertoMotion
@@ -32,8 +32,13 @@ public static class AppearanceStore
         if(!File.Exists(path))return new();
         if(new FileInfo(path).Length>65536)throw new IOException("Appearance settings exceed 64 KiB.");
         var settings=JsonSerializer.Deserialize<AppearanceSettings>(File.ReadAllText(path),Options)??throw new JsonException("Empty appearance settings.");
-        settings.Validate();return settings;
+        settings.Validate();
+        // 1.0.10 shipped the logo with a fixed copper background; the background now follows the palette accent, as
+        // in BuzzPrint, and copper is what Pergamino gives. A file still carrying that exact value takes the accent.
+        return MigrateMarkTile(settings);
     }
+    /// <summary>The background migration, applied on load and exercised by the UI checks without a settings file.</summary>
+    public static AppearanceSettings MigrateMarkTile(AppearanceSettings settings)=>settings.MarkTile=="#CB6A3E"?settings with {MarkTile="accent"}:settings;
     public static void Save(string path,AppearanceSettings settings)
     {
         settings.Validate();Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);

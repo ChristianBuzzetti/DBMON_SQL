@@ -331,7 +331,7 @@ public sealed class PersonalizationWindow:Window
     // previews the mark with that one choice applied to the current style; the large one on the left is the result.
     private void BuildLogo(StackPanel section)
     {
-        var group=Group(section,"LOGO","The Boberto mark beside the app name, and the icon of every window while the app runs. The shipped .exe keeps the product mark, so Explorer and a pinned shortcut do not change.");
+        var group=Group(section,"LOGO","The Boberto mark beside the app name, and the icon of every window while the app runs. Its background follows the palette accent unless you pick a colour. The shipped .exe keeps the product mark, so Explorer and a shortcut pinned to the taskbar do not change.");
         var row=new DockPanel();
         var left=new StackPanel {Margin=new Thickness(0,0,22,0)};
         var big=new BobertoMark {Width=104,Height=104};big.SetResourceReference(BobertoMark.TileProperty,"Accent");left.Children.Add(big);
@@ -356,10 +356,10 @@ public sealed class PersonalizationWindow:Window
             }
             options.Children.Add(wrap);
         }
-        Line("shape","Shape",[("circle","Circle"),("hex","Hexagon"),("squircle","Rounded"),("diamond","Diamond"),("ghost","Ghost")],m=>m.Shape,(m,v)=>m with {Shape=v});
-        Line("eyes","Eyes",[("round","Round"),("oval","Oval"),("happy","Happy"),("line","Lines"),("pixel","Pixel")],m=>m.Eyes,(m,v)=>m with {Eyes=v});
-        Line("head","Head",[("#0E1015","Black"),("#F4F4F5","White"),("#CB6A3E","Copper"),("#00E5FF","Cyan"),("#10B981","Emerald"),("#F59E0B","Amber"),("#818CF8","Violet")],m=>m.Head,(m,v)=>m with {Head=v});
-        Line("tile","Tile",[("accent","Palette accent"),("#CB6A3E","Copper"),("#0E1015","Black"),("#F4F4F5","White"),("#00E5FF","Cyan"),("#10B981","Emerald"),("#F59E0B","Amber"),("#818CF8","Violet"),("none","No tile")],m=>m.Tile,(m,v)=>m with {Tile=v});
+        Line("shape","Shape",[("hex","Hexagon"),("circle","Circle"),("squircle","Rounded"),("diamond","Diamond"),("ghost","Ghost")],m=>m.Shape,(m,v)=>m with {Shape=v});
+        Line("eyes","Eyes",[("oval","Oval"),("round","Round"),("happy","Happy"),("line","Lines"),("pixel","Pixel")],m=>m.Eyes,(m,v)=>m with {Eyes=v});
+        Line("head","Head",[("#0E1015","Black"),("#F4F4F5","White"),("#2684FF","Blue"),("#10B981","Green"),("#F59E0B","Amber"),("#8B5CF6","Violet"),("#F43F5E","Rose")],m=>m.Head,(m,v)=>m with {Head=v});
+        Line("tile","Background",[("accent","Accent"),("#F43F5E","Rose"),("#0E1015","Black"),("#F4F4F5","White"),("#2684FF","Blue"),("#10B981","Green"),("#F59E0B","Amber"),("#8B5CF6","Violet"),("none","No background")],m=>m.Tile,(m,v)=>m with {Tile=v});
     }
     // Studio's page: reached from the header action, so its tab stays out of the section strip.
     private void BuildBoberto()=>Sections.Items.Add(new TabItem {Header=TabHeader("Boberto"),Content=new DockPanel(),Visibility=Visibility.Collapsed});

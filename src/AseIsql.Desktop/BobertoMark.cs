@@ -6,14 +6,16 @@ namespace AseIsql.Desktop;
 
 /// <summary>
 /// How the DBMON SQL mark looks (Personalize → Effects → Logo). Tile "accent" follows the palette, "none" drops it.
-/// The default is the shipped logo: a black round head with round eyes on the copper tile of the app icon.
+/// The default is the shipped logo: a black round head with round eyes on the palette accent, copper in Pergamino.
 /// </summary>
-public sealed record MarkStyle(string Shape="circle",string Head="#0E1015",string Eyes="round",string Tile="#CB6A3E")
+public sealed record MarkStyle(string Shape="circle",string Head="#0E1015",string Eyes="round",string Tile="accent")
 {
-    public static readonly string[] Shapes=["circle","hex","squircle","diamond","ghost"];
-    public static readonly string[] EyeStyles=["round","oval","happy","line","pixel"];
-    public static readonly string[] HeadColors=["#0E1015","#F4F4F5","#CB6A3E","#00E5FF","#10B981","#F59E0B","#818CF8"];
-    public static readonly string[] TileColors=["accent","#CB6A3E","#0E1015","#F4F4F5","#00E5FF","#10B981","#F59E0B","#818CF8","none"];
+    // Same options, order and colours as the BuzzPrint mark, so one customizer reads like the other. DBMON SQL is
+    // told apart by its own default — a round head with round eyes — not by a different catalogue.
+    public static readonly string[] Shapes=["hex","circle","squircle","diamond","ghost"];
+    public static readonly string[] EyeStyles=["oval","round","happy","line","pixel"];
+    public static readonly string[] HeadColors=["#0E1015","#F4F4F5","#2684FF","#10B981","#F59E0B","#8B5CF6","#F43F5E"];
+    public static readonly string[] TileColors=["accent","#F43F5E","#0E1015","#F4F4F5","#2684FF","#10B981","#F59E0B","#8B5CF6","none"];
 
     public static MarkStyle From(AppearanceSettings settings)=>new(settings.MarkShape,settings.MarkHead,settings.MarkEyes,settings.MarkTile);
     public AppearanceSettings Save(AppearanceSettings settings)=>settings with {MarkShape=Shape,MarkHead=Head,MarkEyes=Eyes,MarkTile=Tile};
