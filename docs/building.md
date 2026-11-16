@@ -79,6 +79,8 @@ The preparation script checks recorded assembly hashes before making changes and
 
 The product version lives only in [`Directory.Build.props`](../Directory.Build.props). Formal releases use `./build.ps1 -Test -Publish -Release`, which writes `artifacts/windows-x64-v<version>-final` and keeps the current and previous release.
 
+Microsoft Store: `./build.ps1 -Test -Publish -Msix` packs the verified distribution into `artifacts/store/DBMON_SQL_<version>.0_x64.msix` with [`scripts/package-msix.ps1`](../scripts/package-msix.ps1) (unsigned; the Store signs it). The identity comes from [`packaging/store.json`](../packaging/store.json) (Partner Center → Product identity) and the logos from `Assets/dbmon-mark.png`. Add `-TestSign` for a `_test.msix` signed with a self-signed certificate to install locally first; add `-PublishDirectory artifacts/store-dist` to leave `C:\DBMON_SQL` untouched.
+
 ## Checks
 
 | Suite | Command | What it covers |

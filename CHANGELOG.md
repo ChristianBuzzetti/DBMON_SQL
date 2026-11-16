@@ -2,6 +2,15 @@
 
 All notable changes to DBMON SQL are listed here. The project follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+- The app icon is teal (#0FA3A3) instead of copper, so DBMON SQL and BuzzPrint never look alike on the taskbar or in Microsoft Store. The running windows use the same teal for the default logo; a tile color picked in Personalize → Logo still shows.
+
+### Added
+- Microsoft Store package: `./build.ps1 -Test -Publish -Msix [-TestSign]` packs the verified distribution into `artifacts/store/DBMON_SQL_<version>.0_x64.msix` (identity in `packaging/store.json`, listing text in `docs/store-listing.md`).
+- [PRIVACY.md](PRIVACY.md): what stays on your PC and the only network connections the app makes.
+
 ## [1.0.8] - 2026-11-05
 
 ### Added

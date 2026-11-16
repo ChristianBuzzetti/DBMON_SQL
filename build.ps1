@@ -1,7 +1,8 @@
-param([switch]$Test, [switch]$Publish, [switch]$Release, [string]$PublishDirectory = '')
+param([switch]$Test, [switch]$Publish, [switch]$Release, [switch]$Msix, [switch]$TestSign, [string]$PublishDirectory = '')
 $ErrorActionPreference = 'Stop'
 if ($Publish -and -not $Test) { throw 'Publishing requires -Test so retention only follows a verified release.' }
 if ($Release -and -not $Publish) { throw 'A formal release requires -Test -Publish -Release.' }
+if ($Msix -and -not $Publish) { throw 'The Store package requires -Test -Publish -Msix, so it is packed from a verified distribution.' }
 [xml]$taskBuildProperties = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'Directory.Build.props') -Raw
 $taskVersion = [version]$taskBuildProperties.Project.PropertyGroup.Version
 if ([string]::IsNullOrWhiteSpace($PublishDirectory)) {
@@ -45,6 +46,7 @@ try {
         # Retry briefly if another process still holds the package marker.
         for($taskTry=1;;$taskTry++) { try { Set-Content -LiteralPath (Join-Path $taskOutputPath 'build-info.json') -Value $taskBuildInfo -Encoding utf8 -ErrorAction Stop; break } catch [System.IO.IOException] { if($taskTry -ge 10) { throw }; Start-Sleep -Milliseconds 500 } }
         & (Join-Path $PSScriptRoot 'scripts/prepare-distribution.ps1') -PackageDirectory $taskOutputPath
+        if ($Msix) { & (Join-Path $PSScriptRoot 'scripts/package-msix.ps1') -PackageDirectory $taskOutputPath -TestSign:$TestSign }
         if ($Release -and (Split-Path $taskOutputPath -Leaf) -match '^windows-x64-v\d+\.\d+\.\d+-final$') { & (Join-Path $PSScriptRoot 'scripts/prune-releases.ps1') -CurrentRelease $taskOutputPath }
     }
 } finally { Pop-Location }
