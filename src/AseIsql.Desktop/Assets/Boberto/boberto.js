@@ -17262,7 +17262,6 @@
     { id: 'ninguno',     name: 'Sin fondo', desc: 'El escenario limpio: sólo el piso y su reflejo.' },
     { id: 'cyberpunk',   grupo: 'cyberpunk', name: 'Cyberpunk', premium: true, desc: 'Carteles en los edificios de los costados y la calle vacía en el medio.' },
     { id: 'datacenter',  grupo: 'cyberpunk', name: 'Datacenter en el horizonte', premium: true, desc: 'Racks a los dos lados de una calle vacía.' },
-    { id: 'kame',        grupo: 'cyberpunk', name: 'Kame House', premium: true, desc: 'La casa a la izquierda, una palmera a la derecha y el mar en el medio.' },
     { id: 'cy-letreros', grupo: 'cyberpunk', name: 'Letreros', premium: true, desc: 'Un neón rosa a la izquierda y uno cian a la derecha, sobre la calle mojada.' },
     { id: 'cy-callejon', grupo: 'cyberpunk', name: 'Callejón', premium: true, desc: 'Carteles a la izquierda y una flecha de neón a la derecha.' },
     { id: 'arcade',      grupo: 'arcade', name: 'Arcade', premium: true, desc: 'Máquinas a los dos lados y el piso de neón libre en el centro.' },
@@ -17312,7 +17311,7 @@
    * negros que sobre la sidebar oscura no se veían. Quien tenía uno elegido
    * no se queda sin fondo: pasa al pariente más cercano que sigue. */
   const FONDO_RETIRADO = {
-    'lluvia': 'cyberpunk', 'ar-espacio': 'arcade', 'mirai-arco': 'mirai-sol',
+    'kame': 'cyberpunk', 'lluvia': 'cyberpunk', 'ar-espacio': 'arcade', 'mirai-arco': 'mirai-sol',
     'an-aldea': 'an-escalera', 'an-canon': 'an-tormenta', 'an-claro': 'an-escalera',
     'an-cumbre': 'an-escalera', 'an-techos': 'an-escalera', 'an-puente': 'an-escalera',
     'an-luna': 'jp-sakura', 'an-bruma': 'jp-sakura', 'an-cabana': 'jp-sakura',
@@ -17428,7 +17427,6 @@
     nevado() { return fondoPlano('fondo-nevado.jpg?5'); },
 
     /* La isla pintada: la casa rosa, las palmeras y el agua. */
-    kame() { return fondoPlano('fondo-kame.jpg?4'); },
 
     /* La luna a la izquierda, el cabo a la derecha, el agua vacía en el medio. */
     marea() { return fondoPlano('fondo-marea.jpg?5'); },

@@ -115,6 +115,7 @@ public partial class MainWindow
         if(motion)travel.BeginAnimation(TranslateTransform.XProperty,new System.Windows.Media.Animation.DoubleAnimation(-.65,.65,TimeSpan.FromSeconds(7)){RepeatBehavior=System.Windows.Media.Animation.RepeatBehavior.Forever});
         BrandDot.BeginAnimation(OpacityProperty,motion?new System.Windows.Media.Animation.DoubleAnimation(1,.45,TimeSpan.FromSeconds(1.2)){AutoReverse=true,RepeatBehavior=System.Windows.Media.Animation.RepeatBehavior.Forever}:null);
         BuildWordmark(motion);
+        BrandMark.Animated=motion;   // the logo follows the cursor, blinks and turns; still with reduced motion
         shellMotion=motion;
     }
     // DBMON's .logo-wave: mono bold letters in dim ink; each one lights up with the accent at 30% of a 3 s cycle,
