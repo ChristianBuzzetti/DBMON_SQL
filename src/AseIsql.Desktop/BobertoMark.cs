@@ -37,8 +37,10 @@ public sealed record MarkStyle(string Shape="circle",string Head="#0E1015",strin
 /// </summary>
 public sealed class BobertoMark : FrameworkElement
 {
-    /// <summary>Copper, the Pergamino accent: the tile of the shipped icon and of the default mark.</summary>
+    /// <summary>Copper, the Pergamino accent: the tile of the default in-app mark.</summary>
     public static readonly Color Copper = Color.FromRgb(0xCB, 0x6A, 0x3E);
+    /// <summary>Teal, the tile of the shipped icon (exe, taskbar, Store). Kept cool so it never reads like BuzzPrint's red-pink icon.</summary>
+    public static readonly Color IconTeal = Color.FromRgb(0x0F, 0xA3, 0xA3);
 
     public static readonly DependencyProperty TileProperty = DependencyProperty.Register(nameof(Tile), typeof(Brush), typeof(BobertoMark),
         new FrameworkPropertyMetadata(new SolidColorBrush(Copper), FrameworkPropertyMetadataOptions.AffectsRender));
@@ -427,6 +429,9 @@ public sealed class BobertoMark : FrameworkElement
             default: g.DrawEllipse(b, null, c, 3.6 * k, 5.4 * k * open); break;
         }
     }
+
+    /// <summary>Icon of the running windows (taskbar, Alt+Tab): the current mark, with an "accent" tile drawn in the product teal.</summary>
+    public static BitmapSource WindowIcon() => Render(64, Frozen(IconTeal));
 
     /// <summary>The mark as a bitmap of <paramref name="size"/> px (window icon, icon entries, previews).</summary>
     public static BitmapSource Render(int size, Brush accent, MarkStyle? style = null)

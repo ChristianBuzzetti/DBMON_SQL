@@ -20,7 +20,7 @@ internal static class IconMaker
         var log = new List<string>();
         try
         {
-            var tile = new SolidColorBrush(BobertoMark.Copper);
+            var tile = new SolidColorBrush(BobertoMark.IconTeal);
             var entries = new List<(int Size, byte[] Data)>();
             foreach (int size in Sizes)
             {

@@ -46,12 +46,12 @@ public partial class MainWindow
         foreach(Window window in Application.Current.Windows)Themes.ApplyChrome(window,palette);
     }
     // The logo: one style for every live mark (topbar, Personalize cards) and for the icon of the running windows.
-    // The .exe keeps the shipped icon, so Explorer and a pinned shortcut still show the product mark.
+    // The running windows' icon is what the taskbar shows, so its "accent" tile is the product teal, like the .exe and a
+    // pinned shortcut; a tile color the person picked still shows there.
     internal static void ApplyMark(AppearanceSettings settings)
     {
         BobertoMark.Current=MarkStyle.From(settings);
-        var accent=(Brush)Application.Current.Resources["Accent"];
-        Application.Current.Resources["AppIcon"]=BobertoMark.Render(64,accent);
+        Application.Current.Resources["AppIcon"]=BobertoMark.WindowIcon();
     }
     // Hiding Boberto suspends its renderer instead of disposing it: recreating a WebView2 on the same profile while the
     // previous browser process was still shutting down froze Personalization and could read an empty look back.
