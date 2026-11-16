@@ -9,10 +9,11 @@ Text for Partner Center → Submission → Store listings. Package: `./build.ps1
 - **Privacy policy URL:** https://github.com/ChristianBuzzetti/DBMON_SQL/blob/main/PRIVACY.md
 - **Website:** https://github.com/ChristianBuzzetti/DBMON_SQL
 - **Support contact:** https://github.com/ChristianBuzzetti/DBMON_SQL/issues
-- **Product declarations:** no personal data collected; works with mouse and keyboard. Depends on non-Microsoft software: the SAP ASE / SAP IQ 64-bit ODBC drivers (not included).
+- **Personal information:** yes (saved logins, only if the user chooses, encrypted with DPAPI), so the privacy policy URL is required.
+- **Product declarations:** no personal data collected or sent; works with mouse and keyboard. Depends on non-Microsoft software: the SAP ASE / SAP IQ 64-bit ODBC drivers (not included).
 - **System requirements:** Windows 10 version 1809 or later, x64; 4 GB RAM recommended. SAP ASE ODBC driver 64-bit (and SAP IQ ODBC driver for SAP IQ).
-- **Restricted capability `runFullTrust` justification:** DBMON SQL is a desktop (WPF) SQL client. It needs full trust to load the SAP ODBC drivers installed on the PC (64-bit native DLLs registered in HKLM\SOFTWARE\ODBC), read the user's sql.ini from %SYBASE%, and connect to the database servers the user chooses.
-- **Age rating questionnaire:** developer utility; no user-generated content shared with other users, no communication between users, no purchases, no location, no AI.
+- **Restricted capability `runFullTrust` justification:** DBMON SQL is a desktop (WPF) SQL client. It needs full trust to load the SAP ASE and SAP IQ 64-bit ODBC drivers already installed on the PC (native DLLs registered under HKLM\SOFTWARE\ODBC), to read the user's Sybase sql.ini (from %SYBASE%\ini) for server aliases, and to open network connections to the database servers the user chooses. It also hosts Microsoft Edge WebView2 for its local animated companion. It does not install drivers, change system settings or run other programs.
+- **Age rating questionnaire:** "All other app types", every answer No (no online content: results come from the user's own servers). Result: 3+ everywhere (IARC 3+, PEGI 3, ESRB Everyone).
 - **Pricing:** free. **Markets:** all.
 - **Notes for certification:** DBMON SQL is a client for SAP ASE, SAP IQ and SAP Replication Server databases. Connecting needs the SAP ASE (or SAP IQ) 64-bit ODBC driver, which SAP distributes with its client software, plus a server and a login; neither is included or required to open the app. Without a server you can still try: the SQL editor (syntax colors, find/replace, bookmarks), the recipe library (Recipes button, 94 SQL recipes with parameter forms and live preview), the Guide, Personalize (palettes, fonts, logo) and Boberto Studio (the animated companion). The connection window opens at start; close it or press Cancel to reach the editor. The app makes no network connections other than to the servers the user connects to.
 
@@ -50,6 +51,10 @@ Requires the SAP ASE ODBC driver (64-bit) for SAP ASE and Replication Server, or
 - Repeat a query on a timer with a visible caution band
 - 23 palettes, fonts and Boberto, an animated companion; no telemetry
 
-**Keywords:** SQL, SAP ASE, Sybase, SAP IQ, Replication Server, isql, database, DBA
+**Keywords (max 7):** SAP ASE, Sybase, SAP IQ, Replication Server, isql, DBA (Partner Center rejects "SQL", already in the name)
 
-**What's new in this version:** First Microsoft Store release.
+**Copyright and trademarks:** Copyright (c) 2026 Christian Buzzetti. MIT License. SAP, SAP ASE, SAP IQ and SAP Replication Server are trademarks of SAP SE.
+
+**Screenshots (docs/media, 1386×852):** workspace, recipes, repeat, palette-synthwave, studio-crown, parameters.
+
+**What's new in this version:** blank on the first submission (Partner Center asks to leave it empty).
