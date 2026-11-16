@@ -2,10 +2,19 @@
 
 All notable changes to DBMON SQL are listed here. The project follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.0.12] - 2026-11-16
+
+The first version in Microsoft Store (Store ID 9P5K31P104WG); the GitHub zip and the Store package are the same build.
 
 ### Changed
+- The logo is BuzzPrint's living mark: the head turns in 2.5D toward where it looks, the eyes follow the cursor and blink, and changing the shape morphs one head into the next. Fourteen heads and six eye styles; DBMON SQL keeps its own default (round head, round eyes, accent tile). The topbar mark animates only with "Animate Boberto" on and Windows animations allowed.
+- Personalize → Effects & Logo is BuzzPrint's customizer: live shape and eye tiles, head and background colour dots, each with a custom colour.
+- Help → Guide (F1) is a searchable guide with 23 topics and "try it" buttons. Help → About and the app dialogs show the mark in a quiet card, and every tool window gets the mark and its title as a heading.
+- The topbar mark is the loading indicator: it keeps turning while any session runs SQL.
 - The app icon is teal (#0FA3A3) instead of copper, so DBMON SQL and BuzzPrint never look alike on the taskbar or in Microsoft Store. The running windows use the same teal for the default logo; a tile color picked in Personalize → Logo still shows.
+
+### Removed
+- The "Kame House" Boberto background: it reproduced a third-party design. A profile that had it selected moves to Cyberpunk.
 
 ### Added
 - Microsoft Store package: `./build.ps1 -Test -Publish -Msix [-TestSign]` packs the verified distribution into `artifacts/store/DBMON_SQL_<version>.0_x64.msix` (identity in `packaging/store.json`, listing text in `docs/store-listing.md`).
