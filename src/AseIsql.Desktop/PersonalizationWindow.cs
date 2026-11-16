@@ -52,7 +52,7 @@ public sealed class PersonalizationWindow:Window
         var titles=new StackPanel();
         var title=new TextBlock {FontWeight=FontWeights.SemiBold};var mark=new Run("◤ ");mark.SetResourceReference(TextElement.ForegroundProperty,"Accent");title.Inlines.Add(mark);title.Inlines.Add(new Run("Personalize your workspace"));title.SetResourceReference(TextBlock.FontSizeProperty,"TitleFontSize");titles.Children.Add(title);
         titles.Children.Add(Muted("Palette, accent, typography and interface for DBMON SQL. Every change applies at once and is saved on this computer.",new Thickness(25,4,0,0)));
-        heading.Children.Add(titles);DockPanel.SetDock(heading,Dock.Top);root.Children.Add(heading);
+        heading.Children.Add(BobertoMark.WithBadge(titles,48));DockPanel.SetDock(heading,Dock.Top);root.Children.Add(heading);
 
         // Footer: reassurance on the left, Reset (quiet) and Done (primary) on the right.
         var foot=new DockPanel {Margin=new Thickness(0,16,0,0)};
@@ -141,7 +141,7 @@ public sealed class PersonalizationWindow:Window
     {
         string glyph=name switch {"Style"=>"","Text"=>"","Interface"=>"","Effects"=>"","Boberto"=>"",_=>""};
         var header=new StackPanel {Orientation=Orientation.Horizontal};var icon=new TextBlock {Text=glyph};icon.SetResourceReference(StyleProperty,"TabIcon");
-        header.Children.Add(icon);header.Children.Add(new TextBlock {Text=name,VerticalAlignment=VerticalAlignment.Center});return header;
+        header.Children.Add(icon);header.Children.Add(new TextBlock {Text=name=="Effects"?"Effects & Logo":name,VerticalAlignment=VerticalAlignment.Center});return header;
     }
     // A setting group: a hairline card with a ▚ section title, a muted purpose line and its controls.
     private static StackPanel Group(StackPanel section,string name,string description)

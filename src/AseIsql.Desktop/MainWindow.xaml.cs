@@ -33,6 +33,8 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        // Loading indicator: the topbar mark keeps turning while any session is running SQL.
+        BrandMark.SpinWhile = () => sessions.Any(s => s.Running != null);
         WindowSizing.FitToWorkArea(this);
         Messages.ItemsSource = log;
         var messageMenu=new ContextMenu(); var originalMessage=new MenuItem {Header="View original diagnostic"};
@@ -102,6 +104,7 @@ public partial class MainWindow : Window
         else if (key == Key.F9 && modifiers == ModifierKeys.Alt) { e.Handled = true; _ = ExecuteAsync(true); }
         else if (key == Key.F9 && modifiers == ModifierKeys.Shift) { e.Handled = true; MultiRunClick(this, e); }
         else if (key == Key.F9 && modifiers == (ModifierKeys.Control | ModifierKeys.Shift)) { e.Handled = true; RepeatClick(this, e); }
+        else if (key == Key.F1 && modifiers == ModifierKeys.None) { GuideClick(this, e); e.Handled = true; }
         else if (key == Key.F4 && modifiers == ModifierKeys.None) { BrowserClick(this, e); e.Handled = true; }
         else if (key == Key.F11 && modifiers == ModifierKeys.None) { ConnectClick(this, e); e.Handled = true; }
         else if (key == Key.F12 && modifiers == ModifierKeys.None) { DisconnectClick(this, e); e.Handled = true; }
@@ -509,7 +512,37 @@ public partial class MainWindow : Window
         try { var tab=(TabItem)Workspace.SelectedItem; var grid=((DockPanel)tab.Content).Children.OfType<DataGrid>().Single(); AtomicFiles.SaveUtf8(picker.FileName, CsvExport.Serialize(VisibleResult(grid))); StatusText.Text = "Current view exported · CSV"; }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { ShowError("Unable to export: " + ex.Message); }
     }
-    private void AboutClick(object sender, RoutedEventArgs e) => ShowMessage("About DBMON SQL", $"DBMON SQL · {typeof(MainWindow).Assembly.GetName().Version?.ToString(3)}\nDeveloped by Christian Buzzetti · MIT License\ngithub.com/ChristianBuzzetti/DBMON_SQL\n.NET 10 · WPF · AvalonEdit · SAP ODBC\n\nTheme palettes and accents. Ctrl+E executes the selection.\nASE connection using sql.ini and credentials entered by the user.\nServer compatibility is verified in your non-production environment.");
+    private void AboutClick(object sender, RoutedEventArgs e) => AboutWindow.Show(this);
+    private void GuideClick(object sender, RoutedEventArgs e) => GuideWindow.Open(this, GuideAction);
+    // The guide's "try it" buttons: each opens the feature exactly as its menu item or shortcut does.
+    internal void GuideAction(string action)
+    {
+        var e = new RoutedEventArgs();
+        Activate();
+        switch (action)
+        {
+            case "connect": ConnectClick(this, e); break;
+            case "newsession": AddSessionClick(this, e); break;
+            case "commands": PaletteClick(this, e); break;
+            case "history": HistoryClick(this, e); break;
+            case "find": FindClick(this, e); break;
+            case "params": FillParametersClick(this, e); break;
+            case "recipes": LibraryClick(this, e); break;
+            case "multi": MultiRunClick(this, e); break;
+            case "repeat": RepeatClick(this, e); break;
+            case "objects": BrowserClick(this, e); break;
+            case "activity": ActivityClick(this, e); break;
+            case "health": HealthCheckClick(this, e); break;
+            case "compare": ObjectCompareClick(this, e); break;
+            case "estimated": EstimatedPlanClick(this, e); break;
+            case "plan": PlanViewerClick(this, e); break;
+            case "rs": RsPanelClick(this, e); break;
+            case "iq": IqMetricsClick(this, e); break;
+            case "export": ExportQueryClick(this, e); break;
+            case "personalize": PersonalizeClick(this, e); break;
+            case "about": AboutClick(this, e); break;
+        }
+    }
     private void ShowError(string text) => ShowMessage("DBMON SQL",text);
 
     private static IEnumerable<T> VisualChildren<T>(DependencyObject parent) where T : DependencyObject

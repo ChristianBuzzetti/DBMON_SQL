@@ -55,10 +55,16 @@ public sealed class BobertoMark : FrameworkElement
     MarkStyle? style;
     MarkStyle Effective => style ?? current;
 
+    /// <summary>App-wide motion setting ("Animate Boberto" and Windows animations): new marks start animated or still.</summary>
+    public static bool Motion { get; set; } = true;
+
     /// <summary>Eyes follow the cursor (header mark). Off for picker tiles, which still blink and move.</summary>
     public bool Follow { get; set; } = true;
     /// <summary>Turns without pause (loading indicator).</summary>
     public bool Spinning { get; set; }
+    /// <summary>Turns without pause while this returns true (the topbar mark while any session runs SQL); a turn
+    /// in progress finishes upright when it turns false.</summary>
+    public Func<bool>? SpinWhile { get; set; }
     /// <summary>Resting tilt in degrees, so a row of shapes looks hand-placed rather than stamped.</summary>
     public double Tilt { get => tilt; set { tilt = value; rotate.Angle = value; if (animated && IsLoaded) StartIdle(); } }
     double tilt;
@@ -75,7 +81,7 @@ public sealed class BobertoMark : FrameworkElement
     readonly RotateTransform rotate = new(), wiggle = new();
     readonly ScaleTransform hover = new(1, 1), squish = new(1, 1);
     readonly TranslateTransform bob = new();
-    bool animated = true;
+    bool animated = Motion;
     Vector eye, target;               // eye offset in 64-unit space
     double blinkL = 1, blinkR = 1;    // 1 open, 0 closed
     DateTime nextBlink = DateTime.Now.AddSeconds(2), blinkStart = DateTime.MinValue;
@@ -100,6 +106,69 @@ public sealed class BobertoMark : FrameworkElement
         Loaded += (_, _) => { CurrentChanged += OnCurrentChanged; if (animated) StartIdle(); Sync(); };
         Unloaded += (_, _) => { CurrentChanged -= OnCurrentChanged; timer.Stop(); StopMotion(); };
         MouseLeftButtonDown += (_, _) => { if (animated) Start((Blink)random.Next(3), 170); };
+    }
+
+    /// <summary>The living mark beside a heading, so Boberto is present across the app. Watches the cursor.</summary>
+    public static FrameworkElement WithBadge(UIElement content, double size = 48)
+    {
+        var mark = new BobertoMark { Width = size, Height = size, Margin = new Thickness(0, 0, 14, 0), VerticalAlignment = VerticalAlignment.Top };
+        mark.SetResourceReference(TileProperty, "Accent");
+        var row = new System.Windows.Controls.DockPanel();
+        System.Windows.Controls.DockPanel.SetDock(mark, System.Windows.Controls.Dock.Left);
+        row.Children.Add(mark);
+        row.Children.Add(content);
+        return row;
+    }
+
+    /// <summary>
+    /// Gives a tool window BuzzPrint's heading: the living mark, the window title and, after " · ", its subtitle, above
+    /// the window's own content. Applied once per window when it loads (App). Windows that already show the mark (the
+    /// main window, Personalize, About, the app dialogs) or set Tag "no-badge" are left alone.
+    /// </summary>
+    public static void Brand(Window window)
+    {
+        if (window.Tag as string == "no-badge" || window.Tag as string == "badged" || window is MainWindow or PersonalizationWindow or AboutWindow) return;
+        if (window.Content is not UIElement content || Contains(content)) return;
+        window.Tag ??= "badged";
+        string title = window.Title ?? "";
+        int dot = title.IndexOf(" · ", StringComparison.Ordinal);
+        var texts = new System.Windows.Controls.StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        var head = new System.Windows.Controls.TextBlock { Text = dot > 0 ? title[..dot] : title, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis };
+        head.SetResourceReference(System.Windows.Controls.TextBlock.FontSizeProperty, "SectionFontSize");
+        head.SetResourceReference(System.Windows.Controls.TextBlock.ForegroundProperty, "Ink");
+        texts.Children.Add(head);
+        if (dot > 0)
+        {
+            var sub = new System.Windows.Controls.TextBlock { Text = title[(dot + 3)..], TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 2, 0, 0) };
+            sub.SetResourceReference(System.Windows.Controls.TextBlock.ForegroundProperty, "Muted");
+            sub.SetResourceReference(System.Windows.Controls.TextBlock.FontSizeProperty, "SmallFontSize");
+            texts.Children.Add(sub);
+        }
+        var badge = WithBadge(texts, 40);
+        System.Windows.Controls.DockPanel.SetDock(badge, System.Windows.Controls.Dock.Top);
+        // A dock or vertical stack layout takes the heading as its first child, so the window keeps its own structure
+        // (and its margins); any other content is wrapped.
+        if (content is System.Windows.Controls.DockPanel dock && dock.LastChildFill || content is System.Windows.Controls.StackPanel { Orientation: System.Windows.Controls.Orientation.Vertical })
+        {
+            // A layout without its own margin gets one for the heading, so the mark does not touch the window edge.
+            badge.Margin = ((FrameworkElement)content).Margin.Left < 8 ? new Thickness(14, 12, 14, 10) : new Thickness(0, 0, 0, 14);
+            ((System.Windows.Controls.Panel)content).Children.Insert(0, badge);
+            return;
+        }
+        badge.Margin = new Thickness(20, 16, 20, 6);
+        var shell = new System.Windows.Controls.DockPanel();
+        window.Content = null;
+        shell.Children.Add(badge);
+        shell.Children.Add(content);
+        window.Content = shell;
+    }
+
+    static bool Contains(DependencyObject node)
+    {
+        if (node is BobertoMark) return true;
+        foreach (var child in LogicalTreeHelper.GetChildren(node))
+            if (child is DependencyObject d && Contains(d)) return true;
+        return false;
     }
 
     // ------------------------------------------------------------------ motion (composited)
@@ -206,7 +275,7 @@ public sealed class BobertoMark : FrameworkElement
             }
         }
         if (nextSpin == DateTime.MinValue) nextSpin = now.AddMilliseconds(3000 + random.Next(6000));
-        if (spinStart == DateTime.MinValue && (now >= nextSpin || Spinning)) spinStart = now;
+        if (spinStart == DateTime.MinValue && (now >= nextSpin || Spinning || SpinWhile?.Invoke() == true)) spinStart = now;
         if (spinStart != DateTime.MinValue)
         {
             dirty = true;

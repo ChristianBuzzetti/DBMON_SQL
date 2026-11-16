@@ -90,15 +90,49 @@ public partial class MainWindow
         }
     }
 
+    // App dialog, as in BuzzPrint: the living mark, a centred title and first paragraph, further paragraphs as details
+    // in a quiet scrollable card, quiet secondary buttons and one accent primary action.
     private MessageBoxResult ShowMessage(string title,string text,bool unsaved=false)
     {
-        var window=new Window {Owner=this,Title=title,Width=580,SizeToContent=SizeToContent.Height,MaxHeight=640,ResizeMode=ResizeMode.NoResize,WindowStartupLocation=WindowStartupLocation.CenterOwner};
-        var layout=new DockPanel {Margin=new Thickness(20)};
-        var buttons=new StackPanel {Orientation=Orientation.Horizontal,HorizontalAlignment=HorizontalAlignment.Right,Margin=new Thickness(0,20,0,0)}; DockPanel.SetDock(buttons,Dock.Bottom);layout.Children.Add(buttons);
+        var window=new Window {Owner=this,Title=title,Width=520,SizeToContent=SizeToContent.Height,MaxHeight=720,ResizeMode=ResizeMode.NoResize,WindowStartupLocation=WindowStartupLocation.CenterOwner,ShowInTaskbar=false};
+        window.SetResourceReference(StyleProperty,typeof(Window));
+        TextOptions.SetTextFormattingMode(window,TextFormattingMode.Display);
+        window.SourceInitialized+=(_,_)=>Themes.ApplyChrome(window,Themes.Current);
+        var root=new StackPanel {Margin=new Thickness(32,28,32,22)};
+        var mark=new BobertoMark {Width=64,Height=64,HorizontalAlignment=HorizontalAlignment.Center,Margin=new Thickness(0,0,0,12),Animated=shellMotion};
+        mark.SetResourceReference(BobertoMark.TileProperty,"Accent");
+        root.Children.Add(mark);
+        var head=new TextBlock {Text=title,FontWeight=FontWeights.Bold,TextWrapping=TextWrapping.Wrap,TextAlignment=TextAlignment.Center};
+        head.SetResourceReference(TextBlock.FontSizeProperty,"TitleFontSize");head.SetResourceReference(TextBlock.ForegroundProperty,"Ink");
+        root.Children.Add(head);
+        var paragraphs=text.Replace("\r\n","\n").Split("\n\n",StringSplitOptions.RemoveEmptyEntries|StringSplitOptions.TrimEntries);
+        if(paragraphs.Length>0)
+        {
+            var first=new TextBlock {Text=paragraphs[0],TextWrapping=TextWrapping.Wrap,TextAlignment=TextAlignment.Center,Margin=new Thickness(0,8,0,0),LineHeight=20};
+            first.SetResourceReference(TextBlock.ForegroundProperty,"Muted");
+            root.Children.Add(first);
+        }
+        if(paragraphs.Length>1)
+        {
+            var details=new TextBlock {Text=string.Join("\n\n",paragraphs.Skip(1)),TextWrapping=TextWrapping.Wrap,LineHeight=19};
+            details.SetResourceReference(TextBlock.ForegroundProperty,"Ink");
+            var card=new Border {Margin=new Thickness(0,18,0,0),Padding=new Thickness(16,12,16,12),BorderThickness=new Thickness(1),Child=new ScrollViewer {MaxHeight=360,VerticalScrollBarVisibility=ScrollBarVisibility.Auto,Content=details}};
+            card.SetResourceReference(Border.BackgroundProperty,"SurfaceRaised");
+            card.SetResourceReference(Border.BorderBrushProperty,"FaintBorder");
+            card.SetResourceReference(Border.CornerRadiusProperty,"StripRadius");
+            root.Children.Add(card);
+        }
+        var buttons=new StackPanel {Orientation=Orientation.Horizontal,HorizontalAlignment=HorizontalAlignment.Right,Margin=new Thickness(0,22,0,0)};
         MessageBoxResult result=MessageBoxResult.Cancel;
-        void Add(string caption,MessageBoxResult value,bool cancel=false,bool primary=false){var button=new Button {Content=caption,IsCancel=cancel,IsDefault=primary};button.Click+=(_,_)=>{result=value;window.Close();};buttons.Children.Add(button);}
-        if(unsaved){Add("Discard",MessageBoxResult.No);Add("Cancel",MessageBoxResult.Cancel,true);Add("Save",MessageBoxResult.Yes,primary:true);}else Add("Close",MessageBoxResult.OK,true,true);
-        layout.Children.Add(new ScrollViewer {MaxHeight=500,VerticalScrollBarVisibility=ScrollBarVisibility.Auto,Content=new TextBlock {Text=text,TextWrapping=TextWrapping.Wrap}});window.Content=layout;window.ShowDialog();return result;
+        void Add(string caption,MessageBoxResult value,bool cancel=false,bool primary=false)
+        {
+            var button=new Button {Content=caption,IsCancel=cancel,IsDefault=primary,MinWidth=110,Margin=new Thickness(8,0,0,0)};
+            if(primary){button.FontWeight=FontWeights.SemiBold;button.SetResourceReference(BackgroundProperty,"Accent");button.SetResourceReference(ForegroundProperty,"OnAccent");button.SetResourceReference(BorderBrushProperty,"Accent");}
+            button.Click+=(_,_)=>{result=value;window.Close();};buttons.Children.Add(button);
+        }
+        if(unsaved){Add("Discard",MessageBoxResult.No);Add("Cancel",MessageBoxResult.Cancel,true);Add("Save",MessageBoxResult.Yes,primary:true);}else Add("OK",MessageBoxResult.OK,true,true);
+        root.Children.Add(buttons);
+        window.Content=root;window.ShowDialog();return result;
     }
     // Engine is the platform tag (ASE, IQ, RS) a recipe is written for; null means any platform, as for My recipes.
     private sealed record LibraryItem(string Name, string Sql, string Category, string Description = "", string? Engine = null)
