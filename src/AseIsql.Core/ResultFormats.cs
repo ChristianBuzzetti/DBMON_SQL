@@ -137,6 +137,10 @@ public static class ResultFormats
         return (output.ToString(), count, complete);
     }
     public static string Identifier(string name) => "[" + name.Replace("]", "]]") + "]";
+    // object_id(), index_col() and the sp_help* procedures parse an object name they receive as a string, and do not
+    // accept bracketed identifiers: quote a part only when it cannot stand on its own.
+    public static string NameArgument(params string[] parts) => string.Join(".", parts.Select(part =>
+        System.Text.RegularExpressions.Regex.IsMatch(part, @"\A[A-Za-z_][A-Za-z0-9_@#$]{0,254}\z") ? part : Identifier(part)));
     public static string Literal(object? value) => value switch {
         null or DBNull => "NULL", bool b => b ? "1" : "0", byte[] bytes => "0x" + Convert.ToHexString(bytes),
         byte or sbyte or short or ushort or int or uint or long or ulong or decimal => Convert.ToString(value, CultureInfo.InvariantCulture)!,

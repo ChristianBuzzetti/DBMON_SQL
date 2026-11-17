@@ -106,7 +106,7 @@ public partial class MainWindow
             "IX" => CatalogSql.AseIndexKeys(entry.Database, entry.Owner ?? throw new FormatException("Missing index owner."), entry.Parent ?? throw new FormatException("Missing index table."), entry.Id, entry.Name),
             "UDT" => CatalogSql.AseUserType(entry.Database, entry.Id),
             "C" => $"select o.name, o.type, c.colid, c.status from {db}sysconstraints c join {db}sysobjects o on o.id = c.constrid where o.id = {id} and o.name = {ResultFormats.Literal(entry.Name)};\n" +
-                "exec " + db + "sp_helpconstraint " + ResultFormats.Literal(ResultFormats.Identifier(entry.Owner ?? "dbo") + "." + ResultFormats.Identifier(entry.Parent ?? entry.Name)),
+                "exec " + db + "sp_helpconstraint " + ResultFormats.Literal(ResultFormats.NameArgument(entry.Owner ?? "dbo", entry.Parent ?? entry.Name)),
             "ROLE" => $"select u.name, u.uid as local_role_id, r.id as server_role_id from {db}sysusers u join {db}sysroles r on r.lrid = u.uid where u.uid = {id};\n" +
                 $"select l.name as login_member from {db}sysroles r join master..sysloginroles m on m.srid = r.id join master..syslogins l on l.suid = m.suid where r.lrid = {id}",
             "USER" or "GROUP" => $"select u.name, u.uid, u.suid, u.gid, g.name as group_name from {db}sysusers u left join {db}sysusers g on g.uid = u.gid where u.uid = {id};\n" +

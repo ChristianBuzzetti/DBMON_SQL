@@ -43,6 +43,23 @@ public partial class MainWindow
         await ExecuteAsync();
         require(ResultTabs.Select(ResultName).SequenceEqual(new[] { "Result 1", "Result 2", "Result 3", "Result 4" }), "Replacing the only run preserves its names and the next fresh result numbers");
 
+        // Bulk closing from a result's own menus, with a pinned result that must survive both actions.
+        var pinned = ResultTabs.First(); TogglePin(pinned);
+        var kept = ResultTabs.ElementAt(1);
+        MenuItem Bulk(TabItem tab, string header) {
+            tab.ContextMenu!.RaiseEvent(new RoutedEventArgs(ContextMenu.OpenedEvent));
+            return tab.ContextMenu.Items.OfType<MenuItem>().Single(item => Equals(item.Header, header));
+        }
+        var others = Bulk(kept, "Close other resultsets");
+        require(others.IsEnabled, "Close other resultsets is offered while another result is open");
+        others.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+        require(ResultTabs.SequenceEqual(new[] { pinned, kept }), "Close other resultsets keeps the clicked result and every pinned one");
+        require(!Bulk(kept, "Close other resultsets").IsEnabled, "Close other resultsets is disabled when only pinned results remain beside it");
+        var all = Bulk(kept, "Close all resultsets");
+        all.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+        require(ResultTabs.SequenceEqual(new[] { pinned }), "Close all resultsets closes every unpinned result of the session");
+        TogglePin(pinned); ClearResults(true);
+
         var savedNames = databaseNames;
         databaseNames = Enumerable.Range(0, 100).Select(i => i == 0 ? "mon_db" : "db_" + i).ToList();
         var menu = CreateDatabaseMenu(activeSession);

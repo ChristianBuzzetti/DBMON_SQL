@@ -15,14 +15,18 @@ public static partial class CatalogSql
     public static string AseIndexKeys(string database, string owner, string table, int id, string? index = null)
     {
         string db = Db(database), number = Id(id);
-        string target = ResultFormats.Literal(ResultFormats.Identifier(database) + "." + ResultFormats.Identifier(owner) + "." + ResultFormats.Identifier(table));
-        // Only an allpages clustered index omits the extra locator from keycnt (ASE sysindexes contract).
-        string count = "(i.keycnt - case when i.indid = 1 then 0 else 1 end)";
+        // index_col() parses its argument as a plain db.owner.object string: bracketed identifiers make it return NULL.
+        string target = ResultFormats.Literal(ResultFormats.NameArgument(database, owner, table));
+        // keycnt counts the extra row locator on every index except an allpages clustered one, and ASE releases
+        // disagree on which indexes carry it. Ask index_col() instead: it is NULL past the last real key.
+        string key = $"index_col({target}, i.indid, n.number)";
+        string count = $"(select count(*) from master..spt_values k where k.type = 'P' and k.number between 1 and i.keycnt and index_col({target}, i.indid, k.number) is not null)";
         string filter = index == null ? "" : " and i.name = " + ResultFormats.Literal(index);
-        return $"select i.name as index_name, i.indid, n.number as key_ordinal, {count} as key_count, index_col({target}, i.indid, n.number) as column_name, index_colorder({target}, i.indid, n.number) as sort_order, " +
+        return $"select i.name as index_name, i.indid, n.number as key_ordinal, {count} as key_count, {key} as column_name, index_colorder({target}, i.indid, n.number) as sort_order, " +
             "case when (i.status & 16) != 0 or (i.status2 & 512) != 0 then 1 else 0 end as is_clustered, case when (i.status & 2) != 0 then 1 else 0 end as is_unique, " +
             "case when (i.status & 2048) != 0 then 1 else 0 end as primary_key, case when (i.status2 & 2) != 0 and (i.status & 2048) = 0 then 1 else 0 end as unique_constraint, case when (i.status2 & 32768) != 0 then 1 else 0 end as function_based " +
-            $"from {db}sysindexes i, master..spt_values n where i.id = {number} and i.indid between 1 and 254 and n.type = 'P' and n.number between 1 and {count}{filter} order by i.indid, n.number";
+            // Keep key 1 even when it does not resolve, so an index is never silently dropped from generated DDL.
+            $"from {db}sysindexes i, master..spt_values n where i.id = {number} and i.indid between 1 and 254 and n.type = 'P' and n.number between 1 and i.keycnt and ({key} is not null or n.number = 1){filter} order by i.indid, n.number";
     }
     public static string AseForeignKeys(string database, int id)
     {

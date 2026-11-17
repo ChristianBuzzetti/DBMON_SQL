@@ -2,7 +2,6 @@ using System.ComponentModel;
 using System.Data;
 using System.Data.Odbc;
 using System.Globalization;
-using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
 using AseIsql.Odbc;
@@ -176,8 +175,8 @@ public partial class MainWindow
         if (IsOnScreen(owner)) Editor.Focus();
     }
     // A regular identifier is sent as typed; anything else is delimited so USE never splices raw names into SQL.
-    public static string UseTarget(string name) =>
-        Regex.IsMatch(name, @"\A[A-Za-z_][A-Za-z0-9_@#$]{0,254}\z") ? name : ResultFormats.Identifier(name);
+    // One rule for every name ASE parses out of a string: USE targets and sp_help* arguments alike.
+    public static string UseTarget(string name) => ResultFormats.NameArgument(name);
 
     private async void OnClosing(object? sender, CancelEventArgs e)
     {

@@ -102,6 +102,12 @@ internal static class T6Checks
             keys.Rows[0]["key_ordinal"] = 1; keys.Columns.Add("function_based", typeof(int)); keys.Rows[0]["function_based"] = 1;
             Reject<FormatException>(() => DdlGenerator.Index("app", "sales", "orders", keys));
             keys.Rows.Clear(); Reject<FormatException>(() => DdlGenerator.Index("app", "sales", "orders", keys));
+            // ASE reports NULL past the last real key; the message must name the index instead of a raw column name.
+            foreach (string column in new[] { "column_name", "sort_order" }) {
+                var unresolved = Definition().IndexKeys; unresolved.Rows[0][column] = DBNull.Value;
+                try { DdlGenerator.Index("app", "sales", "orders", unresolved); throw new Exception("Expected FormatException"); }
+                catch (FormatException error) { assert(error.Message.Contains("pk_orders")); }
+            }
         });
         check("ASE type DDL uses sp_addtype, preserves decimal shape and declares bound-object prerequisites", () => {
             var type = Table("owner", "name", "type", "is_user_type", "length", "precision", "scale", "nullable", "identity", "default_id", "default_owner", "default_name", "rule_id");
@@ -126,9 +132,16 @@ internal static class T6Checks
         check("ASE metadata SQL quotes database/name values, orders fragments and expands composite keys", () => {
             string sql = CatalogSql.AseTableDdl("a]b", "o", "t'1", 42);
             assert(sql.Contains("[a]]b]..syscolumns") && sql.Contains("x.number, x.colid2, x.colid"));
-            assert(sql.Contains("i.keycnt - case when i.indid = 1 then 0 else 1 end"));
+            // Key counting follows index_col(), not keycnt arithmetic: DOL indexes report a locator ASE will not resolve.
+            assert(sql.Contains("n.number between 1 and i.keycnt and (index_col(") && sql.Contains("is not null or n.number = 1)"));
+            assert(sql.Contains("select count(*) from master..spt_values k where k.type = 'P'"));
             assert(sql.Contains("r.fokey16") && sql.Contains("r.refkey16") && sql.Contains("object_owner_id"));
             assert(CatalogSql.AseIndexKeys("db", "o", "t", 42, "ix'1").Contains("i.name = 'ix''1'"));
+            // object_id(), index_col() and sp_help* parse the name themselves: bracketed identifiers come back NULL.
+            assert(CatalogSql.AseIndexKeys("db", "o", "t1", 42).Contains("index_col('db.o.t1', i.indid, n.number)"));
+            assert(ResultFormats.NameArgument("db", "o", "t 1") == "db.o.[t 1]" && ResultFormats.NameArgument("mon_db") == "mon_db");
+            string indexes = CatalogSql.Indexes("app", new ObjectKey("dbo", "orders"));
+            assert(indexes.Contains("object_id('app.dbo.orders')") && indexes.Contains("sp_helpindex 'dbo.orders'"));
             assert(CatalogSql.AseTableDetails("db", 42).Contains("row_count(db_id('db'), o.id)"));
             Reject<ArgumentException>(() => CatalogSql.AseTableDdl("db", "o", "t", 0));
         });

@@ -160,6 +160,7 @@ When output contains recognized `sp_sysmon` headings followed by dashes, **sp_sy
 - **Row details** shows the current row vertically. Selecting numeric cells shows SUM, AVG, MIN and MAX in the status bar.
 - **Pin** keeps a result open; it is never replaced and survives new executions (up to 8 pinned results).
 - **Rename** with a double-click on the tab header, or *Rename resultset…*. **Middle-click** the header to close it.
+- **Close resultset**, **Close other resultsets** and **Close all resultsets** are on the right-click menu of the tab header and of the grid. Pinned results stay open.
 
 Right-click the grid for:
 

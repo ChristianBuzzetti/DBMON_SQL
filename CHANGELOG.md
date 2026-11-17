@@ -2,6 +2,15 @@
 
 All notable changes to DBMON SQL are listed here. The project follows [Semantic Versioning](https://semver.org/).
 
+## [1.0.13] - 2026-11-17
+
+### Added
+- Result tabs and result grids: **Close other resultsets** and **Close all resultsets** in the right-click menu. Pinned results stay open.
+
+### Fixed
+- Generate DDL on a table with indexes failed with "Missing metadata value: sort_order". `index_col()` and `index_colorder()` were given a bracketed `[db].[owner].[table]` name, which they do not parse, so every key came back NULL; they now get a plain `db.owner.table` string. Key counting follows `index_col()` instead of `keycnt` arithmetic, and an index whose keys really are invisible names itself in the message.
+- Object comparison and the explorer asked `object_id()`, `sp_helpindex` and `sp_helpconstraint` for bracketed names too, so a compared table reported no indexes at all. Every name ASE parses out of a string now goes through one rule that quotes only the parts that need it.
+
 ## [1.0.12] - 2026-11-16
 
 The first version in Microsoft Store (Store ID 9P5K31P104WG); the GitHub zip and the Store package are the same build.

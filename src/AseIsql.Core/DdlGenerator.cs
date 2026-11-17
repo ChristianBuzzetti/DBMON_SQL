@@ -13,6 +13,7 @@ public static class DdlGenerator
 {
     private static string Q(string name) => ResultFormats.Identifier(name);
     private static string S(DataRow row, string name) => MetadataRows.Text(row, name);
+    private static string O(DataRow row, string name) => MetadataRows.Text(row, name, required: false);
     private static int N(DataRow row, string name) => MetadataRows.Int(row, name);
     private static bool B(DataRow row, string name) => MetadataRows.Bit(row, name);
     private static string Name(string owner, string name) => Q(owner) + "." + Q(name);
@@ -135,6 +136,9 @@ public static class DdlGenerator
     {
         var sql = new StringBuilder(); string target = Name(owner, table);
         foreach (var group in indexKeys.Rows.Cast<DataRow>().GroupBy(row => S(row, "index_name"))) {
+            // index_col() returns NULL for keys the login cannot resolve; scripting those would silently drop columns.
+            if (group.Any(row => O(row, "column_name").Length == 0 || O(row, "sort_order").Length == 0))
+                throw new FormatException("ASE did not report every key column of index " + group.Key + " (it may be a system, proxy or function-based index); no incomplete DDL was generated.");
             var keys = OrderedKeys(group); var first = keys[0];
             foreach (string flag in new[] { "is_clustered", "is_unique", "primary_key", "unique_constraint" })
                 if (keys.Any(row => B(row, flag) != B(first, flag))) throw new FormatException("Inconsistent index metadata.");

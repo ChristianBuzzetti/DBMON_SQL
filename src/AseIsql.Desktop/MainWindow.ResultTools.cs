@@ -16,6 +16,34 @@ public partial class MainWindow
     {
         foreach (var tab in owner.Tabs.Where(t => t.Tag is DataTable table && (includePinned || !owner.Pins.Contains(table))).ToArray()) CloseResult(tab);
     }
+    // Pinned results survive every bulk close, exactly as they survive Clear results.
+    private IEnumerable<TabItem> ClosableResults(SessionWorkspace owner) =>
+        owner.Tabs.Where(tab => tab.Tag is DataTable table && !owner.Pins.Contains(table));
+    private void CloseOtherResults(TabItem keep)
+    {
+        if (OwnerOf(keep) is not { } owner) return;
+        foreach (var tab in ClosableResults(owner).Where(tab => !ReferenceEquals(tab, keep)).ToArray()) CloseResult(tab);
+    }
+    private MenuItem CloseOthersItem(TabItem tab)
+    {
+        var item = new MenuItem { Header = "Close other resultsets", ToolTip = "Closes every other result of this session; pinned results stay open" };
+        item.Click += (_, _) => CloseOtherResults(tab);
+        return item;
+    }
+    private MenuItem CloseAllItem(TabItem tab)
+    {
+        var item = new MenuItem { Header = "Close all resultsets", ToolTip = "Closes every result of this session; pinned results stay open" };
+        item.Click += (_, _) => { if (OwnerOf(tab) is { } owner) ClearResults(owner, false); };
+        return item;
+    }
+    // Menus are built once per result, so the bulk actions are enabled when the menu opens.
+    private void RefreshBulkCloseItems(TabItem tab, MenuItem others, MenuItem all)
+    {
+        var owner = OwnerOf(tab);
+        TabItem[] closable = owner == null ? [] : ClosableResults(owner).ToArray();
+        all.IsEnabled = closable.Length > 0;
+        others.IsEnabled = closable.Any(candidate => !ReferenceEquals(candidate, tab));
+    }
     private void TogglePin(TabItem tab) => TogglePin(OwnerOf(tab) ?? activeSession, tab);
     private void TogglePin(SessionWorkspace owner, TabItem tab)
     {

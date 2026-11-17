@@ -18,6 +18,9 @@ public partial class MainWindow
         rename.Click += (_, _) => RenameResult(tab); tabMenu.Items.Add(rename);
         var close = new MenuItem { Header = "Close resultset" };
         close.Click += (_, _) => CloseResult(tab); tabMenu.Items.Add(close);
+        var closeOthersFromTab = CloseOthersItem(tab); var closeAllFromTab = CloseAllItem(tab);
+        tabMenu.Items.Add(closeOthersFromTab); tabMenu.Items.Add(closeAllFromTab);
+        tabMenu.Opened += (_, _) => RefreshBulkCloseItems(tab, closeOthersFromTab, closeAllFromTab);
         tab.ContextMenu = tabMenu;
         tab.PreviewMouseDown += (_, e) => {
             // Only a click on the tab header closes it, never on its result grid.
@@ -85,7 +88,10 @@ public partial class MainWindow
         menu.Items.Add(new Separator());
         var closeFromGrid = new MenuItem { Header = "Close resultset" };
         closeFromGrid.Click += (_, _) => CloseResult(tab); menu.Items.Add(closeFromGrid);
+        var closeOthers = CloseOthersItem(tab); var closeAll = CloseAllItem(tab);
+        menu.Items.Add(closeOthers); menu.Items.Add(closeAll);
         menu.Opened += (_, _) => {
+            RefreshBulkCloseItems(tab, closeOthers, closeAll);
             includeQuery.IsEnabled = ResultQuery(grid) != null;
             bool selected = grid.SelectedCells.Count > 0;
             foreach (var item in selectionActions) item.IsEnabled = selected;
