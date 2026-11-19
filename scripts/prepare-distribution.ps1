@@ -23,6 +23,7 @@ foreach ($taskAssembly in @('DBMON SQL.dll', 'AseIsql.Core.dll', 'AseIsql.Odbc.d
     $taskActualHash = (Get-FileHash -LiteralPath (Join-Path $taskPackage $taskAssembly) -Algorithm SHA256).Hash
     if ($taskActualHash -ne $taskInfo.assemblySha256.$taskAssembly) { throw "Package differs from its verified build: $taskAssembly" }
 }
+& (Join-Path $PSScriptRoot 'check-package-programs.ps1') -PackageDirectory $taskPackage
 
 $taskCleanup = @()
 foreach ($taskName in @('UiSmoke', 'BobertoSmoke')) {

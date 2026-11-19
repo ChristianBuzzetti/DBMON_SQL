@@ -2,6 +2,11 @@
 
 All notable changes to DBMON SQL are listed here. The project follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+- The Store package of 1.0.13 shipped `prueba.exe` and `viejo.exe`, two renamed copies of the 0.1.0 launcher that had been left in the publish directory `C:\DBMON_SQL`. `dotnet publish` never clears its output directory, so they were copied into the MSIX. Packaging now refuses any program the build did not produce, in both the distribution and the Store package.
+
 ## [1.0.13] - 2026-11-17
 
 ### Added

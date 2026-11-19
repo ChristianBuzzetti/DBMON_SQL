@@ -12,6 +12,7 @@ foreach ($assembly in @('DBMON SQL.dll', 'AseIsql.Core.dll', 'AseIsql.Odbc.dll')
     if ((Get-FileHash -LiteralPath (Join-Path $package $assembly) -Algorithm SHA256).Hash -ne $info.assemblySha256.$assembly) { throw "Package differs from its verified build: $assembly" }
 }
 foreach ($leftover in @('UiSmoke', 'BobertoSmoke')) { if (Test-Path -LiteralPath (Join-Path $package $leftover)) { throw "Smoke files found in the package: $leftover. Run build.ps1 -Test -Publish." } }
+& (Join-Path $PSScriptRoot 'check-package-programs.ps1') -PackageDirectory $package   # nothing the build did not produce reaches the Store
 $msixVersion = "$($info.version).0"                    # the Store needs four parts, the last one 0
 $identity = Get-Content -LiteralPath (Join-Path $root 'packaging\store.json') -Raw | ConvertFrom-Json
 $store = Join-Path $root 'artifacts\store'

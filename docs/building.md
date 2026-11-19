@@ -75,7 +75,7 @@ To clean an existing verified package without rebuilding:
 ./tests/verify-build-path.ps1     # Default paths, overrides and running-package guard
 ```
 
-The preparation script checks recorded assembly hashes before making changes and refuses a running package. It does not publish a second copy or change the product version. The optional `-PackageDirectory PATH` accepts an existing verified package, including a formal release directory. Unknown files are preserved; this is targeted cleanup, not a full audit of arbitrary files added manually.
+The preparation script checks recorded assembly hashes before making changes and refuses a running package. It does not publish a second copy or change the product version. The optional `-PackageDirectory PATH` accepts an existing verified package, including a formal release directory. Unknown files are preserved; this is targeted cleanup, not a full audit of arbitrary files added manually. The one exception is programs: `dotnet publish` never clears its output directory, so [`scripts/check-package-programs.ps1`](../scripts/check-package-programs.ps1) refuses a package that holds any `.exe`, `.bat`, `.cmd`, `.com`, `.msi`, `.scr` or `.vbs` other than `DBMON SQL.exe` and `createdump.exe` in its root; `scripts/package-msix.ps1` runs the same check before packing, so nothing the build did not produce reaches the Store.
 
 The product version lives only in [`Directory.Build.props`](../Directory.Build.props). Formal releases use `./build.ps1 -Test -Publish -Release`, which writes `artifacts/windows-x64-v<version>-final` and keeps the current and previous release.
 
